@@ -1,0 +1,33 @@
+{
+  "name": "shiftledger",
+  "version": "1.0.0",
+  "description": "A Flutter web application for shift management and payroll calculation in a daycare center.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Emo3Gen/shiftledger.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Emo3Gen/shiftledger/issues"
+  },
+  "homepage": "https://github.com/Emo3Gen/shiftledger#readme",
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "wrangler": "^4.62.0"
+  }
+}

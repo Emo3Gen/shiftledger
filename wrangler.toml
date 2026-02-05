@@ -1,0 +1,23 @@
+name = "shiftledger-proxy"
+main = "worker/proxy.js"
+compatibility_date = "2025-01-01"
+
+[assets]
+directory = "./build/web"
+
+# Важно: Worker сам по себе тупой прокси, вся бизнес-логика живёт в Node backend.
+# Здесь только переменные окружения:
+#   DEV_BACKEND_URL  – dev-URL (например, http://127.0.0.1:3000)
+#   PROD_BACKEND_URL – prod-URL (например, https://api.shiftledger.example)
+#
+# Пример задания через wrangler:
+#   wrangler secret put DEV_BACKEND_URL
+#   wrangler secret put PROD_BACKEND_URL
+#
+# Можно использовать env-секции, если потребуется:
+# [env.dev.vars]
+# DEV_BACKEND_URL = "https://dev-backend.example.com"
+
+[vars]
+DEV_BACKEND_URL = "http://127.0.0.1:3000"
+
