@@ -38,7 +38,16 @@ const UpdateEmployeeSchema = z.object({
 
 // --- Routes ---
 
-// GET /api/employees — list active employees
+/**
+ * @openapi
+ * /api/employees:
+ *   get:
+ *     summary: List active employees
+ *     tags: [Employees]
+ *     responses:
+ *       200:
+ *         description: Array of active employees
+ */
 router.get("/", async (req, res) => {
   try {
     const employees = await employeeService.getAll();
@@ -49,7 +58,23 @@ router.get("/", async (req, res) => {
   }
 });
 
-// GET /api/employees/:id — get one employee
+/**
+ * @openapi
+ * /api/employees/{id}:
+ *   get:
+ *     summary: Get employee by ID
+ *     tags: [Employees]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Employee object
+ *       404:
+ *         description: Not found
+ */
 router.get("/:id", validateParams(EmployeeIdParamsSchema), async (req, res) => {
   try {
     const employee = await employeeService.getById(req.params.id);
@@ -63,7 +88,32 @@ router.get("/:id", validateParams(EmployeeIdParamsSchema), async (req, res) => {
   }
 });
 
-// POST /api/employees — create employee
+/**
+ * @openapi
+ * /api/employees:
+ *   post:
+ *     summary: Create a new employee
+ *     tags: [Employees]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [id, name]
+ *             properties:
+ *               id: { type: string }
+ *               name: { type: string }
+ *               role: { type: string, default: staff }
+ *               rate_per_hour: { type: number, default: 0 }
+ *               min_hours_per_week: { type: number, default: 0 }
+ *               max_hours_per_week: { type: number, default: 40 }
+ *     responses:
+ *       201:
+ *         description: Employee created
+ *       409:
+ *         description: Duplicate ID
+ */
 router.post("/", validateBody(CreateEmployeeSchema), async (req, res) => {
   try {
     const employee = await employeeService.create(req.body);
@@ -77,7 +127,32 @@ router.post("/", validateBody(CreateEmployeeSchema), async (req, res) => {
   }
 });
 
-// PUT /api/employees/:id — update employee
+/**
+ * @openapi
+ * /api/employees/{id}:
+ *   put:
+ *     summary: Update an employee
+ *     tags: [Employees]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name: { type: string }
+ *               role: { type: string }
+ *               rate_per_hour: { type: number }
+ *               is_active: { type: boolean }
+ *     responses:
+ *       200:
+ *         description: Updated employee
+ */
 router.put("/:id", validateParams(EmployeeIdParamsSchema), validateBody(UpdateEmployeeSchema), async (req, res) => {
   try {
     const employee = await employeeService.update(req.params.id, req.body);
@@ -88,7 +163,21 @@ router.put("/:id", validateParams(EmployeeIdParamsSchema), validateBody(UpdateEm
   }
 });
 
-// DELETE /api/employees/:id — soft delete (deactivate)
+/**
+ * @openapi
+ * /api/employees/{id}:
+ *   delete:
+ *     summary: Deactivate (soft-delete) an employee
+ *     tags: [Employees]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Deactivated employee
+ */
 router.delete("/:id", validateParams(EmployeeIdParamsSchema), async (req, res) => {
   try {
     const employee = await employeeService.deactivate(req.params.id);

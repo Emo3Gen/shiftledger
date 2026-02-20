@@ -21,6 +21,8 @@ import logger from "./logger.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 import { generalLimiter, ingestLimiter } from "./middleware/rateLimiter.js";
 import { createBot } from "./telegram/bot.js";
+import swaggerUi from "swagger-ui-express";
+import { specs as swaggerSpecs } from "./swagger.js";
 import {
   IngestSchema,
   DebugSendSchema,
@@ -240,7 +242,17 @@ async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id,
   };
 }
 
-// Healthcheck для Cloudflare Worker / внешних проверок.
+/**
+ * @openapi
+ * /health:
+ *   get:
+ *     summary: Health check
+ *     tags: [System]
+ *     security: []
+ *     responses:
+ *       200:
+ *         description: Server is healthy
+ */
 app.get("/health", (req, res) => {
   res.json({
     ok: true,
@@ -263,7 +275,34 @@ app.post("/telegram/webhook", async (req, res) => {
   return res.sendStatus(200);
 });
 
-// Минимальный ingestion endpoint для приёма событий из чата.
+/**
+ * @openapi
+ * /ingest:
+ *   post:
+ *     summary: Ingest a chat message event
+ *     tags: [Ingest]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [chat_id, user_id, text]
+ *             properties:
+ *               source: { type: string, example: emu }
+ *               tenant_id: { type: string, example: dev }
+ *               chat_id: { type: string, example: chat_123 }
+ *               user_id: { type: string, example: u1 }
+ *               text: { type: string, example: "AVAIL mon 10-13" }
+ *               meta: { type: object }
+ *     responses:
+ *       200:
+ *         description: Event ingested successfully
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ */
 app.post("/ingest", ingestLimiter, validateBody(IngestSchema), async (req, res) => {
   const contentType = req.get("content-type") || "";
   if (!contentType.toLowerCase().startsWith("application/json")) {
@@ -300,7 +339,23 @@ app.post("/ingest", ingestLimiter, validateBody(IngestSchema), async (req, res) 
 });
 logger.debug("POST /ingest route registered");
 
-// Parse event into facts and persist them.
+/**
+ * @openapi
+ * /parse/{eventId}:
+ *   post:
+ *     summary: Parse a stored event into facts
+ *     tags: [Parse]
+ *     parameters:
+ *       - in: path
+ *         name: eventId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Facts created
+ *       404:
+ *         description: Event not found
+ */
 app.post("/parse/:eventId", validateParams(ParseEventParamsSchema), async (req, res) => {
   const eventId = Number.parseInt(req.params.eventId, 10);
   if (Number.isNaN(eventId)) {
@@ -360,7 +415,29 @@ app.post("/parse/:eventId", validateParams(ParseEventParamsSchema), async (req, 
   });
 });
 
-// List facts with optional filters.
+/**
+ * @openapi
+ * /facts:
+ *   get:
+ *     summary: List facts with optional filters
+ *     tags: [Facts]
+ *     parameters:
+ *       - in: query
+ *         name: chat_id
+ *         schema: { type: string }
+ *       - in: query
+ *         name: user_id
+ *         schema: { type: string }
+ *       - in: query
+ *         name: status
+ *         schema: { type: string }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 50, maximum: 200 }
+ *     responses:
+ *       200:
+ *         description: List of facts
+ */
 app.get("/facts", validateQuery(FactsQuerySchema), async (req, res) => {
   const { chat_id: chatId, user_id: userId, status, limit } = req.query;
 
@@ -389,7 +466,26 @@ app.get("/facts", validateQuery(FactsQuerySchema), async (req, res) => {
   return res.json({ ok: true, facts: data ?? [] });
 });
 
-// List events with optional filters.
+/**
+ * @openapi
+ * /events:
+ *   get:
+ *     summary: List events with optional filters
+ *     tags: [Events]
+ *     parameters:
+ *       - in: query
+ *         name: chat_id
+ *         schema: { type: string }
+ *       - in: query
+ *         name: trace_id
+ *         schema: { type: string }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 50, maximum: 200 }
+ *     responses:
+ *       200:
+ *         description: List of events
+ */
 app.get("/events", validateQuery(EventsQuerySchema), async (req, res) => {
   const { chat_id: chatId, trace_id: traceId, limit } = req.query;
 
@@ -425,8 +521,16 @@ app.get("/__ping", (req, res) => {
 });
 logger.debug("__ping route registered");
 
-// GET /debug/tenants
-// Извлекаем tenants: приоритет meta.tenant_id, fallback на source.
+/**
+ * @openapi
+ * /debug/tenants:
+ *   get:
+ *     summary: List all known tenants
+ *     tags: [Debug]
+ *     responses:
+ *       200:
+ *         description: Array of tenant objects
+ */
 app.get("/debug/tenants", async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -451,8 +555,21 @@ app.get("/debug/tenants", async (req, res) => {
   }
 });
 
-// GET /debug/dialogs?tenant_id=...
-// Фильтруем: (meta.tenant_id == tenant_id) OR (если meta.tenant_id нет, то source == tenant_id)
+/**
+ * @openapi
+ * /debug/dialogs:
+ *   get:
+ *     summary: List dialogs for a tenant
+ *     tags: [Debug]
+ *     parameters:
+ *       - in: query
+ *         name: tenant_id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: List of dialogs
+ */
 app.get("/debug/dialogs", validateQuery(DialogsQuerySchema), async (req, res) => {
   try {
     const tenant_id = req.query.tenant_id;
@@ -491,8 +608,25 @@ app.get("/debug/dialogs", validateQuery(DialogsQuerySchema), async (req, res) =>
   }
 });
 
-// GET /debug/dialog/:chat_id?tenant_id=...
-// Фильтруем: (meta.tenant_id == tenant_id) OR (если meta.tenant_id нет, то source == tenant_id)
+/**
+ * @openapi
+ * /debug/dialog/{chat_id}:
+ *   get:
+ *     summary: Get events for a specific dialog
+ *     tags: [Debug]
+ *     parameters:
+ *       - in: path
+ *         name: chat_id
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: tenant_id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Events in the dialog
+ */
 app.get("/debug/dialog/:chat_id", validateParams(DialogParamsSchema), validateQuery(DialogQuerySchema), async (req, res) => {
   try {
     const tenant_id = req.query.tenant_id;
@@ -521,7 +655,30 @@ app.get("/debug/dialog/:chat_id", validateParams(DialogParamsSchema), validateQu
 });
 // --- /DEBUG ROUTES ---
 
-// POST /debug/send — отправка сообщения через реальный ingest-flow
+/**
+ * @openapi
+ * /debug/send:
+ *   post:
+ *     summary: Send a message via the full ingest flow (debug)
+ *     tags: [Debug]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [chat_id, user_id, text]
+ *             properties:
+ *               tenant_id: { type: string }
+ *               source: { type: string, default: emu }
+ *               chat_id: { type: string }
+ *               user_id: { type: string }
+ *               text: { type: string }
+ *               meta: { type: object }
+ *     responses:
+ *       200:
+ *         description: Ingest result with parsed facts
+ */
 app.post("/debug/send", ingestLimiter, validateBody(DebugSendSchema), async (req, res) => {
   const contentType = req.get("content-type") || "";
   if (!contentType.toLowerCase().startsWith("application/json")) {
@@ -577,7 +734,27 @@ app.post("/debug/send", ingestLimiter, validateBody(DebugSendSchema), async (req
 });
 logger.debug("POST /debug/send route registered");
 
-// GET /debug/schedule — построение draft schedule из facts
+/**
+ * @openapi
+ * /debug/schedule:
+ *   get:
+ *     summary: Build draft schedule from facts
+ *     tags: [Debug]
+ *     parameters:
+ *       - in: query
+ *         name: tenant_id
+ *         schema: { type: string }
+ *       - in: query
+ *         name: chat_id
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: week_start
+ *         schema: { type: string, format: date, example: "2025-01-06" }
+ *     responses:
+ *       200:
+ *         description: Draft schedule with slots, assignments, gaps
+ */
 app.get("/debug/schedule", validateQuery(ScheduleQuerySchema), async (req, res) => {
   try {
     const { tenant_id, chat_id, week_start } = req.query;
@@ -645,7 +822,24 @@ app.get("/debug/schedule", validateQuery(ScheduleQuerySchema), async (req, res) 
 });
 logger.debug("GET /debug/schedule route registered");
 
-// GET /debug/week_state — вычисление состояния недели из facts
+/**
+ * @openapi
+ * /debug/week_state:
+ *   get:
+ *     summary: Compute week state from facts
+ *     tags: [Debug]
+ *     parameters:
+ *       - in: query
+ *         name: chat_id
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: week_start
+ *         schema: { type: string, format: date }
+ *     responses:
+ *       200:
+ *         description: Week state (DRAFT, COLLECTING, PROPOSED, etc.)
+ */
 app.get("/debug/week_state", validateQuery(ScheduleQuerySchema), async (req, res) => {
   try {
     const { chat_id, week_start } = req.query;
@@ -738,7 +932,27 @@ app.get("/debug/week_state", validateQuery(ScheduleQuerySchema), async (req, res
 });
 logger.debug("GET /debug/week_state route registered");
 
-// POST /debug/build-schedule — построение и сохранение графика (создание SHIFT_ASSIGNMENT фактов)
+/**
+ * @openapi
+ * /debug/build-schedule:
+ *   post:
+ *     summary: Build schedule and persist SHIFT_ASSIGNMENT facts
+ *     tags: [Debug]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [chat_id, user_id]
+ *             properties:
+ *               chat_id: { type: string }
+ *               user_id: { type: string }
+ *               week_start: { type: string, format: date }
+ *     responses:
+ *       200:
+ *         description: Built schedule with assignment counts
+ */
 app.post("/debug/build-schedule", validateBody(BuildScheduleSchema), async (req, res) => {
   try {
     const { chat_id, week_start, user_id } = req.body;
@@ -945,7 +1159,31 @@ app.post("/debug/build-schedule", validateBody(BuildScheduleSchema), async (req,
 });
 logger.debug("POST /debug/build-schedule route registered");
 
-// POST /api/week/:weekStartISO/confirm-user — подтверждение графика пользователем
+/**
+ * @openapi
+ * /api/week/{weekStartISO}/confirm-user:
+ *   post:
+ *     summary: Confirm schedule for a user
+ *     tags: [Schedule]
+ *     parameters:
+ *       - in: path
+ *         name: weekStartISO
+ *         required: true
+ *         schema: { type: string, format: date }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [user_id, chat_id]
+ *             properties:
+ *               user_id: { type: string }
+ *               chat_id: { type: string }
+ *     responses:
+ *       200:
+ *         description: Confirmation created, updated schedule returned
+ */
 app.post("/api/week/:weekStartISO/confirm-user", validateParams(ConfirmUserParamsSchema), validateBody(ConfirmUserBodySchema), async (req, res) => {
   try {
     const { weekStartISO } = req.params;
@@ -1054,7 +1292,24 @@ app.post("/api/week/:weekStartISO/confirm-user", validateParams(ConfirmUserParam
 });
 logger.debug("POST /api/week/:weekStartISO/confirm-user route registered");
 
-// GET /debug/timesheet — вычисление табеля из facts
+/**
+ * @openapi
+ * /debug/timesheet:
+ *   get:
+ *     summary: Compute timesheet from facts
+ *     tags: [Debug]
+ *     parameters:
+ *       - in: query
+ *         name: chat_id
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: week_start
+ *         schema: { type: string, format: date }
+ *     responses:
+ *       200:
+ *         description: Timesheet with hours, overtime, amounts
+ */
 app.get("/debug/timesheet", validateQuery(ScheduleQuerySchema), async (req, res) => {
   try {
     const { chat_id, week_start } = req.query;
@@ -1137,6 +1392,9 @@ app.get("/debug/timesheet", validateQuery(ScheduleQuerySchema), async (req, res)
 });
 logger.debug("GET /debug/timesheet route registered");
 
+// --- Swagger UI ---
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpecs));
+
 // --- Employee CRUD routes ---
 app.use("/api/employees", employeesRouter);
 logger.debug("/api/employees routes registered");
@@ -1168,6 +1426,7 @@ dumpRoutes(app);
 UserDirectory.syncFromDB(employeeService).finally(() => {
   app.listen(port, () => {
     logger.info({ port: Number(port), env: envName }, "Server started");
+    logger.info(`Swagger UI: http://localhost:${port}/api-docs`);
 
     // Start Telegram bot if token is configured
     if (process.env.TELEGRAM_BOT_TOKEN) {

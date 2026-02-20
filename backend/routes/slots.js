@@ -40,7 +40,20 @@ const UpdateSlotSchema = z.object({
 
 // --- Routes ---
 
-// GET /api/slots?tenant_id=...
+/**
+ * @openapi
+ * /api/slots:
+ *   get:
+ *     summary: List active slot templates for a tenant
+ *     tags: [Slots]
+ *     parameters:
+ *       - in: query
+ *         name: tenant_id
+ *         schema: { type: string, default: dev }
+ *     responses:
+ *       200:
+ *         description: Array of slot templates
+ */
 router.get("/", validateQuery(SlotsQuerySchema), async (req, res) => {
   try {
     const slots = await slotService.getByTenant(req.query.tenant_id);
@@ -51,7 +64,29 @@ router.get("/", validateQuery(SlotsQuerySchema), async (req, res) => {
   }
 });
 
-// POST /api/slots — create slot
+/**
+ * @openapi
+ * /api/slots:
+ *   post:
+ *     summary: Create a new slot template
+ *     tags: [Slots]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, from_time, to_time]
+ *             properties:
+ *               tenant_id: { type: string, default: dev }
+ *               name: { type: string }
+ *               dow: { type: array, items: { type: string } }
+ *               from_time: { type: string, example: "10:00" }
+ *               to_time: { type: string, example: "13:00" }
+ *     responses:
+ *       201:
+ *         description: Slot created
+ */
 router.post("/", validateBody(CreateSlotSchema), async (req, res) => {
   try {
     const slot = await slotService.create(req.body);
@@ -62,7 +97,32 @@ router.post("/", validateBody(CreateSlotSchema), async (req, res) => {
   }
 });
 
-// PUT /api/slots/:id — update slot
+/**
+ * @openapi
+ * /api/slots/{id}:
+ *   put:
+ *     summary: Update a slot template
+ *     tags: [Slots]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name: { type: string }
+ *               from_time: { type: string }
+ *               to_time: { type: string }
+ *               is_active: { type: boolean }
+ *     responses:
+ *       200:
+ *         description: Updated slot
+ */
 router.put("/:id", validateParams(SlotIdParamsSchema), validateBody(UpdateSlotSchema), async (req, res) => {
   try {
     const slot = await slotService.update(req.params.id, req.body);
@@ -73,7 +133,21 @@ router.put("/:id", validateParams(SlotIdParamsSchema), validateBody(UpdateSlotSc
   }
 });
 
-// DELETE /api/slots/:id — soft delete
+/**
+ * @openapi
+ * /api/slots/{id}:
+ *   delete:
+ *     summary: Deactivate (soft-delete) a slot template
+ *     tags: [Slots]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Deactivated slot
+ */
 router.delete("/:id", validateParams(SlotIdParamsSchema), async (req, res) => {
   try {
     const slot = await slotService.deactivate(req.params.id);
