@@ -12,6 +12,21 @@ import { buildTimesheet } from "./timesheetV0.js";
 import { computeWeekState } from "./weekStateV0.js";
 import { UserDirectory } from "./userDirectory.js";
 import { requireApiKey } from "./middleware/auth.js";
+import { validateBody, validateQuery, validateParams } from "./middleware/validate.js";
+import {
+  IngestSchema,
+  DebugSendSchema,
+  ParseEventParamsSchema,
+  ScheduleQuerySchema,
+  BuildScheduleSchema,
+  ConfirmUserParamsSchema,
+  ConfirmUserBodySchema,
+  FactsQuerySchema,
+  EventsQuerySchema,
+  DialogsQuerySchema,
+  DialogParamsSchema,
+  DialogQuerySchema,
+} from "./validation/schemas.js";
 
 const app = express();
 
@@ -239,7 +254,7 @@ app.post("/telegram/webhook", async (req, res) => {
 });
 
 // Минимальный ingestion endpoint для приёма событий из чата.
-app.post("/ingest", async (req, res) => {
+app.post("/ingest", validateBody(IngestSchema), async (req, res) => {
   const contentType = req.get("content-type") || "";
   if (!contentType.toLowerCase().startsWith("application/json")) {
     return res.status(400).json({ ok: false, error: "content-type must be application/json" });
@@ -276,7 +291,7 @@ app.post("/ingest", async (req, res) => {
 console.log("[DEBUG] POST /ingest route registered");
 
 // Parse event into facts and persist them.
-app.post("/parse/:eventId", async (req, res) => {
+app.post("/parse/:eventId", validateParams(ParseEventParamsSchema), async (req, res) => {
   const eventId = Number.parseInt(req.params.eventId, 10);
   if (Number.isNaN(eventId)) {
     return res.status(400).json({ ok: false, error: "invalid event id" });
@@ -336,7 +351,7 @@ app.post("/parse/:eventId", async (req, res) => {
 });
 
 // List facts with optional filters.
-app.get("/facts", async (req, res) => {
+app.get("/facts", validateQuery(FactsQuerySchema), async (req, res) => {
   const { chat_id: chatId, user_id: userId, status, limit } = req.query;
 
   let n = Number.parseInt(limit, 10);
@@ -365,7 +380,7 @@ app.get("/facts", async (req, res) => {
 });
 
 // List events with optional filters.
-app.get("/events", async (req, res) => {
+app.get("/events", validateQuery(EventsQuerySchema), async (req, res) => {
   const { chat_id: chatId, trace_id: traceId, limit } = req.query;
 
   let n = Number.parseInt(limit, 10);
@@ -428,7 +443,7 @@ app.get("/debug/tenants", async (req, res) => {
 
 // GET /debug/dialogs?tenant_id=...
 // Фильтруем: (meta.tenant_id == tenant_id) OR (если meta.tenant_id нет, то source == tenant_id)
-app.get("/debug/dialogs", async (req, res) => {
+app.get("/debug/dialogs", validateQuery(DialogsQuerySchema), async (req, res) => {
   try {
     const tenant_id = req.query.tenant_id;
     if (!tenant_id) return res.status(400).json({ error: "tenant_id required" });
@@ -468,7 +483,7 @@ app.get("/debug/dialogs", async (req, res) => {
 
 // GET /debug/dialog/:chat_id?tenant_id=...
 // Фильтруем: (meta.tenant_id == tenant_id) OR (если meta.tenant_id нет, то source == tenant_id)
-app.get("/debug/dialog/:chat_id", async (req, res) => {
+app.get("/debug/dialog/:chat_id", validateParams(DialogParamsSchema), validateQuery(DialogQuerySchema), async (req, res) => {
   try {
     const tenant_id = req.query.tenant_id;
     const chat_id = req.params.chat_id;
@@ -497,7 +512,7 @@ app.get("/debug/dialog/:chat_id", async (req, res) => {
 // --- /DEBUG ROUTES ---
 
 // POST /debug/send — отправка сообщения через реальный ingest-flow
-app.post("/debug/send", async (req, res) => {
+app.post("/debug/send", validateBody(DebugSendSchema), async (req, res) => {
   const contentType = req.get("content-type") || "";
   if (!contentType.toLowerCase().startsWith("application/json")) {
     return res.status(400).json({ ok: false, error: "content-type must be application/json" });
@@ -553,7 +568,7 @@ app.post("/debug/send", async (req, res) => {
 console.log("[DEBUG] POST /debug/send route registered");
 
 // GET /debug/schedule — построение draft schedule из facts
-app.get("/debug/schedule", async (req, res) => {
+app.get("/debug/schedule", validateQuery(ScheduleQuerySchema), async (req, res) => {
   try {
     const { tenant_id, chat_id, week_start } = req.query;
     if (!chat_id) {
@@ -619,7 +634,7 @@ app.get("/debug/schedule", async (req, res) => {
 console.log("[DEBUG] GET /debug/schedule route registered");
 
 // GET /debug/week_state — вычисление состояния недели из facts
-app.get("/debug/week_state", async (req, res) => {
+app.get("/debug/week_state", validateQuery(ScheduleQuerySchema), async (req, res) => {
   try {
     const { chat_id, week_start } = req.query;
     if (!chat_id) {
@@ -710,7 +725,7 @@ app.get("/debug/week_state", async (req, res) => {
 console.log("[DEBUG] GET /debug/week_state route registered");
 
 // POST /debug/build-schedule — построение и сохранение графика (создание SHIFT_ASSIGNMENT фактов)
-app.post("/debug/build-schedule", async (req, res) => {
+app.post("/debug/build-schedule", validateBody(BuildScheduleSchema), async (req, res) => {
   try {
     const { chat_id, week_start, user_id } = req.body;
     if (!chat_id) {
@@ -914,7 +929,7 @@ app.post("/debug/build-schedule", async (req, res) => {
 console.log("[DEBUG] POST /debug/build-schedule route registered");
 
 // POST /api/week/:weekStartISO/confirm-user — подтверждение графика пользователем
-app.post("/api/week/:weekStartISO/confirm-user", async (req, res) => {
+app.post("/api/week/:weekStartISO/confirm-user", validateParams(ConfirmUserParamsSchema), validateBody(ConfirmUserBodySchema), async (req, res) => {
   try {
     const { weekStartISO } = req.params;
     const { user_id, chat_id } = req.body;
@@ -1021,7 +1036,7 @@ app.post("/api/week/:weekStartISO/confirm-user", async (req, res) => {
 console.log("[DEBUG] POST /api/week/:weekStartISO/confirm-user route registered");
 
 // GET /debug/timesheet — вычисление табеля из facts
-app.get("/debug/timesheet", async (req, res) => {
+app.get("/debug/timesheet", validateQuery(ScheduleQuerySchema), async (req, res) => {
   try {
     const { chat_id, week_start } = req.query;
     if (!chat_id) {
