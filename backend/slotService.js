@@ -6,6 +6,7 @@
  */
 
 import { supabase } from "./supabaseClient.js";
+import logger from "./logger.js";
 
 const DEFAULT_SLOTS = [
   {
@@ -66,7 +67,7 @@ export async function getByTenant(tenantId = "dev") {
     if (error) throw error;
     return (data || []).map(normalizeSlot);
   } catch (err) {
-    console.warn("[slotService] getByTenant fallback to defaults:", err.message);
+    logger.warn({ err }, "slotService getByTenant fallback to defaults");
     return DEFAULT_SLOTS.map(normalizeSlot);
   }
 }

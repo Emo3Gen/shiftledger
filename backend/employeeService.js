@@ -7,6 +7,7 @@
 
 import { supabase } from "./supabaseClient.js";
 import { UserDirectory } from "./userDirectory.js";
+import logger from "./logger.js";
 
 /**
  * Convert UserDirectory entry to employee format (for fallback).
@@ -40,7 +41,7 @@ export async function getAll() {
     if (error) throw error;
     return data;
   } catch (err) {
-    console.warn("[employeeService] getAll fallback to UserDirectory:", err.message);
+    logger.warn({ err }, "employeeService getAll fallback to UserDirectory");
     // Fallback: return from UserDirectory (only canonical entries u1-u4)
     const result = [];
     const seen = new Set();
@@ -68,7 +69,7 @@ export async function getById(id) {
     if (error) throw error;
     return data;
   } catch (err) {
-    console.warn("[employeeService] getById fallback:", err.message);
+    logger.warn({ err }, "employeeService getById fallback");
     const user = UserDirectory.getUser(id);
     if (!user) return null;
     return userToEmployee(id, user);

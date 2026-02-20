@@ -6,6 +6,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { validateBody, validateParams } from "../middleware/validate.js";
 import * as employeeService from "../employeeService.js";
+import logger from "../logger.js";
 
 const router = Router();
 
@@ -43,7 +44,7 @@ router.get("/", async (req, res) => {
     const employees = await employeeService.getAll();
     res.json({ ok: true, employees });
   } catch (err) {
-    console.error("[EMPLOYEES] getAll error:", err);
+    logger.error({ err }, "EMPLOYEES getAll error");
     res.status(500).json({ ok: false, error: "failed to load employees" });
   }
 });
@@ -57,7 +58,7 @@ router.get("/:id", validateParams(EmployeeIdParamsSchema), async (req, res) => {
     }
     res.json({ ok: true, employee });
   } catch (err) {
-    console.error("[EMPLOYEES] getById error:", err);
+    logger.error({ err }, "EMPLOYEES getById error");
     res.status(500).json({ ok: false, error: "failed to load employee" });
   }
 });
@@ -68,7 +69,7 @@ router.post("/", validateBody(CreateEmployeeSchema), async (req, res) => {
     const employee = await employeeService.create(req.body);
     res.status(201).json({ ok: true, employee });
   } catch (err) {
-    console.error("[EMPLOYEES] create error:", err);
+    logger.error({ err }, "EMPLOYEES create error");
     if (err.message?.includes("duplicate") || err.code === "23505") {
       return res.status(409).json({ ok: false, error: "employee with this id already exists" });
     }
@@ -82,7 +83,7 @@ router.put("/:id", validateParams(EmployeeIdParamsSchema), validateBody(UpdateEm
     const employee = await employeeService.update(req.params.id, req.body);
     res.json({ ok: true, employee });
   } catch (err) {
-    console.error("[EMPLOYEES] update error:", err);
+    logger.error({ err }, "EMPLOYEES update error");
     res.status(500).json({ ok: false, error: "failed to update employee" });
   }
 });
@@ -93,7 +94,7 @@ router.delete("/:id", validateParams(EmployeeIdParamsSchema), async (req, res) =
     const employee = await employeeService.deactivate(req.params.id);
     res.json({ ok: true, employee });
   } catch (err) {
-    console.error("[EMPLOYEES] deactivate error:", err);
+    logger.error({ err }, "EMPLOYEES deactivate error");
     res.status(500).json({ ok: false, error: "failed to deactivate employee" });
   }
 });

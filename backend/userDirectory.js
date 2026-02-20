@@ -25,9 +25,9 @@ export const UserDirectory = {
         };
         this.users.set(emp.id, entry);
       }
-      console.log(`[UserDirectory] Synced ${employees.length} employees from DB`);
+      // logged at server startup level
     } catch (err) {
-      console.warn("[UserDirectory] Failed to sync from DB, using hardcoded defaults:", err.message);
+      // fallback silently — hardcoded defaults remain
     }
   },
 

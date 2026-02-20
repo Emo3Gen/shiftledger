@@ -17,6 +17,9 @@ import * as employeeService from "./employeeService.js";
 import * as slotService from "./slotService.js";
 import { requireApiKey } from "./middleware/auth.js";
 import { validateBody, validateQuery, validateParams } from "./middleware/validate.js";
+import logger from "./logger.js";
+import { requestLogger } from "./middleware/requestLogger.js";
+import { generalLimiter, ingestLimiter } from "./middleware/rateLimiter.js";
 import {
   IngestSchema,
   DebugSendSchema,
@@ -34,11 +37,11 @@ import {
 
 const app = express();
 
-// Ранний логгер всех запросов, чтобы видеть реальные пути.
-app.use((req, res, next) => {
-  console.log(`[REQ] ${req.method} ${req.path}`);
-  next();
-});
+// Structured request logging (pino)
+app.use(requestLogger);
+
+// Global rate limiter
+app.use(generalLimiter);
 
 // Парсер JSON ДОЛЖЕН быть подключён до роутов,
 // чтобы req.body был заполнен.
@@ -59,7 +62,7 @@ async function loadSlotTypes(tenantId) {
       }));
     }
   } catch (err) {
-    console.warn("[loadSlotTypes] fallback to defaults:", err.message);
+    logger.warn({ err }, "loadSlotTypes fallback to defaults");
   }
   return null; // null = use engine defaults
 }
@@ -112,9 +115,7 @@ async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id,
     received_at: now,
   };
 
-  console.log(
-    `[INGEST] trace_id=${event.trace_id} chat_id=${event.chat_id} user_id=${event.user_id}`,
-  );
+  logger.info({ trace_id: event.trace_id, chat_id: event.chat_id, user_id: event.user_id }, "ingest started");
 
   // Persist event
   const persistStart = Date.now();
@@ -135,7 +136,7 @@ async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id,
     .single();
 
   if (error || !inserted) {
-    console.error("[INGEST] failed to insert into Supabase:", error);
+    logger.error({ err: error }, "INGEST failed to insert into Supabase");
     throw new Error("failed to persist event");
   }
 
@@ -165,17 +166,9 @@ async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id,
     factsPreview = Array.isArray(parsed) ? parsed : [];
 
     // Диагностика: логируем результат парсинга
-    console.log(
-      `[PARSE_PREVIEW] event_id=${eventId} text="${inserted.text}" facts=${factsPreview.length}`,
-    );
+    logger.debug({ event_id: eventId, text: inserted.text, facts_count: factsPreview.length }, "parse preview");
     if (factsPreview.length > 0) {
-      console.log(
-        `[PARSE_PREVIEW] sample:`,
-        factsPreview.slice(0, 2).map((f) => ({
-          fact_type: f.fact_type,
-          payload_keys: Object.keys(f.fact_payload || {}),
-        })),
-      );
+      logger.debug({ sample: factsPreview.slice(0, 2).map((f) => ({ fact_type: f.fact_type, payload_keys: Object.keys(f.fact_payload || {}) })) }, "parse preview sample");
     }
 
     if (Array.isArray(parsed) && parsed.length > 0) {
@@ -208,9 +201,7 @@ async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id,
 
       if (factsErr) {
         factsPersistError = String(factsErr.message || factsErr);
-        console.error(
-          `[FACTS_PERSIST] event_id=${eventId} err=${factsPersistError}`,
-        );
+        logger.error({ event_id: eventId, err: factsPersistError }, "facts persist error");
       }
     }
 
@@ -226,7 +217,7 @@ async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id,
     }
   } catch (factsUnexpectedErr) {
     factsPersistError = String(factsUnexpectedErr.message || factsUnexpectedErr);
-    console.error("[INGEST] unexpected error while parsing/inserting facts:", factsUnexpectedErr);
+    logger.error({ err: factsUnexpectedErr }, "INGEST unexpected error while parsing/inserting facts");
   }
 
   const total_ms = Date.now() - startedAt;
@@ -261,10 +252,7 @@ app.get("/health", (req, res) => {
 app.post("/telegram/webhook", async (req, res) => {
   const update = req.body;
 
-  // Лог в stdout, чтобы хорошо читалось в dev-логах.
-  console.log("=== Telegram Update ===");
-  console.log(JSON.stringify(update, null, 2));
-  console.log("========================");
+  logger.info({ update }, "Telegram webhook update");
 
   // Здесь позже можно будет вызвать Supabase-запросы, бизнес-логику и т.д.
   // Например:
@@ -275,7 +263,7 @@ app.post("/telegram/webhook", async (req, res) => {
 });
 
 // Минимальный ingestion endpoint для приёма событий из чата.
-app.post("/ingest", validateBody(IngestSchema), async (req, res) => {
+app.post("/ingest", ingestLimiter, validateBody(IngestSchema), async (req, res) => {
   const contentType = req.get("content-type") || "";
   if (!contentType.toLowerCase().startsWith("application/json")) {
     return res.status(400).json({ ok: false, error: "content-type must be application/json" });
@@ -305,11 +293,11 @@ app.post("/ingest", validateBody(IngestSchema), async (req, res) => {
     if (err.message && err.message.includes("chat_id and user_id")) {
       return res.status(400).json({ ok: false, error: err.message });
     }
-    console.error("[INGEST] unexpected error:", err);
+    logger.error({ err }, "INGEST unexpected error");
     return res.status(500).json({ ok: false, error: "internal error" });
   }
 });
-console.log("[DEBUG] POST /ingest route registered");
+logger.debug("POST /ingest route registered");
 
 // Parse event into facts and persist them.
 app.post("/parse/:eventId", validateParams(ParseEventParamsSchema), async (req, res) => {
@@ -328,7 +316,7 @@ app.post("/parse/:eventId", validateParams(ParseEventParamsSchema), async (req, 
     return res.status(404).json({ ok: false, error: "event not found" });
   }
   if (error || !event) {
-    console.error("[PARSE] failed to load event:", error);
+    logger.error({ err: error }, "PARSE failed to load event");
     return res.status(500).json({ ok: false, error: "failed to load event" });
   }
 
@@ -349,7 +337,7 @@ app.post("/parse/:eventId", validateParams(ParseEventParamsSchema), async (req, 
 
     const { error: insertError } = await supabase.from("facts").insert(rows);
     if (insertError) {
-      console.error("[PARSE] failed to insert facts:", insertError);
+      logger.error({ err: insertError }, "PARSE failed to insert facts");
       return res.status(500).json({ ok: false, error: "failed to persist facts" });
     }
   }
@@ -360,7 +348,7 @@ app.post("/parse/:eventId", validateParams(ParseEventParamsSchema), async (req, 
     .eq("id", event.id);
 
   if (updateError) {
-    console.error("[PARSE] failed to update event status:", updateError);
+    logger.error({ err: updateError }, "PARSE failed to update event status");
   }
 
   return res.json({
@@ -393,7 +381,7 @@ app.get("/facts", validateQuery(FactsQuerySchema), async (req, res) => {
 
   const { data, error } = await query;
   if (error) {
-    console.error("[FACTS] failed to load facts:", error);
+    logger.error({ err: error }, "FACTS failed to load facts");
     return res.status(500).json({ ok: false, error: "failed to load facts" });
   }
 
@@ -419,7 +407,7 @@ app.get("/events", validateQuery(EventsQuerySchema), async (req, res) => {
 
   const { data, error } = await query;
   if (error) {
-    console.error("[EVENTS] failed to load events:", error);
+    logger.error({ err: error }, "EVENTS failed to load events");
     return res.status(500).json({ ok: false, error: "failed to load events" });
   }
 
@@ -434,7 +422,7 @@ app.get("/events", validateQuery(EventsQuerySchema), async (req, res) => {
 app.get("/__ping", (req, res) => {
   res.status(200).json({ ok: true, entry: import.meta.url, cwd: process.cwd() });
 });
-console.log("[DEBUG] __ping route registered");
+logger.debug("__ping route registered");
 
 // GET /debug/tenants
 // Извлекаем tenants: приоритет meta.tenant_id, fallback на source.
@@ -533,7 +521,7 @@ app.get("/debug/dialog/:chat_id", validateParams(DialogParamsSchema), validateQu
 // --- /DEBUG ROUTES ---
 
 // POST /debug/send — отправка сообщения через реальный ingest-flow
-app.post("/debug/send", validateBody(DebugSendSchema), async (req, res) => {
+app.post("/debug/send", ingestLimiter, validateBody(DebugSendSchema), async (req, res) => {
   const contentType = req.get("content-type") || "";
   if (!contentType.toLowerCase().startsWith("application/json")) {
     return res.status(400).json({ ok: false, error: "content-type must be application/json" });
@@ -582,11 +570,11 @@ app.post("/debug/send", validateBody(DebugSendSchema), async (req, res) => {
     if (e.message && e.message.includes("chat_id and user_id")) {
       return res.status(400).json({ ok: false, error: e.message });
     }
-    console.error("[DEBUG] /debug/send error:", e);
+    logger.error({ err: e }, "debug/send error");
     return res.status(500).json({ ok: false, error: "internal error" });
   }
 });
-console.log("[DEBUG] POST /debug/send route registered");
+logger.debug("POST /debug/send route registered");
 
 // GET /debug/schedule — построение draft schedule из facts
 app.get("/debug/schedule", validateQuery(ScheduleQuerySchema), async (req, res) => {
@@ -654,7 +642,7 @@ app.get("/debug/schedule", validateQuery(ScheduleQuerySchema), async (req, res) 
     res.status(500).json({ error: String(e?.message || e) });
   }
 });
-console.log("[DEBUG] GET /debug/schedule route registered");
+logger.debug("GET /debug/schedule route registered");
 
 // GET /debug/week_state — вычисление состояния недели из facts
 app.get("/debug/week_state", validateQuery(ScheduleQuerySchema), async (req, res) => {
@@ -731,7 +719,7 @@ app.get("/debug/week_state", validateQuery(ScheduleQuerySchema), async (req, res
       hasProblem = Boolean(hasGaps || hasUnconfirmed || hasEmergency);
     } catch (problemCalcError) {
       // Fail-safe: if calculation fails, hasProblem stays false
-      console.warn("[WEEK_STATE] Failed to calculate hasProblem flags:", problemCalcError);
+      logger.warn({ err: problemCalcError }, "WEEK_STATE failed to calculate hasProblem flags");
       hasProblem = false;
     }
 
@@ -747,7 +735,7 @@ app.get("/debug/week_state", validateQuery(ScheduleQuerySchema), async (req, res
     res.status(500).json({ error: String(e?.message || e) });
   }
 });
-console.log("[DEBUG] GET /debug/week_state route registered");
+logger.debug("GET /debug/week_state route registered");
 
 // POST /debug/build-schedule — построение и сохранение графика (создание SHIFT_ASSIGNMENT фактов)
 app.post("/debug/build-schedule", validateBody(BuildScheduleSchema), async (req, res) => {
@@ -820,7 +808,7 @@ app.post("/debug/build-schedule", validateBody(BuildScheduleSchema), async (req,
       .single();
 
     if (eventError) {
-      console.error("[BUILD_SCHEDULE] Failed to create system event:", eventError);
+      logger.error({ err: eventError }, "BUILD_SCHEDULE failed to create system event");
       throw new Error("Failed to create system event");
     }
 
@@ -890,14 +878,14 @@ app.post("/debug/build-schedule", validateBody(BuildScheduleSchema), async (req,
         .select();
 
       if (insertError) {
-        console.error("[BUILD_SCHEDULE] Failed to insert assignments:", insertError);
+        logger.error({ err: insertError }, "BUILD_SCHEDULE failed to insert assignments");
         // Continue anyway, return what we have
       } else {
         assignmentsCreated = insertedFacts?.length || 0;
-        console.log(`[BUILD_SCHEDULE] Created ${assignmentsCreated} SHIFT_ASSIGNMENT facts for event_id=${eventId}`);
+        logger.info({ assignmentsCreated, event_id: eventId }, "BUILD_SCHEDULE created assignments");
       }
     } else {
-      console.log(`[BUILD_SCHEDULE] No new assignments to create (all already exist)`);
+      logger.info("BUILD_SCHEDULE no new assignments to create");
     }
 
     // IMPORTANT: Recalculate schedule after creating facts, so that new assignments have proper created_at timestamps
@@ -935,7 +923,7 @@ app.post("/debug/build-schedule", validateBody(BuildScheduleSchema), async (req,
           weekStartISO,
           slotTypes: slotTypesBS,
         });
-        console.log(`[BUILD_SCHEDULE] Recalculated schedule with ${updatedFilteredFacts.length} facts`);
+        logger.info({ facts_count: updatedFilteredFacts.length }, "BUILD_SCHEDULE recalculated schedule");
       }
     }
 
@@ -950,11 +938,11 @@ app.post("/debug/build-schedule", validateBody(BuildScheduleSchema), async (req,
       slots: finalSchedule.slots || [],
     });
   } catch (e) {
-    console.error("[BUILD_SCHEDULE] Error:", e);
+    logger.error({ err: e }, "BUILD_SCHEDULE error");
     res.status(500).json({ error: String(e?.message || e) });
   }
 });
-console.log("[DEBUG] POST /debug/build-schedule route registered");
+logger.debug("POST /debug/build-schedule route registered");
 
 // POST /api/week/:weekStartISO/confirm-user — подтверждение графика пользователем
 app.post("/api/week/:weekStartISO/confirm-user", validateParams(ConfirmUserParamsSchema), validateBody(ConfirmUserBodySchema), async (req, res) => {
@@ -1010,7 +998,7 @@ app.post("/api/week/:weekStartISO/confirm-user", validateParams(ConfirmUserParam
       .select();
 
     if (insertError) {
-      console.error("[CONFIRM_USER] Failed to insert confirmation:", insertError);
+      logger.error({ err: insertError }, "CONFIRM_USER failed to insert confirmation");
       return res.status(500).json({ error: String(insertError.message || insertError) });
     }
 
@@ -1059,11 +1047,11 @@ app.post("/api/week/:weekStartISO/confirm-user", validateParams(ConfirmUserParam
       confirmation_created: insertedFacts && insertedFacts.length > 0,
     });
   } catch (e) {
-    console.error("[CONFIRM_USER] Error:", e);
+    logger.error({ err: e }, "CONFIRM_USER error");
     res.status(500).json({ error: String(e?.message || e) });
   }
 });
-console.log("[DEBUG] POST /api/week/:weekStartISO/confirm-user route registered");
+logger.debug("POST /api/week/:weekStartISO/confirm-user route registered");
 
 // GET /debug/timesheet — вычисление табеля из facts
 app.get("/debug/timesheet", validateQuery(ScheduleQuerySchema), async (req, res) => {
@@ -1146,15 +1134,15 @@ app.get("/debug/timesheet", validateQuery(ScheduleQuerySchema), async (req, res)
     res.status(500).json({ error: String(e?.message || e) });
   }
 });
-console.log("[DEBUG] GET /debug/timesheet route registered");
+logger.debug("GET /debug/timesheet route registered");
 
 // --- Employee CRUD routes ---
 app.use("/api/employees", employeesRouter);
-console.log("[DEBUG] /api/employees routes registered");
+logger.debug("/api/employees routes registered");
 
 // --- Slot Template CRUD routes ---
 app.use("/api/slots", slotsRouter);
-console.log("[DEBUG] /api/slots routes registered");
+logger.debug("/api/slots routes registered");
 
 const port = process.env.PORT || 3000;
 function dumpRoutes(app) {
@@ -1167,9 +1155,9 @@ function dumpRoutes(app) {
         routes.push(`${methods.join(",").toUpperCase()} ${layer.route.path}`);
       }
     }
-    console.log("[ROUTES]", routes);
+    logger.debug({ routes }, "registered routes");
   } catch (e) {
-    console.log("[ROUTES] dump failed:", e?.message || e);
+    logger.warn({ err: e }, "routes dump failed");
   }
 }
 
@@ -1178,6 +1166,6 @@ dumpRoutes(app);
 // Sync employees from DB into UserDirectory on startup, then start server
 UserDirectory.syncFromDB(employeeService).finally(() => {
   app.listen(port, () => {
-    console.log(`[backend] listening on http://127.0.0.1:${port} (env=${envName})`);
+    logger.info({ port: Number(port), env: envName }, "Server started");
   });
 });

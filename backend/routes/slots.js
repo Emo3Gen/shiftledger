@@ -6,6 +6,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { validateBody, validateQuery, validateParams } from "../middleware/validate.js";
 import * as slotService from "../slotService.js";
+import logger from "../logger.js";
 
 const router = Router();
 
@@ -45,7 +46,7 @@ router.get("/", validateQuery(SlotsQuerySchema), async (req, res) => {
     const slots = await slotService.getByTenant(req.query.tenant_id);
     res.json({ ok: true, slots });
   } catch (err) {
-    console.error("[SLOTS] getByTenant error:", err);
+    logger.error({ err }, "SLOTS getByTenant error");
     res.status(500).json({ ok: false, error: "failed to load slots" });
   }
 });
@@ -56,7 +57,7 @@ router.post("/", validateBody(CreateSlotSchema), async (req, res) => {
     const slot = await slotService.create(req.body);
     res.status(201).json({ ok: true, slot });
   } catch (err) {
-    console.error("[SLOTS] create error:", err);
+    logger.error({ err }, "SLOTS create error");
     res.status(500).json({ ok: false, error: "failed to create slot" });
   }
 });
@@ -67,7 +68,7 @@ router.put("/:id", validateParams(SlotIdParamsSchema), validateBody(UpdateSlotSc
     const slot = await slotService.update(req.params.id, req.body);
     res.json({ ok: true, slot });
   } catch (err) {
-    console.error("[SLOTS] update error:", err);
+    logger.error({ err }, "SLOTS update error");
     res.status(500).json({ ok: false, error: "failed to update slot" });
   }
 });
@@ -78,7 +79,7 @@ router.delete("/:id", validateParams(SlotIdParamsSchema), async (req, res) => {
     const slot = await slotService.deactivate(req.params.id);
     res.json({ ok: true, slot });
   } catch (err) {
-    console.error("[SLOTS] deactivate error:", err);
+    logger.error({ err }, "SLOTS deactivate error");
     res.status(500).json({ ok: false, error: "failed to deactivate slot" });
   }
 });

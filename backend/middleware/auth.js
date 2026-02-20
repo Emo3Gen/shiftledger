@@ -5,10 +5,12 @@
  * If API_KEY env var is not set — dev mode, all requests pass through.
  */
 
+import logger from "../logger.js";
+
 const API_KEY = process.env.API_KEY || "";
 
 if (!API_KEY) {
-  console.warn("[AUTH] API_KEY is not set — running in dev mode (no auth). Set API_KEY in .env to enable authentication.");
+  logger.warn("API_KEY is not set — running in dev mode (no auth)");
 }
 
 /**
