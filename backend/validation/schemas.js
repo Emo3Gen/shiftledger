@@ -14,7 +14,7 @@ export const IngestSchema = z.object({
   message_id: z.string().optional(),
   ts: z.string().optional(),
   text: z.string().min(1).max(5000),
-  meta: z.record(z.unknown()).optional(),
+  meta: z.record(z.string(), z.any()).optional(),
 });
 
 // --- POST /debug/send ---
@@ -28,7 +28,7 @@ export const DebugSendSchema = z.object({
   trace_id: z.string().optional(),
   ts: z.string().optional(),
   text: z.string().min(1).max(5000),
-  meta: z.record(z.unknown()).optional(),
+  meta: z.record(z.string(), z.any()).optional(),
 });
 
 // --- POST /parse/:eventId ---

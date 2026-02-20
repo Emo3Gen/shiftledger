@@ -468,7 +468,21 @@ export const App: React.FC = () => {
         }),
       });
 
-      const json = await res.json();
+      const responseText = await res.text();
+
+      if (!res.ok) {
+        setLastError(`HTTP ${res.status}: ${responseText.slice(0, 200)}`);
+        return null;
+      }
+
+      let json: any;
+      try {
+        json = JSON.parse(responseText);
+      } catch {
+        setLastError(`Ответ не JSON: ${responseText.slice(0, 100)}`);
+        return null;
+      }
+
       if (json.ok) {
         setLastSend({
           event: json.event,
@@ -486,8 +500,7 @@ export const App: React.FC = () => {
       return json;
     } catch (e) {
       console.error("Failed to send debug message", e);
-      setLastError(`Send error: ${String(e)}`);
-      throw e;
+      setLastError(`Ошибка отправки: ${String(e)}. Проверьте что бэкенд запущен (node backend/server.js)`);
     }
   };
 
