@@ -1,0 +1,21 @@
+{
+  "transform": {
+    "^.+\\.js$": "babel-jest"
+  },
+  "transformIgnorePatterns": [
+    "node_modules/(?!zod)"
+  ],
+  "testMatch": [
+    "**/backend/__tests__/**/*.test.js"
+  ],
+  "collectCoverageFrom": [
+    "backend/factsParserV0.js",
+    "backend/scheduleEngineV0.js",
+    "backend/weekStateV0.js",
+    "backend/timesheetV0.js",
+    "backend/userDirectory.js",
+    "backend/validation/schemas.js",
+    "backend/middleware/validate.js"
+  ],
+  "coverageDirectory": "coverage"
+}
