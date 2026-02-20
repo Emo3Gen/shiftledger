@@ -12,7 +12,9 @@ import { buildTimesheet } from "./timesheetV0.js";
 import { computeWeekState } from "./weekStateV0.js";
 import { UserDirectory } from "./userDirectory.js";
 import employeesRouter from "./routes/employees.js";
+import slotsRouter from "./routes/slots.js";
 import * as employeeService from "./employeeService.js";
+import * as slotService from "./slotService.js";
 import { requireApiKey } from "./middleware/auth.js";
 import { validateBody, validateQuery, validateParams } from "./middleware/validate.js";
 import {
@@ -44,6 +46,23 @@ app.use(express.json());
 
 // API key auth (skips /health and /__ping; dev mode if API_KEY not set)
 app.use(requireApiKey);
+
+// Helper: load slot templates for a tenant, convert to engine format
+async function loadSlotTypes(tenantId) {
+  try {
+    const templates = await slotService.getByTenant(tenantId || "dev");
+    if (templates && templates.length > 0) {
+      return templates.map((t) => ({
+        name: t.name,
+        from: t.from_time,
+        to: t.to_time,
+      }));
+    }
+  } catch (err) {
+    console.warn("[loadSlotTypes] fallback to defaults:", err.message);
+  }
+  return null; // null = use engine defaults
+}
 
 function stableStringify(value) {
   if (value === null || typeof value !== "object") {
@@ -614,9 +633,11 @@ app.get("/debug/schedule", validateQuery(ScheduleQuerySchema), async (req, res) 
 
     const availability_values = Array.from(availability_values_set);
 
+    const slotTypes = await loadSlotTypes(tenant_id);
     const schedule = buildDraftSchedule({
       facts: facts ?? [],
       weekStartISO,
+      slotTypes,
     });
 
     // Extend meta with diagnostics
@@ -678,9 +699,11 @@ app.get("/debug/week_state", validateQuery(ScheduleQuerySchema), async (req, res
     });
 
     const weekState = computeWeekState({ facts: filteredFacts, weekStartISO });
+    const slotTypesWS = await loadSlotTypes(req.query.tenant_id);
     const draftSchedule = buildDraftSchedule({
       facts: filteredFacts,
       weekStartISO,
+      slotTypes: slotTypesWS,
     });
 
     // Compute hasProblem flags - fail-safe initialization
@@ -768,9 +791,11 @@ app.post("/debug/build-schedule", validateBody(BuildScheduleSchema), async (req,
     });
 
     // Build draft schedule using ScheduleEngine
+    const slotTypesBS = await loadSlotTypes(req.body.tenant_id);
     const draftSchedule = buildDraftSchedule({
       facts: filteredFacts,
       weekStartISO,
+      slotTypes: slotTypesBS,
     });
 
     // Create a system event for this build operation
@@ -908,6 +933,7 @@ app.post("/debug/build-schedule", validateBody(BuildScheduleSchema), async (req,
         finalSchedule = buildDraftSchedule({
           facts: updatedFilteredFacts,
           weekStartISO,
+          slotTypes: slotTypesBS,
         });
         console.log(`[BUILD_SCHEDULE] Recalculated schedule with ${updatedFilteredFacts.length} facts`);
       }
@@ -1018,9 +1044,11 @@ app.post("/api/week/:weekStartISO/confirm-user", validateParams(ConfirmUserParam
     });
 
     // Пересчитываем график
+    const slotTypesCU = await loadSlotTypes(req.body.tenant_id);
     const updatedSchedule = buildDraftSchedule({
       facts: filteredFacts,
       weekStartISO,
+      slotTypes: slotTypesCU,
     });
 
     res.json({
@@ -1091,9 +1119,11 @@ app.get("/debug/timesheet", validateQuery(ScheduleQuerySchema), async (req, res)
     });
 
     // Build schedule first (needed for planned hours)
+    const slotTypesTS = await loadSlotTypes(req.query.tenant_id);
     const schedule = buildDraftSchedule({
       facts: filteredFacts,
       weekStartISO,
+      slotTypes: slotTypesTS,
     });
 
     // Hourly rates from UserDirectory
@@ -1121,6 +1151,10 @@ console.log("[DEBUG] GET /debug/timesheet route registered");
 // --- Employee CRUD routes ---
 app.use("/api/employees", employeesRouter);
 console.log("[DEBUG] /api/employees routes registered");
+
+// --- Slot Template CRUD routes ---
+app.use("/api/slots", slotsRouter);
+console.log("[DEBUG] /api/slots routes registered");
 
 const port = process.env.PORT || 3000;
 function dumpRoutes(app) {
