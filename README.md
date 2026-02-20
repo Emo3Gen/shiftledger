@@ -34,44 +34,61 @@ ShiftLedger is a mobile-first Flutter Web app designed to work as a Telegram Min
 ## Project Structure
 
 ```
-lib/
-├── main.dart           # Entry point
-├── models/            # Data models
-└── ... (screens, services, utils)
+backend/              # Express 5 API server
+  server.js           # Main server + debug endpoints
+  factsParserV0.js    # NL/DSL parser (Russian + English)
+  scheduleEngineV0.js # Auto-scheduling engine
+  telegram/           # Telegram bot (grammY)
+  __tests__/          # Jest tests
+apps/simulator/       # Chat Simulator (React + Vite)
+  src/App.tsx         # 3-column debug UI
 ```
 
 ## Getting Started
 
 ### Prerequisites
-- Flutter SDK 3.0+
-- Dart 3.0+
+- Node.js 18+
+- Supabase project (or local)
 
-### Installation
+### Backend
 
 ```bash
-flutter pub get
-flutter run -d web
+cd backend
+cp .env.example .env.dev   # fill in SUPABASE_URL, SUPABASE_KEY
+npm install
+npm test                   # 132 tests
+node server.js             # http://localhost:3000
 ```
 
-## Architecture
+### Chat Simulator
 
-- **Models**: Core data structures (Employee, Shift, CleaningRecord, etc.)
-- **Services**: Business logic and data management
-- **UI**: Mobile-first widget-based interface
-- **State Management**: Provider pattern for reactive updates
+```bash
+# 1. Start the backend first (port 3000)
+node backend/server.js
 
-## Data Models
+# 2. Start the simulator (port 4173)
+cd apps/simulator
+npm install
+npm run dev
+# Open http://localhost:4173
+```
 
-- **Location**: Office/daycare location
-- **Employee**: Staff member with role and rates
-- **Shift**: Work schedule entry
-- **CleaningRecord**: Cleaning task completion
-- **ExtraClassRecord**: Additional class with payment
-- **ExtraClassType**: Available class types and rates
+The simulator proxies `/debug/*`, `/api/*`, `/health` to the backend via Vite dev server.
+
+**3-column layout:**
+- Left: tenant selector + dialog list
+- Center: chat window with message input
+- Right: debug panel (facts, schedule grid, timesheet, week state)
+
+### Swagger UI
+
+```
+http://localhost:3000/api-docs
+```
 
 ## Current Status
 
-This is an MVP (Minimum Viable Product) with mock data. Ready for further development in Cursor IDE.
+MVP with NL parser (Russian), Telegram bot, schedule engine, timesheet calculator, and debug simulator.
 
 ## License
 
