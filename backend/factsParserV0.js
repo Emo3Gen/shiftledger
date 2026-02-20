@@ -614,22 +614,23 @@ function parseRussianNL(text, receivedAt) {
   const lower = text.toLowerCase();
 
   // Detect negative before positive (не могу before могу)
-  const negativeKeywords = ["не могу", "не смогу", "занята", "занят", "нет"];
-  const positiveKeywords = ["могу", "свободна", "свободен", "ок", "да"];
+  // Use explicit delimiters — \b doesn't work with Cyrillic in JS
+  const S = "(?:^|[\\s,])"; // start-or-separator
+  const E = "(?:[\\s,]|$)"; // end-or-separator
+  const negativePatterns = [/не\s+могу/, /не\s+смогу/, new RegExp(S + "занята?" + E), new RegExp(S + "нет" + E)];
+  const positivePatterns = [new RegExp(S + "могу" + E), new RegExp(S + "свободн"), new RegExp(S + "ок" + E), new RegExp(S + "да," )];
 
   let isNegative = false;
   let isPositive = false;
 
-  for (const kw of negativeKeywords) {
-    if (lower.includes(kw)) { isNegative = true; break; }
+  for (const re of negativePatterns) {
+    if (re.test(lower)) { isNegative = true; break; }
   }
   if (!isNegative) {
-    for (const kw of positiveKeywords) {
-      if (lower.includes(kw)) { isPositive = true; break; }
+    for (const re of positivePatterns) {
+      if (re.test(lower)) { isPositive = true; break; }
     }
   }
-
-  if (!isNegative && !isPositive) return [];
 
   const dowInfo = extractRuDow(lower);
   if (!dowInfo) return [];
@@ -637,19 +638,42 @@ function parseRussianNL(text, receivedAt) {
   const time = extractTime(lower);
   if (!time) return [];
 
-  const date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+  // Full form with explicit marker → high confidence
+  if (isNegative || isPositive) {
+    const date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+    return [{
+      fact_type: isNegative ? "SHIFT_UNAVAILABILITY" : "SHIFT_AVAILABILITY",
+      fact_payload: {
+        date,
+        dow: dowInfo.dow,
+        from: time.from,
+        to: time.to,
+        availability: isNegative ? "cannot" : "can",
+        notes: text,
+      },
+      confidence: 0.85,
+    }];
+  }
 
+  // Short form: day + time only, no keyword → default to availability, lower confidence
+  // Skip if swap keywords present — let the swap parser handle those
+  const swapKw = ["поменяй", "поменяться", "обмен", "замени меня", "сменяться"];
+  if (swapKw.some((k) => lower.includes(k))) return [];
+
+  // Check for leading minus/dash as negation: "- пн 10-13"
+  const isShortNegative = /^\s*[-–—]\s/.test(text);
+  const date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
   return [{
-    fact_type: isNegative ? "SHIFT_UNAVAILABILITY" : "SHIFT_AVAILABILITY",
+    fact_type: isShortNegative ? "SHIFT_UNAVAILABILITY" : "SHIFT_AVAILABILITY",
     fact_payload: {
       date,
       dow: dowInfo.dow,
       from: time.from,
       to: time.to,
-      availability: isNegative ? "cannot" : "can",
+      availability: isShortNegative ? "cannot" : "can",
       notes: text,
     },
-    confidence: 0.85,
+    confidence: 0.6,
   }];
 }
 

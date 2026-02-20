@@ -157,6 +157,100 @@ describe("factsParserV0", () => {
     test("пн 10-13 не могу", () => expectUnavail("пн 10-13 не могу", "mon", "10:00", "13:00"));
   });
 
+  describe("NL: Short forms (day + time, no keyword)", () => {
+    test("пн 10-13 → SHIFT_AVAILABILITY, confidence 0.6", () => {
+      const facts = parseEventToFacts({ text: "пн 10-13", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("SHIFT_AVAILABILITY");
+      expect(facts[0].fact_payload.dow).toBe("mon");
+      expect(facts[0].fact_payload.from).toBe("10:00");
+      expect(facts[0].fact_payload.to).toBe("13:00");
+      expect(facts[0].confidence).toBe(0.6);
+    });
+
+    test("вт вечер → SHIFT_AVAILABILITY tue 18-21, confidence 0.6", () => {
+      const facts = parseEventToFacts({ text: "вт вечер", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("SHIFT_AVAILABILITY");
+      expect(facts[0].fact_payload.dow).toBe("tue");
+      expect(facts[0].fact_payload.from).toBe("18:00");
+      expect(facts[0].fact_payload.to).toBe("21:00");
+      expect(facts[0].confidence).toBe(0.6);
+    });
+
+    test("среда утро → SHIFT_AVAILABILITY wed 10-13, confidence 0.6", () => {
+      const facts = parseEventToFacts({ text: "среда утро", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("SHIFT_AVAILABILITY");
+      expect(facts[0].fact_payload.dow).toBe("wed");
+      expect(facts[0].confidence).toBe(0.6);
+    });
+
+    test("чт 18-21 → SHIFT_AVAILABILITY thu", () => {
+      const facts = parseEventToFacts({ text: "чт 18-21", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("SHIFT_AVAILABILITY");
+      expect(facts[0].fact_payload.dow).toBe("thu");
+      expect(facts[0].confidence).toBe(0.6);
+    });
+
+    test("пт день → SHIFT_AVAILABILITY fri 13-18, confidence 0.6", () => {
+      const facts = parseEventToFacts({ text: "пт день", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("SHIFT_AVAILABILITY");
+      expect(facts[0].fact_payload.dow).toBe("fri");
+      expect(facts[0].fact_payload.from).toBe("13:00");
+      expect(facts[0].fact_payload.to).toBe("18:00");
+      expect(facts[0].confidence).toBe(0.6);
+    });
+
+    test("- пн 10-13 → SHIFT_UNAVAILABILITY (leading dash), confidence 0.6", () => {
+      const facts = parseEventToFacts({ text: "- пн 10-13", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("SHIFT_UNAVAILABILITY");
+      expect(facts[0].fact_payload.dow).toBe("mon");
+      expect(facts[0].confidence).toBe(0.6);
+    });
+
+    test("нет сб утро → SHIFT_UNAVAILABILITY (keyword 'нет'), confidence 0.85", () => {
+      const facts = parseEventToFacts({ text: "нет сб утро", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("SHIFT_UNAVAILABILITY");
+      expect(facts[0].fact_payload.dow).toBe("sat");
+      expect(facts[0].confidence).toBe(0.85);
+    });
+  });
+
+  describe("NL: Short forms do NOT override full form keywords", () => {
+    test("могу пн 10-13 → confidence 0.85 (full form)", () => {
+      const facts = parseEventToFacts({ text: "могу пн 10-13", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("SHIFT_AVAILABILITY");
+      expect(facts[0].confidence).toBe(0.85);
+    });
+
+    test("свободна ср утро → confidence 0.85 (full form)", () => {
+      const facts = parseEventToFacts({ text: "свободна ср утро", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("SHIFT_AVAILABILITY");
+      expect(facts[0].confidence).toBe(0.85);
+    });
+
+    test("не могу вт вечер → SHIFT_UNAVAILABILITY, confidence 0.85", () => {
+      const facts = parseEventToFacts({ text: "не могу вт вечер", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("SHIFT_UNAVAILABILITY");
+      expect(facts[0].confidence).toBe(0.85);
+    });
+  });
+
+  describe("NL: day-only without time → empty (not a valid short form)", () => {
+    test("пн → empty array", () => {
+      const facts = parseEventToFacts({ text: "пн", received_at: RECEIVED_AT });
+      expect(facts).toEqual([]);
+    });
+  });
+
   describe("NL: non-scheduling text", () => {
     test("'Привет, как дела?' → empty array", () => {
       const facts = parseEventToFacts({ text: "Привет, как дела?", received_at: RECEIVED_AT });
