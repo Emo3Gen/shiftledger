@@ -11,6 +11,8 @@ import { buildDraftSchedule } from "./scheduleEngineV0.js";
 import { buildTimesheet } from "./timesheetV0.js";
 import { computeWeekState } from "./weekStateV0.js";
 import { UserDirectory } from "./userDirectory.js";
+import employeesRouter from "./routes/employees.js";
+import * as employeeService from "./employeeService.js";
 import { requireApiKey } from "./middleware/auth.js";
 import { validateBody, validateQuery, validateParams } from "./middleware/validate.js";
 import {
@@ -1116,6 +1118,10 @@ app.get("/debug/timesheet", validateQuery(ScheduleQuerySchema), async (req, res)
 });
 console.log("[DEBUG] GET /debug/timesheet route registered");
 
+// --- Employee CRUD routes ---
+app.use("/api/employees", employeesRouter);
+console.log("[DEBUG] /api/employees routes registered");
+
 const port = process.env.PORT || 3000;
 function dumpRoutes(app) {
   try {
@@ -1135,6 +1141,9 @@ function dumpRoutes(app) {
 
 dumpRoutes(app);
 
-app.listen(port, () => {
-  console.log(`[backend] listening on http://127.0.0.1:${port} (env=${envName})`);
+// Sync employees from DB into UserDirectory on startup, then start server
+UserDirectory.syncFromDB(employeeService).finally(() => {
+  app.listen(port, () => {
+    console.log(`[backend] listening on http://127.0.0.1:${port} (env=${envName})`);
+  });
 });

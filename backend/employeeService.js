@@ -1,0 +1,133 @@
+/**
+ * Employee Service
+ *
+ * CRUD operations for employees table.
+ * Falls back to in-memory userDirectory if Supabase is unavailable.
+ */
+
+import { supabase } from "./supabaseClient.js";
+import { UserDirectory } from "./userDirectory.js";
+
+/**
+ * Convert UserDirectory entry to employee format (for fallback).
+ */
+function userToEmployee(id, user) {
+  return {
+    id: user.id,
+    name: user.displayName,
+    role: user.role,
+    rate_per_hour: user.ratePerHour,
+    min_hours_per_week: user.minHours || 0,
+    max_hours_per_week: 40,
+    is_active: true,
+    meta: {},
+    created_at: null,
+    updated_at: null,
+  };
+}
+
+/**
+ * Get all active employees.
+ */
+export async function getAll() {
+  try {
+    const { data, error } = await supabase
+      .from("employees")
+      .select("*")
+      .eq("is_active", true)
+      .order("id");
+
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    console.warn("[employeeService] getAll fallback to UserDirectory:", err.message);
+    // Fallback: return from UserDirectory (only canonical entries u1-u4)
+    const result = [];
+    const seen = new Set();
+    for (const [key, user] of UserDirectory.users.entries()) {
+      if (user.id.startsWith("u") && !seen.has(user.id)) {
+        seen.add(user.id);
+        result.push(userToEmployee(key, user));
+      }
+    }
+    return result;
+  }
+}
+
+/**
+ * Get employee by ID.
+ */
+export async function getById(id) {
+  try {
+    const { data, error } = await supabase
+      .from("employees")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    console.warn("[employeeService] getById fallback:", err.message);
+    const user = UserDirectory.getUser(id);
+    if (!user) return null;
+    return userToEmployee(id, user);
+  }
+}
+
+/**
+ * Create a new employee.
+ */
+export async function create(employee) {
+  const { data, error } = await supabase
+    .from("employees")
+    .insert({
+      id: employee.id,
+      name: employee.name,
+      role: employee.role || "staff",
+      rate_per_hour: employee.rate_per_hour || 0,
+      min_hours_per_week: employee.min_hours_per_week || 0,
+      max_hours_per_week: employee.max_hours_per_week || 40,
+      is_active: true,
+      meta: employee.meta || {},
+    })
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Update an employee.
+ */
+export async function update(id, fields) {
+  const updateData = { ...fields, updated_at: new Date().toISOString() };
+  // Don't allow changing id
+  delete updateData.id;
+
+  const { data, error } = await supabase
+    .from("employees")
+    .update(updateData)
+    .eq("id", id)
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Soft-delete (deactivate) an employee.
+ */
+export async function deactivate(id) {
+  const { data, error } = await supabase
+    .from("employees")
+    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data;
+}
