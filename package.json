@@ -10,6 +10,7 @@
   },
   "scripts": {
     "test": "jest --verbose --coverage",
+    "lint": "echo 'No linter configured yet'",
     "simulator:dev": "cd apps/simulator && npm run dev"
   },
   "repository": {
