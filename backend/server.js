@@ -20,6 +20,7 @@ import { validateBody, validateQuery, validateParams } from "./middleware/valida
 import logger from "./logger.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 import { generalLimiter, ingestLimiter } from "./middleware/rateLimiter.js";
+import { createBot } from "./telegram/bot.js";
 import {
   IngestSchema,
   DebugSendSchema,
@@ -1167,5 +1168,41 @@ dumpRoutes(app);
 UserDirectory.syncFromDB(employeeService).finally(() => {
   app.listen(port, () => {
     logger.info({ port: Number(port), env: envName }, "Server started");
+
+    // Start Telegram bot if token is configured
+    if (process.env.TELEGRAM_BOT_TOKEN) {
+      const botIngest = async (payload) => {
+        return ingestInternal({
+          source: "telegram",
+          chat_id: payload.chat_id,
+          user_id: payload.user_id,
+          text: payload.text,
+          meta: payload.meta,
+          tenant_id: payload.tenant_id,
+          traceId: undefined,
+        });
+      };
+      const botSchedule = async (chatId) => {
+        const slotTypes = await loadSlotTypes(process.env.DEFAULT_TENANT_ID || "dev");
+        const { data: facts } = await supabase
+          .from("facts")
+          .select("*")
+          .eq("chat_id", chatId)
+          .order("created_at", { ascending: true })
+          .limit(500);
+        const weekStartISO = new Date(new Date().setUTCHours(0, 0, 0, 0)).toISOString().slice(0, 10);
+        return buildDraftSchedule({ facts: facts ?? [], weekStartISO, slotTypes });
+      };
+
+      const mode = process.env.TELEGRAM_MODE || "polling";
+      const bot = createBot(botIngest, botSchedule);
+      if (bot) {
+        if (mode === "webhook") {
+          logger.info("Telegram bot started in webhook mode (configure WEBHOOK_URL externally)");
+        } else {
+          bot.start({ onStart: () => logger.info("Telegram bot started (long polling)") });
+        }
+      }
+    }
   });
 });
