@@ -114,19 +114,85 @@ describe("formatFacts", () => {
 // --- formatSchedule ---
 
 describe("formatSchedule", () => {
-  test("formats slots into monospace table with Russian day names", () => {
+  test("renders compact grid with Russian day names and employee names", () => {
     const schedule = {
+      week_start: "2026-02-24",
       slots: [
-        { dow: "mon", from: "10:00", to: "13:00", slot_name: "Утро", assigned_user_id: "u1" },
-        { dow: "mon", from: "18:00", to: "21:00", slot_name: "Вечер", assigned_user_id: null },
+        { dow: "mon", from: "10:00", to: "13:00", slot_name: "Утро", user_id: "u1" },
+        { dow: "mon", from: "18:00", to: "21:00", slot_name: "Вечер", user_id: null },
+        { dow: "tue", from: "10:00", to: "13:00", slot_name: "Утро", user_id: "u2" },
+        { dow: "tue", from: "18:00", to: "21:00", slot_name: "Вечер", user_id: "u3" },
       ],
+      gaps: [],
+      conflicts: [],
     };
     const result = formatSchedule(schedule);
     expect(result).toContain("<pre>");
+    expect(result).toContain("📅 24–28 фев 2026");
     expect(result).toContain("Пн");
-    expect(result).toContain("10:00–13:00");
-    expect(result).toContain("u1");
+    expect(result).toContain("Вт");
+    expect(result).toContain("Утро");
+    expect(result).toContain("Вечер");
+    // Employee names from UserDirectory (u1=Иса, u2=Дарина, u3=Ксюша)
+    expect(result).toContain("Иса");
+    expect(result).toContain("Дарина");
+    expect(result).toContain("Ксюша");
+    // Unassigned slot
     expect(result).toContain("—");
+    // Legend
+    expect(result).toContain("✅ — назначено");
+  });
+
+  test("shows gaps section when gaps exist", () => {
+    const schedule = {
+      slots: [
+        { dow: "mon", from: "18:00", to: "21:00", slot_name: "Вечер", user_id: null },
+      ],
+      gaps: [{ dow: "mon", from: "18:00", to: "21:00", reason: "no candidates" }],
+      conflicts: [],
+    };
+    const result = formatSchedule(schedule);
+    expect(result).toContain("⚠️ Пробелы:");
+    expect(result).toContain("Пн 18:00–21:00");
+  });
+
+  test("shows conflicts section when conflicts exist", () => {
+    const schedule = {
+      slots: [
+        { dow: "wed", from: "10:00", to: "13:00", slot_name: "Утро", user_id: "u1" },
+      ],
+      gaps: [],
+      conflicts: [{ dow: "wed", from: "10:00", to: "13:00", reason: "двойное назначение" }],
+    };
+    const result = formatSchedule(schedule);
+    expect(result).toContain("❌ Конфликты:");
+    expect(result).toContain("Ср 10:00–13:00 — двойное назначение");
+  });
+
+  test("shows 'Нет' when no conflicts", () => {
+    const schedule = {
+      slots: [
+        { dow: "mon", from: "10:00", to: "13:00", slot_name: "Утро", user_id: "u1" },
+      ],
+      gaps: [],
+      conflicts: [],
+    };
+    const result = formatSchedule(schedule);
+    expect(result).toContain("❌ Конфликты:\nНет");
+  });
+
+  test("shows week range across months", () => {
+    const schedule = {
+      week_start: "2026-01-28",
+      slots: [
+        { dow: "mon", from: "10:00", to: "13:00", slot_name: "Утро", user_id: "u1" },
+      ],
+      gaps: [],
+      conflicts: [],
+    };
+    const result = formatSchedule(schedule);
+    // Jan 28 + 4 = Feb 1, so cross-month
+    expect(result).toContain("28 янв – 1 фев 2026");
   });
 
   test("returns empty message for null schedule", () => {
@@ -135,5 +201,17 @@ describe("formatSchedule", () => {
 
   test("returns empty message for empty slots", () => {
     expect(formatSchedule({ slots: [] })).toBe("Расписание пусто.");
+  });
+
+  test("falls back to assigned_user_id when user_id is absent", () => {
+    const schedule = {
+      slots: [
+        { dow: "mon", from: "10:00", to: "13:00", slot_name: "Утро", assigned_user_id: "u1" },
+      ],
+      gaps: [],
+      conflicts: [],
+    };
+    const result = formatSchedule(schedule);
+    expect(result).toContain("Иса");
   });
 });
