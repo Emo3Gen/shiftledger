@@ -1,7 +1,8 @@
 import rateLimit from "express-rate-limit";
 
-const generalMax = parseInt(process.env.RATE_LIMIT_GENERAL, 10) || 100;
-const ingestMax = parseInt(process.env.RATE_LIMIT_INGEST, 10) || 30;
+const isDev = process.env.NODE_ENV !== "production";
+const generalMax = parseInt(process.env.RATE_LIMIT_GENERAL, 10) || (isDev ? 1000 : 100);
+const ingestMax = parseInt(process.env.RATE_LIMIT_INGEST, 10) || (isDev ? 500 : 30);
 
 /** Global rate limiter — 100 req / 15 min */
 export const generalLimiter = rateLimit({
