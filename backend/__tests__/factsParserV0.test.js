@@ -116,53 +116,55 @@ describe("factsParserV0", () => {
 
   // --- NL Russian parsing ---
 
-  describe("NL: Russian availability", () => {
-    test("'Могу утро' with day context → SHIFT_AVAILABILITY can", () => {
-      const facts = parseEventToFacts({ text: "Пн утро могу", received_at: RECEIVED_AT });
-      // Should detect "могу" + "утро"
-      const avail = facts.find((f) => f.fact_type === "SHIFT_AVAILABILITY");
-      expect(avail).toBeDefined();
-      expect(avail.fact_payload.availability).toBe("can");
-      expect(avail.fact_payload.shift).toBe("morning");
+  describe("NL: Russian availability (positive)", () => {
+    function expectAvail(text, dow, from, to) {
+      const facts = parseEventToFacts({ text, received_at: RECEIVED_AT });
+      const f = facts.find((x) => x.fact_type === "SHIFT_AVAILABILITY");
+      expect(f).toBeDefined();
+      expect(f.fact_payload.availability).toBe("can");
+      expect(f.fact_payload.dow).toBe(dow);
+      expect(f.fact_payload.from).toBe(from);
+      expect(f.fact_payload.to).toBe(to);
+    }
+
+    test("могу пн 10-13", () => expectAvail("могу пн 10-13", "mon", "10:00", "13:00"));
+    test("могу понедельник 10-13", () => expectAvail("могу понедельник 10-13", "mon", "10:00", "13:00"));
+    test("пн утро могу", () => expectAvail("пн утро могу", "mon", "10:00", "13:00"));
+    test("могу в среду с 14 до 17", () => expectAvail("могу в среду с 14 до 17", "wed", "14:00", "17:00"));
+    test("свободна пн 10-13", () => expectAvail("свободна пн 10-13", "mon", "10:00", "13:00"));
+    test("ок пн 10-13", () => expectAvail("ок пн 10-13", "mon", "10:00", "13:00"));
+    test("да, могу пн 10-13", () => expectAvail("да, могу пн 10-13", "mon", "10:00", "13:00"));
+    test("пн 10-13 могу", () => expectAvail("пн 10-13 могу", "mon", "10:00", "13:00"));
+    test("могу пн утро", () => expectAvail("могу пн утро", "mon", "10:00", "13:00"));
+    test("могу пн вечер", () => expectAvail("могу пн вечер", "mon", "18:00", "21:00"));
+  });
+
+  describe("NL: Russian unavailability (negative)", () => {
+    function expectUnavail(text, dow, from, to) {
+      const facts = parseEventToFacts({ text, received_at: RECEIVED_AT });
+      const f = facts.find((x) => x.fact_type === "SHIFT_UNAVAILABILITY");
+      expect(f).toBeDefined();
+      expect(f.fact_payload.availability).toBe("cannot");
+      expect(f.fact_payload.dow).toBe(dow);
+      expect(f.fact_payload.from).toBe(from);
+      expect(f.fact_payload.to).toBe(to);
+    }
+
+    test("не могу пн 10-13", () => expectUnavail("не могу пн 10-13", "mon", "10:00", "13:00"));
+    test("не смогу в четверг вечером", () => expectUnavail("не смогу в четверг вечером", "thu", "18:00", "21:00"));
+    test("занята пн 10-13", () => expectUnavail("занята пн 10-13", "mon", "10:00", "13:00"));
+    test("нет пн 10-13", () => expectUnavail("нет пн 10-13", "mon", "10:00", "13:00"));
+    test("пн 10-13 не могу", () => expectUnavail("пн 10-13 не могу", "mon", "10:00", "13:00"));
+  });
+
+  describe("NL: non-scheduling text", () => {
+    test("'Привет, как дела?' → empty array", () => {
+      const facts = parseEventToFacts({ text: "Привет, как дела?", received_at: RECEIVED_AT });
+      expect(facts).toEqual([]);
     });
 
-    test("'В четверг вечером не смогу' → SHIFT_AVAILABILITY cannot", () => {
-      const facts = parseEventToFacts({
-        text: "В четверг вечером не могу",
-        received_at: RECEIVED_AT,
-      });
-      const avail = facts.find((f) => f.fact_type === "SHIFT_AVAILABILITY");
-      expect(avail).toBeDefined();
-      expect(avail.fact_payload.availability).toBe("cannot");
-      expect(avail.fact_payload.shift).toBe("evening");
-    });
-
-    test("'Могу в среду с 14 до 17' → SHIFT_AVAILABILITY with time_window", () => {
-      const facts = parseEventToFacts({
-        text: "Могу в среду утро с 14 до 17",
-        received_at: RECEIVED_AT,
-      });
-      const avail = facts.find((f) => f.fact_type === "SHIFT_AVAILABILITY");
-      expect(avail).toBeDefined();
-      expect(avail.fact_payload.availability).toBe("can");
-      expect(avail.fact_payload.time_window).toEqual({ from: "14:00", to: "17:00" });
-    });
-
-    test("'Не могу в пятницу вечер' → SHIFT_AVAILABILITY cannot", () => {
-      const facts = parseEventToFacts({
-        text: "Не могу в пятницу вечер",
-        received_at: RECEIVED_AT,
-      });
-      const avail = facts.find((f) => f.fact_type === "SHIFT_AVAILABILITY");
-      expect(avail).toBeDefined();
-      expect(avail.fact_payload.availability).toBe("cannot");
-    });
-
-    test("non-scheduling text 'Привет, как дела?' → empty array", () => {
-      const facts = parseEventToFacts({
-        text: "Привет, как дела?",
-        received_at: RECEIVED_AT,
-      });
+    test("'Привет!' → empty array", () => {
+      const facts = parseEventToFacts({ text: "Привет!", received_at: RECEIVED_AT });
       expect(facts).toEqual([]);
     });
   });

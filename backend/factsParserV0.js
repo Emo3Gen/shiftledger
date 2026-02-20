@@ -541,6 +541,118 @@ function parseCommandFormat(text, receivedAt) {
   return []; // Not a command format, return empty array
 }
 
+// Russian day-of-week map (full + abbreviated) → dow code
+const RU_DOW_MAP = {
+  пн: "mon", понедельник: "mon",
+  вт: "tue", вторник: "tue",
+  ср: "wed", среда: "wed", среду: "wed",
+  чт: "thu", четверг: "thu",
+  пт: "fri", пятница: "fri", пятницу: "fri",
+  сб: "sat", суббота: "sat", субботу: "sat",
+  вс: "sun", воскресенье: "sun",
+};
+
+// Named time slots
+const NAMED_TIMES = {
+  утро: { from: "10:00", to: "13:00" },
+  утром: { from: "10:00", to: "13:00" },
+  вечер: { from: "18:00", to: "21:00" },
+  вечером: { from: "18:00", to: "21:00" },
+  день: { from: "13:00", to: "18:00" },
+  днём: { from: "13:00", to: "18:00" },
+  днем: { from: "13:00", to: "18:00" },
+};
+
+/**
+ * Extract Russian dow from text. Returns { dow, dowIndex } or null.
+ */
+function extractRuDow(text) {
+  // Try full names first (longer match), then abbreviations
+  const sorted = Object.keys(RU_DOW_MAP).sort((a, b) => b.length - a.length);
+  for (const key of sorted) {
+    const re = new RegExp(`(?:^|\\s|,)${key}(?:\\s|,|$)`, "i");
+    if (re.test(text)) {
+      const dow = RU_DOW_MAP[key];
+      return { dow, dowIndex: DOW_MAP[dow] };
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract time range from text. Returns { from, to } or null.
+ * Supports: "10-13", "10:00-13:00", "с 10 до 13", "утро", "вечер", "день"
+ */
+function extractTime(text) {
+  // "с 10 до 13" or "с 10:00 до 13:00"
+  const tw = parseTimeWindow(text);
+  if (tw) return tw;
+
+  // "10:00-13:00" or "10-13"
+  const rangeMatch = text.match(/(\d{1,2})(?::(\d{2}))?\s*[-–]\s*(\d{1,2})(?::(\d{2}))?/);
+  if (rangeMatch) {
+    const h1 = rangeMatch[1].padStart(2, "0");
+    const m1 = (rangeMatch[2] || "00").padStart(2, "0");
+    const h2 = rangeMatch[3].padStart(2, "0");
+    const m2 = (rangeMatch[4] || "00").padStart(2, "0");
+    return { from: `${h1}:${m1}`, to: `${h2}:${m2}` };
+  }
+
+  // Named time slots
+  for (const [key, val] of Object.entries(NAMED_TIMES)) {
+    if (text.includes(key)) return { ...val };
+  }
+
+  return null;
+}
+
+/**
+ * Try to parse Russian NL availability/unavailability.
+ * Returns array of facts or empty array.
+ */
+function parseRussianNL(text, receivedAt) {
+  const lower = text.toLowerCase();
+
+  // Detect negative before positive (не могу before могу)
+  const negativeKeywords = ["не могу", "не смогу", "занята", "занят", "нет"];
+  const positiveKeywords = ["могу", "свободна", "свободен", "ок", "да"];
+
+  let isNegative = false;
+  let isPositive = false;
+
+  for (const kw of negativeKeywords) {
+    if (lower.includes(kw)) { isNegative = true; break; }
+  }
+  if (!isNegative) {
+    for (const kw of positiveKeywords) {
+      if (lower.includes(kw)) { isPositive = true; break; }
+    }
+  }
+
+  if (!isNegative && !isPositive) return [];
+
+  const dowInfo = extractRuDow(lower);
+  if (!dowInfo) return [];
+
+  const time = extractTime(lower);
+  if (!time) return [];
+
+  const date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+
+  return [{
+    fact_type: isNegative ? "SHIFT_UNAVAILABILITY" : "SHIFT_AVAILABILITY",
+    fact_payload: {
+      date,
+      dow: dowInfo.dow,
+      from: time.from,
+      to: time.to,
+      availability: isNegative ? "cannot" : "can",
+      notes: text,
+    },
+    confidence: 0.85,
+  }];
+}
+
 export function parseEventToFacts(event) {
   const results = [];
   const text = (event.text || "").trim();
@@ -574,29 +686,12 @@ export function parseEventToFacts(event) {
       },
       confidence: 0.8,
     });
+    return results;
   }
 
-  // Rule 2: SHIFT_AVAILABILITY
-  const hasCannot = lower.includes("не могу");
-  const hasCan = lower.includes("могу");
-  if (hasCannot || hasCan) {
-    const shift = detectShift(lower);
-    if (shift) {
-      const date = resolveDate(lower, receivedAt);
-      const timeWindow = parseTimeWindow(lower);
-      results.push({
-        fact_type: "SHIFT_AVAILABILITY",
-        fact_payload: {
-          date,
-          shift,
-          availability: hasCannot ? "cannot" : "can",
-          time_window: timeWindow || null,
-          notes: text,
-        },
-        confidence: 0.75,
-      });
-    }
-  }
+  // Rule 2: Russian NL availability / unavailability
+  const nlResults = parseRussianNL(text, receivedAt);
+  if (nlResults.length > 0) return nlResults;
 
   // Rule 3: SHIFT_SWAP_REQUEST (very simple, requires two shift mentions)
   const swapKeywords = ["поменяй", "поменяться", "обмен", "замени меня", "сменяться"];
@@ -643,7 +738,6 @@ export function parseEventToFacts(event) {
     }
   }
 
-  // Гарантируем, что функция ВСЕГДА возвращает массив
   return results;
 }
 
