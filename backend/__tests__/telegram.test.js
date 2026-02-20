@@ -41,28 +41,48 @@ describe("buildIngestPayload", () => {
 // --- formatFacts ---
 
 describe("formatFacts", () => {
-  test("formats SHIFT_AVAILABILITY correctly", () => {
+  test("formats SHIFT_AVAILABILITY with Russian day name", () => {
     const facts = [
       {
         fact_type: "SHIFT_AVAILABILITY",
-        fact_payload: { availability: "can", dow: "mon", from: "10:00", to: "13:00" },
+        fact_payload: { dow: "mon", from: "10:00", to: "13:00" },
       },
     ];
     const result = formatFacts(facts);
-    expect(result).toContain("доступен");
-    expect(result).toContain("mon");
-    expect(result).toContain("10:00");
+    expect(result).toBe("доступность Пн 10:00–13:00");
   });
 
-  test("formats unavailability", () => {
+  test("formats SHIFT_UNAVAILABILITY with Russian day name", () => {
     const facts = [
       {
-        fact_type: "SHIFT_AVAILABILITY",
-        fact_payload: { availability: "cant", dow: "tue", from: "10:00", to: "13:00" },
+        fact_type: "SHIFT_UNAVAILABILITY",
+        fact_payload: { dow: "tue", from: "10:00", to: "13:00" },
       },
     ];
     const result = formatFacts(facts);
-    expect(result).toContain("не может");
+    expect(result).toBe("недоступность Вт 10:00–13:00");
+  });
+
+  test("formats SWAP_REQUEST with Russian day name", () => {
+    const facts = [
+      {
+        fact_type: "SWAP_REQUEST",
+        fact_payload: { dow: "wed", from: "10:00", to: "13:00" },
+      },
+    ];
+    const result = formatFacts(facts);
+    expect(result).toBe("запрос на замену Ср 10:00–13:00");
+  });
+
+  test("formats GAP_DECLARATION with Russian day name", () => {
+    const facts = [
+      {
+        fact_type: "GAP_DECLARATION",
+        fact_payload: { dow: "thu", from: "18:00", to: "21:00" },
+      },
+    ];
+    const result = formatFacts(facts);
+    expect(result).toBe("пробел в графике Чт 18:00–21:00");
   });
 
   test("returns empty string for empty array", () => {
@@ -94,7 +114,7 @@ describe("formatFacts", () => {
 // --- formatSchedule ---
 
 describe("formatSchedule", () => {
-  test("formats slots into monospace table", () => {
+  test("formats slots into monospace table with Russian day names", () => {
     const schedule = {
       slots: [
         { dow: "mon", from: "10:00", to: "13:00", slot_name: "Утро", assigned_user_id: "u1" },

@@ -34,32 +34,36 @@ export function buildIngestPayload(ctx) {
   };
 }
 
-const HELP_TEXT = `Команды ShiftLedger:
-
-<b>Доступность:</b>
-AVAIL mon 10-13 — могу работать
-CANT tue — не могу весь день
-
-<b>Обмен:</b>
-SWAP u1 u2 mon 10-13 — обмен сменами
-
-<b>На русском:</b>
-"могу пн 10-13" — доступность
-"не могу вт" — недоступность
-"обмен Иса Дарина пн утро" — запрос обмена
-
-<b>Бот-команды:</b>
-/start — приветствие
-/help — эта справка
-/schedule — расписание на неделю`;
-
 const WELCOME_TEXT = `Привет! Я бот ShiftLedger для управления расписанием.
 
-Отправьте мне текстовую команду, например:
-• <code>AVAIL mon 10-13</code>
-• <code>могу пн 10-13</code>
+Как сообщить о доступности:
+• могу пн 10-13
+• могу вт утро
+• не могу чт вечер
+• свободна ср с 14 до 17
 
-${HELP_TEXT}`;
+Команды:
+/schedule — расписание на неделю
+/help — справка`;
+
+const HELP_TEXT = `<b>Как пользоваться ShiftLedger</b>
+
+<b>Доступность:</b>
+• могу пн 10-13
+• могу вт утро
+• могу ср вечер
+• свободна чт с 14 до 17
+• ок пт 10-13
+
+<b>Недоступность:</b>
+• не могу пн 10-13
+• не смогу вт вечер
+• занята ср утро
+• нет чт 10-13
+
+<b>Команды:</b>
+/schedule — расписание на неделю
+/help — эта справка`;
 
 /**
  * Create and configure the bot instance.
@@ -104,7 +108,7 @@ export function createBot(ingestFn, scheduleFn) {
         const summary = formatFacts(facts);
         await ctx.reply(`✅ Принято: ${summary}`);
       } else {
-        await ctx.reply("📝 Записано, но не распознано как команда. Попробуйте: AVAIL mon 10-13");
+        await ctx.reply("📝 Записано, но не распознано. Попробуйте написать:\n• могу пн 10-13\n• не могу чт вечер\n• свободна ср с 14 до 17");
       }
     } catch (err) {
       logger.error({ err }, "telegram message handler error");

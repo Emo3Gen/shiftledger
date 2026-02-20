@@ -2,23 +2,26 @@
  * Telegram message formatters — human-readable output in Russian.
  */
 
+const DOW_RU = { mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс" };
+
+function dowRu(dow) {
+  return DOW_RU[dow] || dow;
+}
+
 const FACT_LABELS = {
-  SHIFT_AVAILABILITY: (p) => {
-    const avail = p.availability === "can" ? "доступен" : "не может";
-    return `${avail} ${p.dow} ${p.from}–${p.to}`;
-  },
-  SHIFT_UNAVAILABILITY: (p) => `не может ${p.dow} ${p.from}–${p.to}`,
-  SWAP_REQUEST: (p) => `обмен ${p.from_user} ↔ ${p.to_user} ${p.dow} ${p.from}–${p.to}`,
-  GAP_DECLARATION: (p) => `пробел ${p.dow} ${p.from}–${p.to}`,
-  SHIFT_ASSIGNMENT: (p) => `назначение ${p.assigned_user_id} ${p.dow} ${p.from}–${p.to}`,
-  SHIFT_WORKED: (p) => `отработано ${p.user_id} ${p.dow} ${p.from}–${p.to}`,
-  SHIFT_NO_SHOW: (p) => `неявка ${p.user_id} ${p.dow}`,
+  SHIFT_AVAILABILITY: (p) => `доступность ${dowRu(p.dow)} ${p.from}–${p.to}`,
+  SHIFT_UNAVAILABILITY: (p) => `недоступность ${dowRu(p.dow)} ${p.from}–${p.to}`,
+  SWAP_REQUEST: (p) => `запрос на замену ${dowRu(p.dow)} ${p.from}–${p.to}`,
+  GAP_DECLARATION: (p) => `пробел в графике ${dowRu(p.dow)} ${p.from}–${p.to}`,
+  SHIFT_ASSIGNMENT: (p) => `назначение ${p.assigned_user_id} ${dowRu(p.dow)} ${p.from}–${p.to}`,
+  SHIFT_WORKED: (p) => `отработано ${p.user_id} ${dowRu(p.dow)} ${p.from}–${p.to}`,
+  SHIFT_NO_SHOW: (p) => `неявка ${p.user_id} ${dowRu(p.dow)}`,
   WEEK_OPEN: () => "неделя открыта для сбора",
   WEEK_PROPOSE: () => "график предложен",
   WEEK_LOCK: () => "график зафиксирован",
   WEEK_CONFIRM: () => "график подтверждён",
   SCHEDULE_CONFIRMED: (p) => `подтверждение от ${p.user_id}`,
-  CONFIRM_SHIFT_FACT: (p) => `подтверждение смены ${p.dow} ${p.from}–${p.to}: ${p.status}`,
+  CONFIRM_SHIFT_FACT: (p) => `подтверждение смены ${dowRu(p.dow)} ${p.from}–${p.to}: ${p.status}`,
   OVERTIME_APPROVED: (p) => `переработка одобрена: ${p.user_id}`,
   TIMESHEET_CONFIRMED: () => "табель подтверждён",
   CLEANING_DONE: (p) => `уборка выполнена ${p.user_id}`,
@@ -54,7 +57,6 @@ export function formatSchedule(schedule) {
     return "Расписание пусто.";
   }
 
-  const DOW_RU = { mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс" };
   const lines = [];
 
   for (const slot of schedule.slots) {
