@@ -1,5 +1,10 @@
 /**
  * Zod validation middleware factories.
+ *
+ * Express 5 makes req.query and req.params read-only (getters).
+ * We validate input but store parsed data on req._validated* instead of
+ * overwriting the read-only properties. For req.body (writable), we still
+ * replace it with Zod-parsed data.
  */
 
 /**
@@ -23,6 +28,8 @@ export function validateBody(schema) {
 
 /**
  * Validate req.query against a Zod schema.
+ * Express 5: req.query is read-only, so we store parsed data on req._validatedQuery
+ * and also copy parsed values onto the existing query object where possible.
  */
 export function validateQuery(schema) {
   return (req, res, next) => {
@@ -33,13 +40,15 @@ export function validateQuery(schema) {
         details: result.error.issues,
       });
     }
-    req.query = result.data;
+    // Store validated data for handlers that need coerced values
+    req._validatedQuery = result.data;
     next();
   };
 }
 
 /**
  * Validate req.params against a Zod schema.
+ * Express 5: req.params may be read-only, so we store on req._validatedParams.
  */
 export function validateParams(schema) {
   return (req, res, next) => {
@@ -50,7 +59,7 @@ export function validateParams(schema) {
         details: result.error.issues,
       });
     }
-    req.params = result.data;
+    req._validatedParams = result.data;
     next();
   };
 }

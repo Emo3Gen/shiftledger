@@ -432,7 +432,7 @@ app.get("/events", validateQuery(EventsQuerySchema), async (req, res) => {
 //   curl -s "http://127.0.0.1:3000/debug/dialog/debug_chat?tenant_id=emu"
 // /__ping для простого health-check симулятора
 app.get("/__ping", (req, res) => {
-  res.status(200).json({ ok: true, entry: __filename, cwd: process.cwd() });
+  res.status(200).json({ ok: true, entry: import.meta.url, cwd: process.cwd() });
 });
 console.log("[DEBUG] __ping route registered");
 
