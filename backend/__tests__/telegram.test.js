@@ -3,7 +3,7 @@
  */
 
 import { buildIngestPayload } from "../telegram/bot.js";
-import { formatFacts, formatSchedule } from "../telegram/formatters.js";
+import { formatFacts, formatSchedule, formatWeekState } from "../telegram/formatters.js";
 
 // --- buildIngestPayload ---
 
@@ -63,6 +63,28 @@ describe("formatFacts", () => {
     expect(result).toBe("недоступность Вт 10:00–13:00");
   });
 
+  test("formats SHIFT_UNAVAILABILITY with needs_replacement flag", () => {
+    const facts = [
+      {
+        fact_type: "SHIFT_UNAVAILABILITY",
+        fact_payload: { dow: "thu", from: "10:00", to: "13:00", needs_replacement: true },
+      },
+    ];
+    const result = formatFacts(facts);
+    expect(result).toBe("недоступность Чт 10:00–13:00 (нужна замена)");
+  });
+
+  test("formats SHIFT_REPLACEMENT with Russian day name", () => {
+    const facts = [
+      {
+        fact_type: "SHIFT_REPLACEMENT",
+        fact_payload: { dow: "thu", from: "10:00", to: "13:00" },
+      },
+    ];
+    const result = formatFacts(facts);
+    expect(result).toBe("замена Чт 10:00–13:00");
+  });
+
   test("formats SWAP_REQUEST with Russian day name", () => {
     const facts = [
       {
@@ -107,7 +129,7 @@ describe("formatFacts", () => {
     ];
     const result = formatFacts(facts);
     expect(result).toContain("неделя открыта");
-    expect(result).toContain("зафиксирован");
+    expect(result).toContain("закрыта");
   });
 });
 
@@ -213,5 +235,37 @@ describe("formatSchedule", () => {
     };
     const result = formatSchedule(schedule);
     expect(result).toContain("Иса");
+  });
+
+  test("shows replacement info in schedule", () => {
+    const schedule = {
+      slots: [
+        { dow: "thu", from: "10:00", to: "13:00", slot_name: "Утро", user_id: "u3", replaced_user_id: "u1" },
+      ],
+      gaps: [],
+      conflicts: [],
+    };
+    const result = formatSchedule(schedule);
+    expect(result).toContain("Ксюша (за Иса)");
+  });
+});
+
+// --- formatWeekState ---
+
+describe("formatWeekState", () => {
+  test("translates COLLECTING", () => {
+    expect(formatWeekState("COLLECTING")).toBe("Сбор доступности");
+  });
+
+  test("translates ACTIVE", () => {
+    expect(formatWeekState("ACTIVE")).toBe("График активен");
+  });
+
+  test("translates CLOSED", () => {
+    expect(formatWeekState("CLOSED")).toBe("Неделя закрыта");
+  });
+
+  test("returns unknown state as-is", () => {
+    expect(formatWeekState("UNKNOWN")).toBe("UNKNOWN");
   });
 });

@@ -8,21 +8,32 @@ const DOW_RU = { mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт"
 const DOW_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const MONTHS_RU = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
 
+const STATE_RU = {
+  COLLECTING: "Сбор доступности",
+  ACTIVE: "График активен",
+  CLOSED: "Неделя закрыта",
+};
+
 function dowRu(dow) {
   return DOW_RU[dow] || dow;
 }
 
 const FACT_LABELS = {
   SHIFT_AVAILABILITY: (p) => `доступность ${dowRu(p.dow)} ${p.from}–${p.to}`,
-  SHIFT_UNAVAILABILITY: (p) => `недоступность ${dowRu(p.dow)} ${p.from}–${p.to}`,
+  SHIFT_UNAVAILABILITY: (p) => {
+    const base = `недоступность ${dowRu(p.dow)} ${p.from}–${p.to}`;
+    if (p.needs_replacement) return `${base} (нужна замена)`;
+    return base;
+  },
+  SHIFT_REPLACEMENT: (p) => `замена ${dowRu(p.dow)} ${p.from}–${p.to}`,
   SWAP_REQUEST: (p) => `запрос на замену ${dowRu(p.dow)} ${p.from}–${p.to}`,
   GAP_DECLARATION: (p) => `пробел в графике ${dowRu(p.dow)} ${p.from}–${p.to}`,
   SHIFT_ASSIGNMENT: (p) => `назначение ${p.assigned_user_id} ${dowRu(p.dow)} ${p.from}–${p.to}`,
   SHIFT_WORKED: (p) => `отработано ${p.user_id} ${dowRu(p.dow)} ${p.from}–${p.to}`,
   SHIFT_NO_SHOW: (p) => `неявка ${p.user_id} ${dowRu(p.dow)}`,
   WEEK_OPEN: () => "неделя открыта для сбора",
-  WEEK_PROPOSE: () => "график предложен",
-  WEEK_LOCK: () => "график зафиксирован",
+  WEEK_PROPOSE: () => "график составлен",
+  WEEK_LOCK: () => "неделя закрыта",
   WEEK_CONFIRM: () => "график подтверждён",
   SCHEDULE_CONFIRMED: (p) => `подтверждение от ${p.user_id}`,
   CONFIRM_SHIFT_FACT: (p) => `подтверждение смены ${dowRu(p.dow)} ${p.from}–${p.to}: ${p.status}`,
@@ -82,6 +93,13 @@ function displayName(userId) {
 }
 
 /**
+ * Format week state into a Russian label.
+ */
+export function formatWeekState(state) {
+  return STATE_RU[state] || state;
+}
+
+/**
  * Format schedule into a compact Russian grid for Telegram.
  */
 export function formatSchedule(schedule) {
@@ -95,6 +113,12 @@ export function formatSchedule(schedule) {
     header += ` ${formatWeekRange(schedule.week_start)}`;
   }
 
+  // State indicator
+  if (schedule.state) {
+    const stateLabel = STATE_RU[schedule.state] || schedule.state;
+    header += ` (${stateLabel})`;
+  }
+
   // Determine active days and slot types
   const activeDows = DOW_ORDER.filter((d) => schedule.slots.some((s) => s.dow === d));
   const slotNames = [...new Set(schedule.slots.map((s) => s.slot_name).filter(Boolean))];
@@ -106,11 +130,17 @@ export function formatSchedule(schedule) {
     slotMap[`${slot.dow}:${slot.slot_name || ""}`] = slot;
   }
 
-  // Get cell text for a slot
+  // Get cell text for a slot (with replacement info)
   const cellText = (slot) => {
     const uid = slot?.user_id || slot?.assigned_user_id;
     if (!uid) return "—";
-    return displayName(uid);
+    const name = displayName(uid);
+    // Show replacement info if available
+    if (slot?.replaced_user_id) {
+      const replacedName = displayName(slot.replaced_user_id);
+      return `${name} (за ${replacedName})`;
+    }
+    return name;
   };
 
   // Calculate column widths
