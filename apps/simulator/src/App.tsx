@@ -1393,9 +1393,14 @@ export const App: React.FC = () => {
                           >
                             {slot?.user_id ? (
                               <>
-                                <div style={{ fontWeight: "bold", marginBottom: "4px" }}>{UserDirectory.getDisplayName(slot.user_id)}</div>
+                                <div style={{ fontWeight: "bold", marginBottom: "4px" }}>
+                                  {slot.replaced_user_id
+                                    ? `${UserDirectory.getDisplayName(slot.user_id)} (за ${UserDirectory.getDisplayName(slot.replaced_user_id)})`
+                                    : UserDirectory.getDisplayName(slot.user_id)}
+                                </div>
                                 <div style={{ fontSize: "0.85em", color: "#666" }}>
                                   {slot.hours != null ? `${slot.hours.toFixed(1)} ч` : "—"}
+                                  {slot.replaced_user_id && " 🔄"}
                                 </div>
                               </>
                             ) : (
@@ -1404,7 +1409,7 @@ export const App: React.FC = () => {
                           </div>
                         );
                       })}
-                      
+
                       {/* Evening slots */}
                       <div style={{ padding: "4px", fontWeight: "bold" }}>Вечер</div>
                       {["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((dow) => {
@@ -1443,9 +1448,14 @@ export const App: React.FC = () => {
                           >
                             {slot?.user_id ? (
                               <>
-                                <div style={{ fontWeight: "bold", marginBottom: "4px" }}>{UserDirectory.getDisplayName(slot.user_id)}</div>
+                                <div style={{ fontWeight: "bold", marginBottom: "4px" }}>
+                                  {slot.replaced_user_id
+                                    ? `${UserDirectory.getDisplayName(slot.user_id)} (за ${UserDirectory.getDisplayName(slot.replaced_user_id)})`
+                                    : UserDirectory.getDisplayName(slot.user_id)}
+                                </div>
                                 <div style={{ fontSize: "0.85em", color: "#666" }}>
                                   {slot.hours != null ? `${slot.hours.toFixed(1)} ч` : "—"}
+                                  {slot.replaced_user_id && " 🔄"}
                                 </div>
                               </>
                             ) : (

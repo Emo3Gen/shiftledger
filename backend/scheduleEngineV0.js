@@ -38,6 +38,35 @@ const DEFAULT_SLOT_TYPES = [
 ];
 
 export function buildDraftSchedule({ facts, weekStartISO, slotTypes }) {
+  // Step 0: Collect SHIFT_REPLACEMENT facts (replacement overrides)
+  // When someone offers to replace (e.g. "я смогу выйти в чт утро"),
+  // the slot should be reassigned to the replacement user.
+  const replacementBySlot = new Map(); // key: "dow|from|to", value: { replacement_user_id, created_at }
+
+  for (const fact of facts || []) {
+    if (fact.fact_type !== "SHIFT_REPLACEMENT") continue;
+
+    const { dow, from, to } = fact.fact_payload || {};
+    if (!dow || !from || !to) continue;
+
+    const slotKey = `${dow}|${from}|${to}`;
+    const replacementUserId = fact.user_id || fact.fact_payload?.user_id;
+    if (!replacementUserId) continue;
+
+    const normalizedId = UserDirectory.normalizeUserId(replacementUserId);
+    const factCreatedAt = new Date(fact.created_at || 0).getTime();
+    const existing = replacementBySlot.get(slotKey);
+    const existingCreatedAt = existing ? new Date(existing.created_at).getTime() : 0;
+
+    // Keep the latest replacement per slot
+    if (!existing || factCreatedAt > existingCreatedAt) {
+      replacementBySlot.set(slotKey, {
+        replacement_user_id: normalizedId,
+        created_at: fact.created_at,
+      });
+    }
+  }
+
   // Step 1: Collect assignment overrides (SHIFT_ASSIGNMENT facts)
   // This is the override source - assignments take priority over everything
   const assignmentBySlot = new Map(); // key: "dow|from|to", value: { dow, from, to, user_id, created_at, reason }
@@ -351,6 +380,48 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes }) {
     }
   }
 
+  // Step 3.5: Apply SHIFT_REPLACEMENT overrides
+  // If a replacement fact exists for a slot, swap the assigned user to the replacement user.
+  for (const [slotKey, repl] of replacementBySlot.entries()) {
+    const [dow, from, to] = slotKey.split("|");
+    const existingIdx = assignments.findIndex(
+      (a) => a.dow === dow && a.from === from && a.to === to,
+    );
+    const replacedName = UserDirectory.getDisplayName(
+      existingIdx >= 0 ? assignments[existingIdx].user_id : null,
+    );
+    const replacementName = UserDirectory.getDisplayName(repl.replacement_user_id);
+
+    if (existingIdx >= 0) {
+      const original = assignments[existingIdx];
+      // Update hours tracking
+      const hours = calculateSlotHours(from, to);
+      assignedHoursByUser.set(original.user_id, (assignedHoursByUser.get(original.user_id) || 0) - hours);
+      assignedHoursByUser.set(repl.replacement_user_id, (assignedHoursByUser.get(repl.replacement_user_id) || 0) + hours);
+
+      assignments[existingIdx] = {
+        dow,
+        from,
+        to,
+        user_id: repl.replacement_user_id,
+        replaced_user_id: original.user_id,
+        reason: `🔄 Замена: ${replacementName} за ${replacedName}`,
+      };
+    } else {
+      // No prior assignment — replacement is the first assignment for this slot
+      const hours = calculateSlotHours(from, to);
+      assignedHoursByUser.set(repl.replacement_user_id, (assignedHoursByUser.get(repl.replacement_user_id) || 0) + hours);
+      assignments.push({
+        dow,
+        from,
+        to,
+        user_id: repl.replacement_user_id,
+        replaced_user_id: null,
+        reason: `🔄 Замена: ${replacementName}`,
+      });
+    }
+  }
+
   // Step 4: Determine shift status for each slot
   // Collect ONLY explicit confirmations: SCHEDULE_CONFIRMED (confirms all user's shifts) or WEEK_CONFIRM with slot_key
   // IMPORTANT: SHIFT_WORKED is NOT a confirmation - it's a fact about work done, not schedule confirmation
@@ -579,6 +650,7 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes }) {
         from: slotType.from,
         to: slotType.to,
         user_id,
+        replaced_user_id: assignment?.replaced_user_id || null,
         hours,
         status,
         has_problem: hasProblem,

@@ -215,4 +215,84 @@ describe("scheduleEngineV0", () => {
     // u4 has minHours=20 > u3 minHours=0, so u4 should be assigned
     expect(monAssignment.user_id).toBe("u4");
   });
+
+  test("SHIFT_REPLACEMENT overrides existing assignment for the slot", () => {
+    const facts = [
+      // u1 is available for thu morning
+      makeFact({ user_id: "u1", fact_payload: { dow: "thu", from: "10:00", to: "13:00", availability: "can" } }),
+      // u3 offers to replace on thu morning
+      makeFact({
+        fact_type: "SHIFT_REPLACEMENT",
+        user_id: "u3",
+        fact_payload: { dow: "thu", from: "10:00", to: "13:00" },
+        created_at: "2025-01-05T12:00:00Z",
+      }),
+    ];
+    const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+    const thuMorning = result.assignments.find(
+      (a) => a.dow === "thu" && a.from === "10:00" && a.to === "13:00"
+    );
+    expect(thuMorning).toBeDefined();
+    expect(thuMorning.user_id).toBe("u3");
+    expect(thuMorning.replaced_user_id).toBe("u1");
+    expect(thuMorning.reason).toContain("Замена");
+    expect(thuMorning.reason).toContain("Ксюша");
+    expect(thuMorning.reason).toContain("Иса");
+  });
+
+  test("SHIFT_REPLACEMENT reason contains emoji and both names", () => {
+    const facts = [
+      makeFact({ user_id: "u2", fact_payload: { dow: "wed", from: "18:00", to: "21:00", availability: "can" } }),
+      makeFact({
+        fact_type: "SHIFT_REPLACEMENT",
+        user_id: "u4",
+        fact_payload: { dow: "wed", from: "18:00", to: "21:00" },
+        created_at: "2025-01-05T14:00:00Z",
+      }),
+    ];
+    const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+    const wedEvening = result.assignments.find(
+      (a) => a.dow === "wed" && a.from === "18:00" && a.to === "21:00"
+    );
+    expect(wedEvening.reason).toBe("🔄 Замена: Карина за Дарина");
+  });
+
+  test("SHIFT_REPLACEMENT populates replaced_user_id in slots array", () => {
+    const facts = [
+      makeFact({ user_id: "u1", fact_payload: { dow: "thu", from: "10:00", to: "13:00", availability: "can" } }),
+      makeFact({
+        fact_type: "SHIFT_REPLACEMENT",
+        user_id: "u3",
+        fact_payload: { dow: "thu", from: "10:00", to: "13:00" },
+        created_at: "2025-01-05T12:00:00Z",
+      }),
+    ];
+    const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+    const thuSlot = result.slots.find(
+      (s) => s.dow === "thu" && s.slot_name === "Утро"
+    );
+    expect(thuSlot).toBeDefined();
+    expect(thuSlot.user_id).toBe("u3");
+    expect(thuSlot.replaced_user_id).toBe("u1");
+  });
+
+  test("SHIFT_REPLACEMENT without prior assignment creates new assignment", () => {
+    const facts = [
+      // No availability for fri morning — only a replacement offer
+      makeFact({
+        fact_type: "SHIFT_REPLACEMENT",
+        user_id: "u3",
+        fact_payload: { dow: "fri", from: "10:00", to: "13:00" },
+        created_at: "2025-01-05T12:00:00Z",
+      }),
+    ];
+    const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+    const friMorning = result.assignments.find(
+      (a) => a.dow === "fri" && a.from === "10:00" && a.to === "13:00"
+    );
+    expect(friMorning).toBeDefined();
+    expect(friMorning.user_id).toBe("u3");
+    expect(friMorning.replaced_user_id).toBeNull();
+    expect(friMorning.reason).toContain("Замена");
+  });
 });
