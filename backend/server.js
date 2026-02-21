@@ -838,7 +838,7 @@ logger.debug("GET /debug/schedule route registered");
  *         schema: { type: string, format: date }
  *     responses:
  *       200:
- *         description: Week state (DRAFT, COLLECTING, PROPOSED, etc.)
+ *         description: Week state (COLLECTING, ACTIVE, CLOSED)
  */
 app.get("/debug/week_state", validateQuery(ScheduleQuerySchema), async (req, res) => {
   try {
