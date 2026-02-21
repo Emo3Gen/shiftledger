@@ -713,11 +713,59 @@ export function parseEventToFacts(event) {
     return results;
   }
 
-  // Rule 2: Russian NL availability / unavailability
+  // Rule 2: Replacement request detection (BEFORE general NL — "не могу...кто сможет" must not be caught as plain unavailability)
+  // "я не могу в чт утро, кто сможет?" → SHIFT_UNAVAILABILITY + needs_replacement flag
+  const replacementRequestRe = /(?:не\s+могу|не\s+смогу|не\s+выйду|заболела?|болею).*(?:кто\s+сможет|кто\s+выйдет|кто\s+заменит|нужна\s+замена|замена)/i;
+  if (replacementRequestRe.test(lower)) {
+    const dowInfo = extractRuDow(lower);
+    const time = dowInfo ? extractTime(lower) : null;
+    if (dowInfo && time) {
+      const date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+      results.push({
+        fact_type: "SHIFT_UNAVAILABILITY",
+        fact_payload: {
+          date,
+          dow: dowInfo.dow,
+          from: time.from,
+          to: time.to,
+          availability: "cannot",
+          needs_replacement: true,
+          notes: text,
+        },
+        confidence: 0.85,
+      });
+      return results;
+    }
+  }
+
+  // Rule 3: Replacement offer detection (BEFORE general NL — "я смогу"/"могу заменить" must not be caught as plain availability)
+  // "я смогу" / "я выйду" / "могу заменить" → SHIFT_REPLACEMENT
+  const replacementOfferRe = /(?:я\s+смогу|я\s+выйду|могу\s+заменить|я\s+заменю|выйду\s+за)/i;
+  if (replacementOfferRe.test(lower)) {
+    const dowInfo = extractRuDow(lower);
+    const time = dowInfo ? extractTime(lower) : null;
+    if (dowInfo && time) {
+      const date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+      results.push({
+        fact_type: "SHIFT_REPLACEMENT",
+        fact_payload: {
+          date,
+          dow: dowInfo.dow,
+          from: time.from,
+          to: time.to,
+          notes: text,
+        },
+        confidence: 0.7,
+      });
+      return results;
+    }
+  }
+
+  // Rule 4: Russian NL availability / unavailability
   const nlResults = parseRussianNL(text, receivedAt);
   if (nlResults.length > 0) return nlResults;
 
-  // Rule 3: SHIFT_SWAP_REQUEST (very simple, requires two shift mentions)
+  // Rule 5: SHIFT_SWAP_REQUEST (two shift mentions with "поменяй")
   const swapKeywords = ["поменяй", "поменяться", "обмен", "замени меня", "сменяться"];
   const hasSwap = swapKeywords.some((k) => lower.includes(k));
   if (hasSwap) {

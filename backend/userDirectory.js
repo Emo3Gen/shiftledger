@@ -36,12 +36,12 @@ export const UserDirectory = {
     ["u1", { id: "u1", slug: "isa", displayName: "Иса", ratePerHour: 280, role: "junior", minHours: 22 }],
     ["u2", { id: "u2", slug: "daria", displayName: "Дарина", ratePerHour: 280, role: "junior", minHours: 20 }],
     ["u3", { id: "u3", slug: "ksu", displayName: "Ксюша", ratePerHour: 280, role: "junior", minHours: 0 }],
-    ["u4", { id: "u4", slug: "karina", displayName: "Карина", ratePerHour: 280, role: "senior", minHours: 0 }],
+    ["u4", { id: "u4", slug: "karina", displayName: "Карина", ratePerHour: 280, role: "junior", minHours: 20 }],
     // Legacy/test users
     ["isa", { id: "u1", slug: "isa", displayName: "Иса", ratePerHour: 280, role: "junior", minHours: 22 }],
     ["daria", { id: "u2", slug: "daria", displayName: "Дарина", ratePerHour: 280, role: "junior", minHours: 20 }],
     ["ksu", { id: "u3", slug: "ksu", displayName: "Ксюша", ratePerHour: 280, role: "junior", minHours: 0 }],
-    ["karina", { id: "u4", slug: "karina", displayName: "Карина", ratePerHour: 280, role: "senior", minHours: 0 }],
+    ["karina", { id: "u4", slug: "karina", displayName: "Карина", ratePerHour: 280, role: "junior", minHours: 20 }],
     // System users
     ["senior1", { id: "senior1", slug: "senior1", displayName: "Старший 1", ratePerHour: 350, role: "senior", minHours: 0 }],
     ["owner1", { id: "owner1", slug: "owner1", displayName: "Владелец", ratePerHour: 0, role: "owner", minHours: 0 }],

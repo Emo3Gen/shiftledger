@@ -889,39 +889,18 @@ app.get("/debug/week_state", validateQuery(ScheduleQuerySchema), async (req, res
       slotTypes: slotTypesWS,
     });
 
-    // Compute hasProblem flags - fail-safe initialization
-    let hasProblem = false;
-    let hasGaps = false;
-    let hasUnconfirmed = false;
-    let hasEmergency = false;
-
-    try {
-      // hasGaps: check for gaps in schedule or empty slots
-      hasGaps = Boolean(
-        (draftSchedule.gaps && draftSchedule.gaps.length > 0) ||
-        (draftSchedule.slots && Array.isArray(draftSchedule.slots) && draftSchedule.slots.some((s) => s && s.status === "EMPTY"))
-      );
-
-      // hasUnconfirmed: check for pending slots
-      hasUnconfirmed = Boolean(
-        draftSchedule.slots && Array.isArray(draftSchedule.slots) && draftSchedule.slots.some((s) => s && s.status === "PENDING")
-      );
-
-      // hasEmergency: check if week state is EMERGENCY
-      hasEmergency = Boolean(weekState && weekState.state === "EMERGENCY");
-
-      // Combine all flags
-      hasProblem = Boolean(hasGaps || hasUnconfirmed || hasEmergency);
-    } catch (problemCalcError) {
-      // Fail-safe: if calculation fails, hasProblem stays false
-      logger.warn({ err: problemCalcError }, "WEEK_STATE failed to calculate hasProblem flags");
-      hasProblem = false;
-    }
+    // Compute hasProblem: gaps in schedule or empty slots
+    const hasGaps = Boolean(
+      weekState.hasGaps ||
+      (draftSchedule.gaps && draftSchedule.gaps.length > 0) ||
+      (draftSchedule.slots && Array.isArray(draftSchedule.slots) && draftSchedule.slots.some((s) => s && s.status === "EMPTY"))
+    );
+    const hasProblem = hasGaps;
 
     res.json({
-      week_state: { ...weekState, hasProblem, hasGaps, hasUnconfirmed, hasEmergency },
+      week_state: { ...weekState, hasProblem, hasGaps },
       schedule: draftSchedule,
-      hasProblem, // Also include at top level for convenience
+      hasProblem,
       meta: {
         facts_count: facts?.length || 0,
       },

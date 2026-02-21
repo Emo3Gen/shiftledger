@@ -187,17 +187,32 @@ describe("scheduleEngineV0", () => {
   });
 
   test("senior users are used only as last resort", () => {
-    // u4 (karina) is senior, u1 is junior — both available
+    // senior1 is senior, u1 is junior — both available
     const facts = [
       makeFact({ user_id: "u1", fact_payload: { dow: "sat", from: "10:00", to: "13:00", availability: "can" } }),
-      makeFact({ user_id: "u4", fact_payload: { dow: "sat", from: "10:00", to: "13:00", availability: "can" } }),
+      makeFact({ user_id: "senior1", fact_payload: { dow: "sat", from: "10:00", to: "13:00", availability: "can" } }),
     ];
     const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
     const satAssignment = result.assignments.find(
       (a) => a.dow === "sat" && a.from === "10:00"
     );
     expect(satAssignment).toBeDefined();
-    // Junior u1 should be preferred over senior u4
+    // Junior u1 should be preferred over senior
     expect(satAssignment.user_id).toBe("u1");
+  });
+
+  test("Karina (u4) gets min 20 hours priority", () => {
+    // u4 (karina) has minHours=20, should be prioritized in phase 1
+    const facts = [
+      makeFact({ user_id: "u4", fact_payload: { dow: "mon", from: "10:00", to: "13:00", availability: "can" } }),
+      makeFact({ user_id: "u3", fact_payload: { dow: "mon", from: "10:00", to: "13:00", availability: "can" } }),
+    ];
+    const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+    const monAssignment = result.assignments.find(
+      (a) => a.dow === "mon" && a.from === "10:00"
+    );
+    expect(monAssignment).toBeDefined();
+    // u4 has minHours=20 > u3 minHours=0, so u4 should be assigned
+    expect(monAssignment.user_id).toBe("u4");
   });
 });

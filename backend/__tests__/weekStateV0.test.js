@@ -12,110 +12,101 @@ function makeFact(factType, payload, createdAt) {
 }
 
 describe("weekStateV0", () => {
-  test("initial state with no facts = DRAFT", () => {
+  test("initial state with no facts = COLLECTING", () => {
     const result = computeWeekState({ facts: [], weekStartISO: WEEK_START });
-    expect(result.state).toBe("DRAFT");
+    expect(result.state).toBe("COLLECTING");
     expect(result.week_start).toBe(WEEK_START);
   });
 
-  test("DRAFT → COLLECTING: WEEK_OPEN transitions to COLLECTING", () => {
+  test("WEEK_OPEN → COLLECTING", () => {
     const facts = [makeFact("WEEK_OPEN", {}, "2025-01-05T10:00:00Z")];
     const result = computeWeekState({ facts, weekStartISO: WEEK_START });
     expect(result.state).toBe("COLLECTING");
   });
 
-  test("COLLECTING → PROPOSED: WEEK_PROPOSE transitions", () => {
+  test("WEEK_PROPOSE (schedule built) → ACTIVE", () => {
     const facts = [
       makeFact("WEEK_OPEN", {}, "2025-01-05T10:00:00Z"),
       makeFact("WEEK_PROPOSE", {}, "2025-01-05T11:00:00Z"),
     ];
     const result = computeWeekState({ facts, weekStartISO: WEEK_START });
-    expect(result.state).toBe("PROPOSED");
+    expect(result.state).toBe("ACTIVE");
   });
 
-  test("PROPOSED → CONFIRMING: WEEK_CONFIRM transitions", () => {
+  test("SCHEDULE_BUILT → ACTIVE", () => {
     const facts = [
       makeFact("WEEK_OPEN", {}, "2025-01-05T10:00:00Z"),
-      makeFact("WEEK_PROPOSE", {}, "2025-01-05T11:00:00Z"),
-      makeFact("WEEK_CONFIRM", {}, "2025-01-05T12:00:00Z"),
+      makeFact("SCHEDULE_BUILT", {}, "2025-01-05T11:00:00Z"),
     ];
     const result = computeWeekState({ facts, weekStartISO: WEEK_START });
-    expect(result.state).toBe("CONFIRMING");
+    expect(result.state).toBe("ACTIVE");
   });
 
-  test("CONFIRMING → LOCKED: WEEK_LOCK transitions", () => {
+  test("WEEK_LOCK → CLOSED", () => {
     const facts = [
       makeFact("WEEK_OPEN", {}, "2025-01-05T10:00:00Z"),
       makeFact("WEEK_PROPOSE", {}, "2025-01-05T11:00:00Z"),
-      makeFact("WEEK_CONFIRM", {}, "2025-01-05T12:00:00Z"),
       makeFact("WEEK_LOCK", {}, "2025-01-05T13:00:00Z"),
     ];
     const result = computeWeekState({ facts, weekStartISO: WEEK_START });
-    expect(result.state).toBe("LOCKED");
+    expect(result.state).toBe("CLOSED");
   });
 
-  test("LOCKED → EMERGENCY: open gap after lock → EMERGENCY", () => {
+  test("WEEK_CLOSE → CLOSED", () => {
     const facts = [
-      makeFact("WEEK_LOCK", {}, "2025-01-05T10:00:00Z"),
-      makeFact("SHIFT_GAP", { dow: "mon", from: "10:00", to: "13:00" }, "2025-01-05T11:00:00Z"),
+      makeFact("WEEK_OPEN", {}, "2025-01-05T10:00:00Z"),
+      makeFact("WEEK_CLOSE", {}, "2025-01-05T13:00:00Z"),
     ];
     const result = computeWeekState({ facts, weekStartISO: WEEK_START });
-    expect(result.state).toBe("EMERGENCY");
-    expect(result.gaps_open.length).toBeGreaterThan(0);
+    expect(result.state).toBe("CLOSED");
   });
 
-  test("EMERGENCY → COLLECTING: re-open after emergency", () => {
-    const facts = [
-      makeFact("WEEK_LOCK", {}, "2025-01-05T10:00:00Z"),
-      makeFact("SHIFT_GAP", { dow: "mon", from: "10:00", to: "13:00" }, "2025-01-05T11:00:00Z"),
-      // Re-open week to go back to collecting
-      makeFact("WEEK_OPEN", {}, "2025-01-05T12:00:00Z"),
-      // Close the gap with assignment
-      makeFact("SHIFT_ASSIGNMENT", { dow: "mon", from: "10:00", to: "13:00", assigned_user_id: "u1" }, "2025-01-05T13:00:00Z"),
-    ];
-    const result = computeWeekState({ facts, weekStartISO: WEEK_START });
-    expect(result.state).toBe("COLLECTING");
-  });
-
-  test("invalid transition: latest command wins (DRAFT → LOCK directly)", () => {
-    // In latest-command-wins model, any command can be the latest
-    const facts = [makeFact("WEEK_LOCK", {}, "2025-01-05T10:00:00Z")];
-    const result = computeWeekState({ facts, weekStartISO: WEEK_START });
-    expect(result.state).toBe("LOCKED");
-  });
-
-  test("each transition is logged in last_commands", () => {
+  test("re-open after ACTIVE → COLLECTING", () => {
     const facts = [
       makeFact("WEEK_OPEN", {}, "2025-01-05T10:00:00Z"),
       makeFact("WEEK_PROPOSE", {}, "2025-01-05T11:00:00Z"),
-      makeFact("WEEK_CONFIRM", {}, "2025-01-05T12:00:00Z"),
-    ];
-    const result = computeWeekState({ facts, weekStartISO: WEEK_START });
-    expect(result.last_commands.open).toBe("2025-01-05T10:00:00Z");
-    expect(result.last_commands.propose).toBe("2025-01-05T11:00:00Z");
-    expect(result.last_commands.confirm).toBe("2025-01-05T12:00:00Z");
-  });
-
-  test("current state is correct after series of transitions", () => {
-    const facts = [
-      makeFact("WEEK_OPEN", {}, "2025-01-05T10:00:00Z"),
-      makeFact("WEEK_PROPOSE", {}, "2025-01-05T11:00:00Z"),
-      makeFact("WEEK_CONFIRM", {}, "2025-01-05T12:00:00Z"),
-      makeFact("WEEK_LOCK", {}, "2025-01-05T13:00:00Z"),
-      // Re-open
       makeFact("WEEK_OPEN", {}, "2025-01-05T14:00:00Z"),
     ];
     const result = computeWeekState({ facts, weekStartISO: WEEK_START });
     expect(result.state).toBe("COLLECTING");
   });
 
-  test("required_actions includes 'confirmations required' when PROPOSED", () => {
+  test("re-open after CLOSED → COLLECTING", () => {
+    const facts = [
+      makeFact("WEEK_LOCK", {}, "2025-01-05T10:00:00Z"),
+      makeFact("SHIFT_GAP", { dow: "mon", from: "10:00", to: "13:00" }, "2025-01-05T11:00:00Z"),
+      makeFact("WEEK_OPEN", {}, "2025-01-05T12:00:00Z"),
+      makeFact("SHIFT_ASSIGNMENT", { dow: "mon", from: "10:00", to: "13:00", assigned_user_id: "u1" }, "2025-01-05T13:00:00Z"),
+    ];
+    const result = computeWeekState({ facts, weekStartISO: WEEK_START });
+    expect(result.state).toBe("COLLECTING");
+  });
+
+  test("latest command wins (LOCK directly → CLOSED)", () => {
+    const facts = [makeFact("WEEK_LOCK", {}, "2025-01-05T10:00:00Z")];
+    const result = computeWeekState({ facts, weekStartISO: WEEK_START });
+    expect(result.state).toBe("CLOSED");
+  });
+
+  test("last_commands tracks timestamps", () => {
     const facts = [
       makeFact("WEEK_OPEN", {}, "2025-01-05T10:00:00Z"),
       makeFact("WEEK_PROPOSE", {}, "2025-01-05T11:00:00Z"),
     ];
     const result = computeWeekState({ facts, weekStartISO: WEEK_START });
-    expect(result.required_actions).toContain("confirmations required");
+    expect(result.last_commands.open).toBe("2025-01-05T10:00:00Z");
+    expect(result.last_commands.built).toBe("2025-01-05T11:00:00Z");
+  });
+
+  test("full lifecycle: COLLECTING → ACTIVE → CLOSED → re-open", () => {
+    const facts = [
+      makeFact("WEEK_OPEN", {}, "2025-01-05T10:00:00Z"),
+      makeFact("WEEK_PROPOSE", {}, "2025-01-05T11:00:00Z"),
+      makeFact("WEEK_LOCK", {}, "2025-01-05T13:00:00Z"),
+      makeFact("WEEK_OPEN", {}, "2025-01-05T14:00:00Z"),
+    ];
+    const result = computeWeekState({ facts, weekStartISO: WEEK_START });
+    expect(result.state).toBe("COLLECTING");
   });
 
   test("gaps_open correctly tracks open and closed gaps", () => {
@@ -128,5 +119,22 @@ describe("weekStateV0", () => {
     const result = computeWeekState({ facts, weekStartISO: WEEK_START });
     expect(result.gaps_open).toHaveLength(1);
     expect(result.gaps_open[0].dow).toBe("tue");
+  });
+
+  test("open gaps produce required_actions and hasProblem", () => {
+    const facts = [
+      makeFact("SHIFT_GAP", { dow: "mon", from: "10:00", to: "13:00" }, "2025-01-05T10:00:00Z"),
+    ];
+    const result = computeWeekState({ facts, weekStartISO: WEEK_START });
+    expect(result.hasGaps).toBe(true);
+    expect(result.hasProblem).toBe(true);
+    expect(result.required_actions).toContain("uncovered shifts — replacement needed");
+  });
+
+  test("no gaps → hasProblem false", () => {
+    const facts = [makeFact("WEEK_OPEN", {}, "2025-01-05T10:00:00Z")];
+    const result = computeWeekState({ facts, weekStartISO: WEEK_START });
+    expect(result.hasGaps).toBe(false);
+    expect(result.hasProblem).toBe(false);
   });
 });

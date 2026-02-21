@@ -1,13 +1,19 @@
 /**
  * Week State Engine v0
- * 
- * Computes week state from facts (DRAFT, COLLECTING, PROPOSED, CONFIRMING, LOCKED, EMERGENCY)
- * Uses "latest-command-wins" logic: the most recent command determines the state.
+ *
+ * Simplified state machine aligned with real business process:
+ *   COLLECTING — bot collects availability from employees
+ *   ACTIVE     — schedule is built and live (replacements handled automatically)
+ *   CLOSED     — week is over, data ready for salary calculation
+ *
+ * Transitions:
+ *   (none)     → COLLECTING : WEEK_OPEN command
+ *   COLLECTING → ACTIVE     : schedule built (SCHEDULE_BUILT fact or BUILD_SCHEDULE command)
+ *   ACTIVE     → ACTIVE     : replacements, corrections (don't change state)
+ *   ACTIVE     → CLOSED     : WEEK_CLOSE command or automatic when week passes
+ *   any        → COLLECTING : WEEK_OPEN re-opens collection
  */
 
-/**
- * Helper: generate slot key
- */
 function slotKey(dow, from, to) {
   return `${dow}|${from}|${to}`;
 }
@@ -16,7 +22,7 @@ function slotKey(dow, from, to) {
  * @param {Object} params
  * @param {Array} params.facts - Array of persisted facts from database (already filtered to week)
  * @param {string} params.weekStartISO - ISO date string for Monday of the week (YYYY-MM-DD)
- * @returns {Object} - { week_start, state, required_actions, gaps_open, last_commands }
+ * @returns {Object} - { week_start, state, required_actions, gaps_open, last_commands, ... }
  */
 export function computeWeekState({ facts, weekStartISO }) {
   const weekFacts = (facts || []).sort((a, b) => {
@@ -26,40 +32,38 @@ export function computeWeekState({ facts, weekStartISO }) {
   });
 
   // Extract state-related facts
-  const weekLocks = weekFacts.filter((f) => f.fact_type === "WEEK_LOCK");
   const weekOpens = weekFacts.filter((f) => f.fact_type === "WEEK_OPEN");
-  const weekProposes = weekFacts.filter((f) => f.fact_type === "WEEK_PROPOSE");
-  const weekConfirms = weekFacts.filter((f) => f.fact_type === "WEEK_CONFIRM");
+  const scheduleBuilts = weekFacts.filter(
+    (f) => f.fact_type === "SCHEDULE_BUILT" || f.fact_type === "WEEK_PROPOSE",
+  );
+  const weekCloses = weekFacts.filter(
+    (f) => f.fact_type === "WEEK_CLOSE" || f.fact_type === "WEEK_LOCK",
+  );
   const gaps = weekFacts.filter((f) => f.fact_type === "SHIFT_GAP");
   const assignments = weekFacts.filter((f) => f.fact_type === "SHIFT_ASSIGNMENT");
-  const approvals = weekFacts.filter((f) => f.fact_type === "OWNER_APPROVAL");
 
   // Find timestamps of last commands
   const lastOpenTs =
     weekOpens.length > 0
       ? new Date(weekOpens[weekOpens.length - 1].created_at || 0).getTime()
       : null;
-  const lastProposeTs =
-    weekProposes.length > 0
-      ? new Date(weekProposes[weekProposes.length - 1].created_at || 0).getTime()
+  const lastBuiltTs =
+    scheduleBuilts.length > 0
+      ? new Date(scheduleBuilts[scheduleBuilts.length - 1].created_at || 0).getTime()
       : null;
-  const lastConfirmTs =
-    weekConfirms.length > 0
-      ? new Date(weekConfirms[weekConfirms.length - 1].created_at || 0).getTime()
-      : null;
-  const lastLockTs =
-    weekLocks.length > 0
-      ? new Date(weekLocks[weekLocks.length - 1].created_at || 0).getTime()
+  const lastCloseTs =
+    weekCloses.length > 0
+      ? new Date(weekCloses[weekCloses.length - 1].created_at || 0).getTime()
       : null;
 
   // Find the latest command timestamp
-  const commandTimestamps = [lastOpenTs, lastProposeTs, lastConfirmTs, lastLockTs].filter(
+  const commandTimestamps = [lastOpenTs, lastBuiltTs, lastCloseTs].filter(
     (ts) => ts !== null,
   );
   const lastCommandTs = commandTimestamps.length > 0 ? Math.max(...commandTimestamps) : null;
 
   // Build gaps map: for each slot, find last GAP and last ASSIGN
-  const gapsMap = new Map(); // key: slotKey, value: { dow, from, to, lastGapTs, lastAssignTs }
+  const gapsMap = new Map();
   for (const gap of gaps) {
     const { dow, from, to } = gap.fact_payload || {};
     if (!dow || !from || !to) continue;
@@ -77,7 +81,6 @@ export function computeWeekState({ facts, weekStartISO }) {
     }
   }
 
-  // Find last assignment for each slot
   for (const assign of assignments) {
     const { dow, from, to } = assign.fact_payload || {};
     if (!dow || !from || !to) continue;
@@ -95,9 +98,9 @@ export function computeWeekState({ facts, weekStartISO }) {
     }
   }
 
-  // Determine open gaps: gap is open if lastGapTs exists and (lastAssignTs is null or lastAssignTs < lastGapTs)
+  // Determine open gaps
   const gapsOpen = [];
-  for (const [key, entry] of gapsMap.entries()) {
+  for (const [, entry] of gapsMap.entries()) {
     if (
       entry.lastGapTs !== null &&
       (entry.lastAssignTs === null || entry.lastAssignTs < entry.lastGapTs)
@@ -106,49 +109,20 @@ export function computeWeekState({ facts, weekStartISO }) {
     }
   }
 
-  // Determine state: latest-command-wins
-  // EMERGENCY (open gaps) takes priority over any command state
-  let state = "DRAFT";
-  if (gapsOpen.length > 0) {
-    state = "EMERGENCY";
-  } else if (lastLockTs !== null && lastCommandTs === lastLockTs) {
-    state = "LOCKED";
-  } else if (lastConfirmTs !== null && lastCommandTs === lastConfirmTs) {
-    state = "CONFIRMING";
-  } else if (lastProposeTs !== null && lastCommandTs === lastProposeTs) {
-    state = "PROPOSED";
+  // Determine state: latest-command-wins with 3 states
+  let state = "COLLECTING"; // Default: always collecting until schedule is built
+  if (lastCloseTs !== null && lastCommandTs === lastCloseTs) {
+    state = "CLOSED";
+  } else if (lastBuiltTs !== null && lastCommandTs === lastBuiltTs) {
+    state = "ACTIVE";
   } else if (lastOpenTs !== null && lastCommandTs === lastOpenTs) {
     state = "COLLECTING";
   }
 
   // Required actions
   const requiredActions = [];
-  if (state === "EMERGENCY" && gapsOpen.length > 0) {
-    requiredActions.push("senior assignment required for gaps");
-  }
-  if (state === "PROPOSED") {
-    requiredActions.push("confirmations required");
-  }
-  // Check if assignments need approval
-  for (const assign of assignments) {
-    const { dow, from, to } = assign.fact_payload || {};
-    if (!dow || !from || !to) continue;
-    const assignSlot = slotKey(dow, from, to);
-    const assignTime = new Date(assign.created_at || 0).getTime();
-
-    // Check if there's an approval for this slot AFTER the assignment
-    const hasApproval = approvals.some((a) => {
-      const { dow: aDow, from: aFrom, to: aTo } = a.fact_payload || {};
-      if (!aDow || !aFrom || !aTo) return false;
-      if (slotKey(aDow, aFrom, aTo) !== assignSlot) return false;
-      const approvalTime = new Date(a.created_at || 0).getTime();
-      return approvalTime > assignTime;
-    });
-
-    if (!hasApproval) {
-      requiredActions.push("owner approval required");
-      break; // Only add once
-    }
+  if (gapsOpen.length > 0) {
+    requiredActions.push("uncovered shifts — replacement needed");
   }
 
   // Last commands (timestamps)
@@ -156,21 +130,16 @@ export function computeWeekState({ facts, weekStartISO }) {
   if (lastOpenTs !== null) {
     lastCommands.open = weekOpens[weekOpens.length - 1].created_at;
   }
-  if (lastProposeTs !== null) {
-    lastCommands.propose = weekProposes[weekProposes.length - 1].created_at;
+  if (lastBuiltTs !== null) {
+    lastCommands.built = scheduleBuilts[scheduleBuilts.length - 1].created_at;
   }
-  if (lastConfirmTs !== null) {
-    lastCommands.confirm = weekConfirms[weekConfirms.length - 1].created_at;
-  }
-  if (lastLockTs !== null) {
-    lastCommands.lock = weekLocks[weekLocks.length - 1].created_at;
+  if (lastCloseTs !== null) {
+    lastCommands.close = weekCloses[weekCloses.length - 1].created_at;
   }
 
-  // Compute hasProblem flags (basic version, will be enhanced in server.js with schedule data)
+  // Problem flags
   const hasGaps = gapsOpen.length > 0;
-  const hasUnconfirmed = false; // Will be computed from schedule in server.js
-  const hasEmergency = state === "EMERGENCY";
-  const hasProblem = hasGaps || hasUnconfirmed || hasEmergency;
+  const hasProblem = hasGaps;
 
   return {
     week_start: weekStartISO,
@@ -179,8 +148,6 @@ export function computeWeekState({ facts, weekStartISO }) {
     gaps_open: gapsOpen,
     last_commands: lastCommands,
     hasGaps,
-    hasUnconfirmed,
-    hasEmergency,
     hasProblem,
   };
 }

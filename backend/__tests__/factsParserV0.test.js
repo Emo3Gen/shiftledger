@@ -444,6 +444,42 @@ describe("factsParserV0", () => {
     });
   });
 
+  describe("NL: replacement request (needs_replacement)", () => {
+    test("'не могу в чт утро, кто сможет?' → SHIFT_UNAVAILABILITY with needs_replacement", () => {
+      const facts = parseEventToFacts({ text: "не могу в чт утро, кто сможет?", received_at: RECEIVED_AT });
+      const f = facts.find((x) => x.fact_type === "SHIFT_UNAVAILABILITY");
+      expect(f).toBeDefined();
+      expect(f.fact_payload.dow).toBe("thu");
+      expect(f.fact_payload.needs_replacement).toBe(true);
+    });
+
+    test("'заболела, не выйду пн утро, нужна замена' → SHIFT_UNAVAILABILITY + needs_replacement", () => {
+      const facts = parseEventToFacts({ text: "заболела, не выйду пн утро, нужна замена", received_at: RECEIVED_AT });
+      const f = facts.find((x) => x.fact_type === "SHIFT_UNAVAILABILITY");
+      expect(f).toBeDefined();
+      expect(f.fact_payload.dow).toBe("mon");
+      expect(f.fact_payload.needs_replacement).toBe(true);
+    });
+  });
+
+  describe("NL: replacement offer (SHIFT_REPLACEMENT)", () => {
+    test("'я смогу выйти в чт утро' → SHIFT_REPLACEMENT", () => {
+      const facts = parseEventToFacts({ text: "я смогу выйти в чт утро", received_at: RECEIVED_AT });
+      const f = facts.find((x) => x.fact_type === "SHIFT_REPLACEMENT");
+      expect(f).toBeDefined();
+      expect(f.fact_payload.dow).toBe("thu");
+      expect(f.fact_payload.from).toBe("10:00");
+      expect(f.fact_payload.to).toBe("13:00");
+    });
+
+    test("'могу заменить в пт вечер' → SHIFT_REPLACEMENT", () => {
+      const facts = parseEventToFacts({ text: "могу заменить в пт вечер", received_at: RECEIVED_AT });
+      const f = facts.find((x) => x.fact_type === "SHIFT_REPLACEMENT");
+      expect(f).toBeDefined();
+      expect(f.fact_payload.dow).toBe("fri");
+    });
+  });
+
   describe("DSL: WORKED without week_start", () => {
     test("WORKED mon 10-13 → SHIFT_WORKED without week_start", () => {
       const facts = parseEventToFacts({ text: "WORKED mon 10-13", received_at: RECEIVED_AT });
