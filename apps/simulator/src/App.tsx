@@ -10,17 +10,14 @@ type DialogSummary = {
   last_text?: string;
 };
 
-// Функция для перевода статусов недели на русский
-function translateWeekState(state: string): string {
-  const translations: Record<string, string> = {
-    DRAFT: "Черновик графика",
-    COLLECTING: "Сбор доступности",
-    PROPOSED: "Черновик графика",
-    CONFIRMING: "На согласовании",
-    LOCKED: "Зафиксирован",
-    EMERGENCY: "Авария: есть незакрытые смены",
+// Функция для перевода статусов недели на русский (3 состояния)
+function translateWeekState(state: string): { label: string; color: string; emoji: string } {
+  const map: Record<string, { label: string; color: string; emoji: string }> = {
+    COLLECTING: { label: "Сбор доступности", color: "#007bff", emoji: "🔵" },
+    ACTIVE: { label: "График активен", color: "#28a745", emoji: "🟢" },
+    CLOSED: { label: "Неделя закрыта", color: "#6c757d", emoji: "⚪" },
   };
-  return translations[state] || state;
+  return map[state] || { label: state, color: "#666", emoji: "❓" };
 }
 
 // UserDirectory для отображения имен сотрудников
@@ -29,11 +26,11 @@ const UserDirectory = {
     ["u1", { id: "u1", displayName: "Иса", ratePerHour: 280, role: "junior", minHours: 22 }],
     ["u2", { id: "u2", displayName: "Дарина", ratePerHour: 280, role: "junior", minHours: 20 }],
     ["u3", { id: "u3", displayName: "Ксюша", ratePerHour: 280, role: "junior", minHours: 0 }],
-    ["u4", { id: "u4", displayName: "Карина", ratePerHour: 280, role: "senior", minHours: 0 }],
+    ["u4", { id: "u4", displayName: "Карина", ratePerHour: 280, role: "junior", minHours: 20 }],
     ["isa", { id: "u1", displayName: "Иса", ratePerHour: 280, role: "junior", minHours: 22 }],
     ["daria", { id: "u2", displayName: "Дарина", ratePerHour: 280, role: "junior", minHours: 20 }],
     ["ksu", { id: "u3", displayName: "Ксюша", ratePerHour: 280, role: "junior", minHours: 0 }],
-    ["karina", { id: "u4", displayName: "Карина", ratePerHour: 280, role: "senior", minHours: 0 }],
+    ["karina", { id: "u4", displayName: "Карина", ratePerHour: 280, role: "junior", minHours: 20 }],
   ]),
   getDisplayName(userId: string): string {
     const user = this.users.get(userId);
@@ -73,6 +70,7 @@ export const App: React.FC = () => {
     assignments?: any[];
     gaps?: any[];
     conflicts?: any[];
+    slots?: any[];
   } | null>(null);
   const [weekStateResp, setWeekStateResp] = React.useState<any>(null);
   const [weekStateErr, setWeekStateErr] = React.useState<string>("");
@@ -254,7 +252,7 @@ export const App: React.FC = () => {
       }
       
       // Создаём/обновляем задачи GAP для незаполненных слотов
-      const emptySlots = schedule.slots.filter((s: any) => s.status === "EMPTY");
+      const emptySlots = (schedule.slots || []).filter((s: any) => s.status === "EMPTY");
       const now = Date.now();
       for (const slot of emptySlots) {
         const taskId = `GAP:${weekStartISO}:${slot.dow}:${slot.from}:${slot.to}`;
@@ -294,7 +292,7 @@ export const App: React.FC = () => {
           const taskFrom = parts[3];
           const taskTo = parts[4];
           // Проверяем, заполнен ли этот слот
-          const isFilled = schedule.slots.some(
+          const isFilled = (schedule.slots || []).some(
             (s: any) =>
               s.dow === taskDow &&
               s.from === taskFrom &&
@@ -629,10 +627,9 @@ export const App: React.FC = () => {
                   return;
                 }
                 const messages = [
-                  "AVAIL mon 10-13",
-                  "AVAIL tue 10-13",
-                  "AVAIL thu 18-21",
-                  `CONFIRM ${weekStart}`,
+                  "могу пн утро",
+                  "могу вт утро",
+                  "могу чт вечер",
                 ];
                 for (const msg of messages) {
                   try {
@@ -761,7 +758,7 @@ export const App: React.FC = () => {
                 }
               }}
             >
-              Запустить сценарий: аварийная смена
+              Запустить сценарий: замена смены
             </button>
           </div>
         </div>
@@ -782,7 +779,7 @@ export const App: React.FC = () => {
                     <div key={ev.id} className={`chat-bubble ${isSelf ? "self" : "other"}`}>
                       <div className="bubble-header">
                         <span>{UserDirectory.getDisplayName(ev.user_id)} ({ev.user_id})</span>
-                        <span>{ts}{evFacts && evFacts.length > 0 ? " ✅" : ""}</span>
+                        <span>{ts}{evFacts && evFacts.length > 0 ? (evFacts.some((f: any) => f.fact_type === "SHIFT_REPLACEMENT") ? " 🔄" : " ✅") : ""}</span>
                       </div>
                       <div className="bubble-text">{ev.text}</div>
                     </div>
@@ -832,7 +829,7 @@ export const App: React.FC = () => {
                       { id: "isa", name: "Иса", role: "junior", rate: 280, minHours: 22 },
                       { id: "daria", name: "Дарина", role: "junior", rate: 280, minHours: 20 },
                       { id: "ksu", name: "Ксюша", role: "junior", rate: 280, minHours: 0 },
-                      { id: "karina", name: "Карина", role: "senior", rate: 280, minHours: 0 },
+                      { id: "karina", name: "Карина", role: "junior", rate: 280, minHours: 20 },
                     ].map((emp) => (
                       <tr key={emp.id} style={{ borderBottom: "1px solid #eee" }}>
                         <td style={{ padding: "2px 4px" }}>{emp.name}</td>
@@ -1261,11 +1258,11 @@ export const App: React.FC = () => {
                     await new Promise((resolve) => setTimeout(resolve, 150));
                   }
 
-                  // Step 5: Send availability for Карина (karina) - старший/резерв, все слоты
+                  // Step 5: Send availability for Карина (karina) - junior, min 20h, все слоты
                   for (const day of weekTemplate) {
-                    await sendAvailability("karina", "senior", day.dow, "10-13");
+                    await sendAvailability("karina", "staff", day.dow, "10-13");
                     await new Promise((resolve) => setTimeout(resolve, 100));
-                    await sendAvailability("karina", "senior", day.dow, "18-21");
+                    await sendAvailability("karina", "staff", day.dow, "18-21");
                     await new Promise((resolve) => setTimeout(resolve, 100));
                   }
 
@@ -1361,7 +1358,7 @@ export const App: React.FC = () => {
                       {/* Morning slots */}
                       <div style={{ padding: "4px", fontWeight: "bold" }}>Утро</div>
                       {["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((dow) => {
-                        const slot = schedule.slots.find(
+                        const slot = (schedule.slots || []).find(
                           (s: any) => s.dow === dow && s.slot_name === "Утро"
                         );
                         const bgColor =
@@ -1411,7 +1408,7 @@ export const App: React.FC = () => {
                       {/* Evening slots */}
                       <div style={{ padding: "4px", fontWeight: "bold" }}>Вечер</div>
                       {["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((dow) => {
-                        const slot = schedule.slots.find(
+                        const slot = (schedule.slots || []).find(
                           (s: any) => s.dow === dow && s.slot_name === "Вечер"
                         );
                         const bgColor =
@@ -1544,32 +1541,20 @@ export const App: React.FC = () => {
                       <strong>Итого:</strong> {timesheet.totals?.hours_worked?.toFixed(1)} ч,{" "}
                       {timesheet.totals?.amount?.toFixed(0)} ₽
                     </div>
-                    {/* Show confirmation status from schedule */}
+                    {/* Show planned hours per user */}
                     {schedule && schedule.slots && (() => {
-                      const userHours = new Map<string, { planned: number; confirmed: boolean }>();
+                      const userHours = new Map<string, number>();
                       for (const slot of schedule.slots) {
                         if (slot.user_id && slot.hours) {
-                          if (!userHours.has(slot.user_id)) {
-                            userHours.set(slot.user_id, { planned: 0, confirmed: true });
-                          }
-                          const user = userHours.get(slot.user_id)!;
-                          user.planned += slot.hours;
-                          if (slot.status !== "CONFIRMED") {
-                            user.confirmed = false;
-                          }
+                          userHours.set(slot.user_id, (userHours.get(slot.user_id) || 0) + slot.hours);
                         }
                       }
                       return (
                         <div style={{ fontSize: "0.8em", marginTop: "8px", marginBottom: "8px", padding: "4px", backgroundColor: "#f5f5f5", borderRadius: "4px" }}>
-                          <div style={{ fontWeight: "bold", marginBottom: "4px" }}>Статус подтверждения:</div>
-                          {Array.from(userHours.entries()).map(([userId, data]) => (
+                          <div style={{ fontWeight: "bold", marginBottom: "4px" }}>Запланировано часов:</div>
+                          {Array.from(userHours.entries()).map(([userId, hours]) => (
                             <div key={userId} style={{ marginBottom: "2px" }}>
-                              {userId}: {data.planned.toFixed(1)} ч{" "}
-                              {data.confirmed ? (
-                                <span style={{ color: "#28a745" }}>✅ Подтверждено</span>
-                              ) : (
-                                <span style={{ color: "#ffc107" }}>⏳ Ожидает подтверждения</span>
-                              )}
+                              {UserDirectory.getDisplayName(userId)}: {hours.toFixed(1)} ч
                             </div>
                           ))}
                         </div>
@@ -1760,7 +1745,7 @@ export const App: React.FC = () => {
                     if (res.ok && data.ok !== false) {
                       // Update schedule state
                       setSchedule(data.schedule);
-                      // Also send PROPOSE command for state tracking
+                      // Send PROPOSE to transition state COLLECTING → ACTIVE
                       await debugSend(`PROPOSE ${weekStartISO}`, "admin");
                       // Refresh week state and schedule
                       await refreshWeekState();
@@ -1770,7 +1755,7 @@ export const App: React.FC = () => {
                       );
                       const scheduleData = await scheduleRes.json();
                       setSchedule(scheduleData);
-                      alert(`График собран: ${data.assignments_created || 0} назначений создано, ${data.gaps || 0} пробелов, ${data.conflicts || 0} конфликтов`);
+                      alert(`График собран! ${data.assignments_created || 0} назначений, ${data.gaps || 0} пробелов. Статус: ACTIVE`);
                     } else {
                       alert(`Ошибка: ${data.error || "unknown"}`);
                     }
@@ -1779,16 +1764,13 @@ export const App: React.FC = () => {
                   }
                 }}
               >
-                Собрать график (черновик)
+                Собрать график
               </button>
-              <button type="button" onClick={() => debugSend(`CONFIRM ${weekStartISO}`)}>
-                Отправить на согласование
-              </button>
-              <button type="button" onClick={() => debugSend(`LOCK ${weekStartISO}`, "admin")}>
-                Утвердить график
-              </button>
-              <button type="button" onClick={() => debugSend(`LOCK ${weekStartISO}`, "admin")}>
-                Зафиксировать график
+              <button type="button" onClick={async () => {
+                await debugSend(`LOCK ${weekStartISO}`, "admin");
+                await refreshWeekState();
+              }}>
+                Закрыть неделю
               </button>
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: "8px" }}>
@@ -1856,6 +1838,7 @@ export const App: React.FC = () => {
                         const buildData = await buildRes.json();
                         if (buildRes.ok && buildData.ok !== false) {
                           setSchedule(buildData.schedule);
+                          // Transition to ACTIVE
                           await debugSend(`PROPOSE ${weekStartISO}`, "admin");
                           await refreshWeekState();
                           const scheduleRes = await fetch(
@@ -1863,8 +1846,8 @@ export const App: React.FC = () => {
                           );
                           const scheduleData = await scheduleRes.json();
                           setSchedule(scheduleData);
-                          console.log("[SCENARIO A] ✅ Ожидаемый результат: график собран, все назначенные слоты PENDING (желтые)");
-                          alert("Сценарий A завершён. Проверьте: график собран, все слоты PENDING (желтые)");
+                          console.log("[SCENARIO A] ✅ Ожидаемый результат: график собран, статус ACTIVE");
+                          alert("Сценарий A завершён. Проверьте: график собран, статус ACTIVE (🟢)");
                         }
                       } catch (e: any) {
                         console.error("[SCENARIO A] Ошибка:", e);
@@ -1878,50 +1861,65 @@ export const App: React.FC = () => {
                     type="button"
                     style={{ fontSize: "0.8em", padding: "4px 8px", backgroundColor: "#28a745", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
                     onClick={async () => {
-                      console.log("[SCENARIO B] Подтверждение графика");
+                      console.log("[SCENARIO B] Замена смены");
                       if (!selectedChatId || !selectedTenant) {
                         alert("Выберите chat и tenant");
                         return;
                       }
                       try {
-                        // 1. Найти пользователя с PENDING слотами
                         if (!schedule || !schedule.slots) {
                           alert("Сначала соберите график (Сценарий A)");
                           return;
                         }
-                        const pendingUsers = new Set<string>();
-                        for (const slot of schedule.slots) {
-                          if (slot.user_id && slot.status === "PENDING") {
-                            pendingUsers.add(slot.user_id);
-                          }
-                        }
-                        if (pendingUsers.size === 0) {
-                          alert("Нет пользователей с PENDING слотами");
-                          return;
-                        }
-                        const userId = Array.from(pendingUsers)[0];
-                        console.log(`[SCENARIO B] Шаг 1: Подтверждение графика для ${userId}`);
-                        
-                        // 2. Подтвердить график
-                        await debugSend(`CONFIRM_SCHEDULE ${weekStartISO}`, "staff");
-                        
-                        // 3. Перезапросить график
+                        // Шаг 1: Иса (u1) не может выйти в чт утро
+                        console.log("[SCENARIO B] Шаг 1: Иса не может в чт утро");
+                        // Send as u1 (isa)
+                        await fetch("/debug/send", {
+                          method: "POST",
+                          headers: { "content-type": "application/json" },
+                          body: JSON.stringify({
+                            tenant_id: selectedTenant,
+                            chat_id: selectedChatId,
+                            user_id: "u1",
+                            text: "не могу в чт утро, кто сможет?",
+                            meta: { role: "staff" },
+                          }),
+                        });
+                        await new Promise((r) => setTimeout(r, 300));
+
+                        // Шаг 2: Ксюша (u3) выходит на замену
+                        console.log("[SCENARIO B] Шаг 2: Ксюша выходит на замену");
+                        await fetch("/debug/send", {
+                          method: "POST",
+                          headers: { "content-type": "application/json" },
+                          body: JSON.stringify({
+                            tenant_id: selectedTenant,
+                            chat_id: selectedChatId,
+                            user_id: "u3",
+                            text: "я смогу выйти в чт утро",
+                            meta: { role: "staff" },
+                          }),
+                        });
+                        await new Promise((r) => setTimeout(r, 300));
+
+                        // Обновить данные
+                        await loadDialogEvents(selectedChatId, selectedTenant);
                         await refreshWeekState();
                         const scheduleRes = await fetch(
                           `/debug/schedule?chat_id=${encodeURIComponent(selectedChatId)}&week_start=${encodeURIComponent(weekStartISO)}`,
                         );
                         const scheduleData = await scheduleRes.json();
                         setSchedule(scheduleData);
-                        
-                        console.log(`[SCENARIO B] ✅ Ожидаемый результат: все слоты ${userId} CONFIRMED (зелёные)`);
-                        alert(`Сценарий B завершён. Проверьте: все слоты ${userId} CONFIRMED (зелёные)`);
+
+                        console.log("[SCENARIO B] ✅ Ожидаемый результат: замена зарегистрирована, чт утро обновлён");
+                        alert("Сценарий B завершён. Проверьте:\n• Чат: сообщения о замене с 🔄\n• Факты: SHIFT_UNAVAILABILITY + SHIFT_REPLACEMENT");
                       } catch (e: any) {
                         console.error("[SCENARIO B] Ошибка:", e);
                         alert(`Ошибка: ${String(e?.message || e)}`);
                       }
                     }}
                   >
-                    Сценарий B: Подтверждение
+                    Сценарий B: Замена
                   </button>
                   <button
                     type="button"
@@ -1985,389 +1983,74 @@ export const App: React.FC = () => {
             </div>
           </section>
           <section>
-            <h3>Подтверждение графика</h3>
-            {schedule && schedule.slots && (() => {
-              // Group slots by user: PENDING (need confirmation) and CONFIRMED (already confirmed)
-              const userPendingSlots = new Map<string, any[]>();
-              const userConfirmedSlots = new Map<string, any[]>();
-              const userHasProblem = new Map<string, boolean>();
-              
-              for (const slot of schedule.slots) {
-                if (slot.user_id) {
-                  if (slot.status === "PENDING") {
-                    if (!userPendingSlots.has(slot.user_id)) {
-                      userPendingSlots.set(slot.user_id, []);
-                    }
-                    userPendingSlots.get(slot.user_id)!.push(slot);
-                  } else if (slot.status === "CONFIRMED") {
-                    if (!userConfirmedSlots.has(slot.user_id)) {
-                      userConfirmedSlots.set(slot.user_id, []);
-                    }
-                    userConfirmedSlots.get(slot.user_id)!.push(slot);
-                  }
-                  // Check if user has problem
-                  if (slot.has_problem || slot.is_problematic) {
-                    userHasProblem.set(slot.user_id, true);
+            <h3>Уведомления</h3>
+            {(() => {
+              // Build notifications from events/facts
+              const notifications: Array<{ icon: string; text: string; ts: string }> = [];
+
+              // Scan events for replacement-related facts
+              for (const [eventId, facts] of factsPerEvent.entries()) {
+                const ev = events.find((e: any) => e.id === eventId);
+                const ts = ev?.received_at ? new Date(ev.received_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }) : "";
+
+                for (const f of facts) {
+                  if (f.fact_type === "SHIFT_AVAILABILITY") {
+                    const userName = UserDirectory.getDisplayName(ev?.user_id || f.user_id || "");
+                    const dayName = ({ mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс" } as Record<string, string>)[f.fact_payload?.dow] || f.fact_payload?.dow;
+                    notifications.push({
+                      icon: "📋",
+                      text: `${userName}: доступность ${dayName} ${f.fact_payload?.from}-${f.fact_payload?.to}`,
+                      ts,
+                    });
+                  } else if (f.fact_type === "SHIFT_UNAVAILABILITY" && f.fact_payload?.needs_replacement) {
+                    const userName = UserDirectory.getDisplayName(ev?.user_id || f.user_id || "");
+                    const dayName = ({ mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс" } as Record<string, string>)[f.fact_payload?.dow] || f.fact_payload?.dow;
+                    notifications.push({
+                      icon: "⚠️",
+                      text: `${dayName} ${f.fact_payload?.from}-${f.fact_payload?.to}: ${userName} не может, ищем замену`,
+                      ts,
+                    });
+                  } else if (f.fact_type === "SHIFT_REPLACEMENT") {
+                    const userName = UserDirectory.getDisplayName(ev?.user_id || f.user_id || "");
+                    const dayName = ({ mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс" } as Record<string, string>)[f.fact_payload?.dow] || f.fact_payload?.dow;
+                    notifications.push({
+                      icon: "✅",
+                      text: `${dayName} ${f.fact_payload?.from}-${f.fact_payload?.to}: ${userName} вышла на замену`,
+                      ts,
+                    });
                   }
                 }
               }
 
+              // Show last 10 notifications (most recent first)
+              const recent = notifications.slice(-10).reverse();
+
               return (
                 <div style={{ marginTop: "8px" }}>
-                  {/* Users with PENDING slots */}
-                  {Array.from(userPendingSlots.entries()).map(([userId, slots]) => {
-                    const pendingCount = slots.length;
-                    const canConfirm = pendingCount > 0;
-                    const hasProblem = userHasProblem.get(userId) || false;
-                    const reasonDisabled = canConfirm ? null : `Нет смен, ожидающих подтверждения (pendingCount=${pendingCount})`;
-                    
-                    return (
-                    <div
-                      key={userId}
-                      data-user-confirm={userId}
-                      style={{ marginBottom: "12px", padding: "8px", border: "1px solid #ddd", borderRadius: "4px" }}
-                    >
-                      <div style={{ fontSize: "0.85em", fontWeight: "bold", marginBottom: "4px" }}>
-                        {UserDirectory.getDisplayName(userId)}: Подтверди свой график на неделю
-                        {hasProblem && (
-                          <span style={{ marginLeft: "8px", color: "#dc3545", fontSize: "0.9em" }}>
-                            ⚠️ Есть проблема
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ fontSize: "0.75em", marginBottom: "8px", color: "#666" }}>
-                        Ожидает подтверждения: {slots.length} смен
-                      </div>
-                      {/* Problem report confirmation banner */}
-                      {problemReported.get(userId)?.reported && (
+                  {recent.length === 0 ? (
+                    <div style={{ fontSize: "0.85em", color: "#666" }}>
+                      Нет уведомлений. Отправьте сообщения в чат.
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                      {recent.map((n, idx) => (
                         <div
+                          key={idx}
                           style={{
-                            marginBottom: "8px",
-                            padding: "8px",
-                            backgroundColor: "#fff3cd",
-                            border: "1px solid #ffc107",
+                            padding: "6px 8px",
+                            backgroundColor: n.icon === "⚠️" ? "#fff3cd" : n.icon === "✅" ? "#d4edda" : "#e7f3ff",
                             borderRadius: "4px",
                             fontSize: "0.8em",
+                            display: "flex",
+                            gap: "6px",
+                            alignItems: "flex-start",
                           }}
                         >
-                          <div style={{ fontWeight: "bold", marginBottom: "4px", color: "#856404" }}>
-                            ✅ Проблема зафиксирована
-                          </div>
-                          <div style={{ color: "#856404", marginBottom: "4px" }}>
-                            Админ уведомлён. Мы разберём и предложим решение.
-                          </div>
-                          <div style={{ fontSize: "0.75em", color: "#666", marginBottom: "4px" }}>
-                            Сообщение: "{problemReported.get(userId)?.message}"
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setProblemReported((prev) => {
-                                const next = new Map(prev);
-                                next.delete(userId);
-                                return next;
-                              });
-                            }}
-                            style={{
-                              fontSize: "0.75em",
-                              padding: "2px 6px",
-                              backgroundColor: "#ffc107",
-                              border: "none",
-                              borderRadius: "2px",
-                              cursor: "pointer",
-                            }}
-                          >
-                            Закрыть
-                          </button>
+                          <span>{n.icon}</span>
+                          <span style={{ flex: 1 }}>{n.text}</span>
+                          <span style={{ fontSize: "0.75em", color: "#666", whiteSpace: "nowrap" }}>{n.ts}</span>
                         </div>
-                      )}
-                      {/* Diagnostic info */}
-                      <div style={{ fontSize: "0.7em", marginBottom: "4px", padding: "4px", backgroundColor: "#f0f0f0", borderRadius: "2px" }}>
-                        <div>canConfirm: {String(canConfirm)}</div>
-                        {reasonDisabled && <div style={{ color: "#dc3545" }}>Причина: {reasonDisabled}</div>}
-                        <div>pendingCount: {pendingCount}</div>
-                      </div>
-                      <div style={{ display: "flex", gap: "8px" }}>
-                        <button
-                          type="button"
-                          disabled={!canConfirm}
-                          style={{
-                            backgroundColor: canConfirm ? "#28a745" : "#6c757d",
-                            color: "white",
-                            border: "none",
-                            padding: "4px 8px",
-                            borderRadius: "4px",
-                            cursor: canConfirm ? "pointer" : "not-allowed",
-                            opacity: canConfirm ? 1 : 0.6,
-                          }}
-                          onClick={async () => {
-                            console.log("CONFIRM_CLICK", weekStartISO, userId);
-                            if (!canConfirm) {
-                              console.warn("Cannot confirm: canConfirm=false, pendingCount=", pendingCount);
-                              return;
-                            }
-                            
-                            if (!selectedChatId) {
-                              alert("Ошибка: не выбран чат");
-                              return;
-                            }
-
-                            try {
-                              // Отправляем запрос на подтверждение
-                              const res = await fetch(`/api/week/${encodeURIComponent(weekStartISO)}/confirm-user`, {
-                                method: "POST",
-                                headers: { "content-type": "application/json" },
-                                body: JSON.stringify({
-                                  user_id: userId,
-                                  chat_id: selectedChatId,
-                                }),
-                              });
-
-                              const data = await res.json();
-                              
-                              if (!res.ok || !data.ok) {
-                                const errorMsg = data.error || "Ошибка подтверждения";
-                                alert(`Ошибка подтверждения: ${errorMsg}`);
-                                console.error("[CONFIRM] Error response:", data);
-                                return;
-                              }
-
-                              // Обновляем график из ответа
-                              if (data.schedule) {
-                                setSchedule(data.schedule);
-                              } else {
-                                // Если schedule не в ответе, перезагружаем
-                                const scheduleRes = await fetch(
-                                  `/debug/schedule?chat_id=${encodeURIComponent(selectedChatId)}&week_start=${encodeURIComponent(weekStartISO)}`,
-                                );
-                                const scheduleData = await scheduleRes.json();
-                                setSchedule(scheduleData);
-                              }
-
-                              // Показываем banner подтверждения
-                              setProblemReported((prev) => {
-                                const next = new Map(prev);
-                                next.set(userId, {
-                                  reported: true,
-                                  timestamp: Date.now(),
-                                  message: "✅ Подтверждено",
-                                });
-                                return next;
-                              });
-
-                              // Clear reminders/escalations for this user
-                              const reminderId = `reminder_${userId}`;
-                              const escalationId = `escalation_${userId}`;
-                              if (reminders.has(reminderId)) {
-                                clearTimeout(reminders.get(reminderId)!);
-                                const newReminders = new Map(reminders);
-                                newReminders.delete(reminderId);
-                                setReminders(newReminders);
-                              }
-                              if (escalations.has(escalationId)) {
-                                clearTimeout(escalations.get(escalationId)!);
-                                const newEscalations = new Map(escalations);
-                                newEscalations.delete(escalationId);
-                                setEscalations(newEscalations);
-                              }
-                              setPendingUsers((prev) => {
-                                const next = new Set(prev);
-                                next.delete(userId);
-                                return next;
-                              });
-                              
-                              await loadDialogEvents(selectedChatId, selectedTenant);
-                              await refreshWeekState();
-                              
-                              // Закрываем задачу UNCONFIRMED для этого пользователя
-                              const taskId = `UNCONFIRMED:${weekStartISO}:${userId}`;
-                              setActiveTasks((prev) => {
-                                const next = new Map(prev);
-                                const existing = next.get(taskId);
-                                if (existing && existing.status === "OPEN") {
-                                  next.set(taskId, { ...existing, status: "RESOLVED" });
-                                }
-                                return next;
-                              });
-                            } catch (err) {
-                              const errorMsg = err instanceof Error ? err.message : String(err);
-                              alert(`Ошибка подтверждения: ${errorMsg}`);
-                              console.error("[CONFIRM] Exception:", err);
-                            }
-                          }}
-                        >
-                          ✅ Подтверждаю
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!canConfirm}
-                          style={{
-                            backgroundColor: canConfirm ? "#dc3545" : "#6c757d",
-                            color: "white",
-                            border: "none",
-                            padding: "4px 8px",
-                            borderRadius: "4px",
-                            cursor: canConfirm ? "pointer" : "not-allowed",
-                            opacity: canConfirm ? 1 : 0.6,
-                          }}
-                          onClick={async () => {
-                            console.log("PROBLEM_CLICK", userId, weekStartISO);
-                            if (!canConfirm) {
-                              console.warn("Cannot report problem: canConfirm=false, pendingCount=", pendingCount);
-                              return;
-                            }
-                            
-                            // Show dropdown for problem type
-                            const problemTypes = [
-                              "Не могу выйти на смену",
-                              "Неверные часы",
-                              "Договорились о замене",
-                              "Другое"
-                            ];
-                            
-                            const selectedType = prompt(
-                              `Выберите тип проблемы для ${UserDirectory.getDisplayName(userId)}:\n\n${problemTypes.map((t, i) => `${i + 1}. ${t}`).join("\n")}\n\nВведите номер (1-4) или текст:`
-                            );
-                            
-                            if (!selectedType) return; // User cancelled
-                            
-                            const problemType = problemTypes[parseInt(selectedType) - 1] || selectedType;
-                            const comment = prompt("Добавьте комментарий (опционально):", "");
-                            
-                            // Создаем задачу PROBLEM
-                            const taskId = `PROBLEM:${weekStartISO}:${userId}`;
-                            const taskTitle = `${UserDirectory.getDisplayName(userId)}: проблема с графиком`;
-                            
-                            setActiveTasks((prev) => {
-                              const next = new Map(prev);
-                              const existing = next.get(taskId);
-                              if (existing) {
-                                // Обновляем существующую задачу
-                                next.set(taskId, {
-                                  ...existing,
-                                  updatedAt: Date.now(),
-                                  counter: existing.counter + 1,
-                                  payload: {
-                                    ...existing.payload,
-                                    reason: problemType,
-                                    comment: comment || undefined,
-                                    userId,
-                                    weekStart: weekStartISO,
-                                  },
-                                });
-                              } else {
-                                // Создаем новую задачу
-                                next.set(taskId, {
-                                  id: taskId,
-                                  title: taskTitle,
-                                  severity: "warning",
-                                  createdAt: Date.now(),
-                                  updatedAt: Date.now(),
-                                  status: "OPEN",
-                                  counter: 1,
-                                  nextReminderAt: Date.now() + 60000, // 1 минута кулдаун
-                                  payload: {
-                                    reason: problemType,
-                                    comment: comment || undefined,
-                                    userId,
-                                    weekStart: weekStartISO,
-                                  },
-                                });
-                              }
-                              return next;
-                            });
-                            
-                            // Показываем banner подтверждения проблемы
-                            setProblemReported((prev) => {
-                              const next = new Map(prev);
-                              next.set(userId, {
-                                reported: true,
-                                timestamp: Date.now(),
-                                message: `Проблема зарегистрирована: ${problemType}`,
-                              });
-                              return next;
-                            });
-                            
-                            // Send problem report to backend
-                            if (selectedChatId) {
-                              let problemText = selectedType;
-                              const typeNum = parseInt(selectedType);
-                              if (!isNaN(typeNum) && typeNum >= 1 && typeNum <= 4) {
-                                problemText = problemTypes[typeNum - 1];
-                              }
-                              
-                              try {
-                                const res = await fetch("/debug/send", {
-                                  method: "POST",
-                                  headers: { "content-type": "application/json" },
-                                  body: JSON.stringify({
-                                    tenant_id: selectedTenant,
-                                    chat_id: selectedChatId,
-                                    user_id: userId,
-                                    text: `REPORT_PROBLEM ${weekStartISO} ${problemText}`,
-                                    meta: { role: "staff" },
-                                  }),
-                                });
-                                const data = await res.json();
-                                if (data.ok) {
-                                  setLastSend({
-                                    event: data.event,
-                                    facts: data.facts ?? [],
-                                    facts_count: data.facts_count ?? 0,
-                                  });
-                                }
-                              } catch (err) {
-                                console.error("[PROBLEM] Failed to send to backend:", err);
-                                // Задача уже создана, продолжаем
-                              }
-                            }
-                          }}
-                        >
-                          ⚠️ Есть проблема
-                        </button>
-                      </div>
-                    </div>
-                    );
-                  })}
-                  
-                  {/* Users with CONFIRMED slots (show status) */}
-                  {Array.from(userConfirmedSlots.entries()).map(([userId, slots]) => {
-                    const confirmedCount = slots.length;
-                    return (
-                      <div
-                        key={`confirmed-${userId}`}
-                        data-user-confirm={userId}
-                        style={{ marginBottom: "12px", padding: "8px", border: "1px solid #28a745", borderRadius: "4px", backgroundColor: "#d4edda" }}
-                      >
-                        <div style={{ fontSize: "0.85em", fontWeight: "bold", marginBottom: "4px", color: "#155724" }}>
-                          {UserDirectory.getDisplayName(userId)}: ✅ Подтверждено
-                        </div>
-                        <div style={{ fontSize: "0.75em", color: "#666" }}>
-                          Подтверждено смен: {confirmedCount}
-                        </div>
-                        <button
-                          type="button"
-                          disabled={true}
-                          style={{
-                            backgroundColor: "#6c757d",
-                            color: "white",
-                            border: "none",
-                            padding: "4px 8px",
-                            borderRadius: "4px",
-                            cursor: "not-allowed",
-                            opacity: 0.6,
-                            marginTop: "4px",
-                          }}
-                        >
-                          ✅ Подтверждено
-                        </button>
-                      </div>
-                    );
-                  })}
-                  
-                  {userPendingSlots.size === 0 && userConfirmedSlots.size === 0 && (
-                    <div style={{ fontSize: "0.85em", color: "#666" }}>
-                      Нет назначенных смен
+                      ))}
                     </div>
                   )}
                 </div>
@@ -2389,18 +2072,23 @@ export const App: React.FC = () => {
             )}
             {weekStateResp && (
               <div style={{ marginTop: "8px" }}>
-                <div style={{ fontSize: "0.85em", marginBottom: "4px" }}>
-                  <strong>Статус:</strong> {translateWeekState(weekStateResp.week_state?.state || "")}
-                </div>
+                {(() => {
+                  const ws = translateWeekState(weekStateResp.week_state?.state || "");
+                  return (
+                    <div style={{ fontSize: "0.85em", marginBottom: "4px", display: "flex", alignItems: "center", gap: "6px" }}>
+                      <strong>Статус:</strong>
+                      <span style={{ color: ws.color, fontWeight: "bold" }}>{ws.emoji} {ws.label}</span>
+                    </div>
+                  );
+                })()}
                 {weekStateResp.week_state?.required_actions &&
                   weekStateResp.week_state.required_actions.length > 0 && (
                     <div style={{ fontSize: "0.85em", marginTop: "4px" }}>
                       <strong>Требуются действия:</strong>{" "}
                       {weekStateResp.week_state.required_actions
                         .map((action: string) => {
-                          if (action.includes("senior assignment")) return "Требуется назначение старшего сотрудника";
-                          if (action.includes("owner approval")) return "Требуется одобрение владельца";
-                          if (action.includes("confirmations")) return "Требуются подтверждения";
+                          if (action.includes("uncovered shifts")) return "Незакрытые смены — нужна замена";
+                          if (action.includes("replacement")) return "Нужна замена на смену";
                           return action;
                         })
                         .join(", ")}
@@ -2509,7 +2197,7 @@ export const App: React.FC = () => {
                                   console.error("[CONFIRM_SHIFT_FACT] Failed:", data);
                                   alert(`Ошибка: ${data.error || "unknown"}`);
                                 }
-                              } catch (err) {
+                              } catch (err: any) {
                                 console.error("[CONFIRM_SHIFT_FACT] Error:", err);
                                 alert(`Ошибка: ${String(err?.message || err)}`);
                               }
@@ -2543,14 +2231,18 @@ export const App: React.FC = () => {
                                   facts_count: data.facts_count ?? 0,
                                 });
                               }
-                              await loadDialogEvents(selectedChatId, selectedTenant);
+                              if (selectedChatId && selectedTenant) {
+                                await loadDialogEvents(selectedChatId, selectedTenant);
+                              }
                               await loadTimesheet();
                               // Reload schedule
-                              const scheduleRes = await fetch(
-                                `/debug/schedule?chat_id=${encodeURIComponent(selectedChatId)}&week_start=${encodeURIComponent(weekStartISO)}`,
-                              );
-                              const scheduleData = await scheduleRes.json();
-                              setSchedule(scheduleData);
+                              if (selectedChatId) {
+                                const scheduleRes = await fetch(
+                                  `/debug/schedule?chat_id=${encodeURIComponent(selectedChatId)}&week_start=${encodeURIComponent(weekStartISO)}`,
+                                );
+                                const scheduleData = await scheduleRes.json();
+                                setSchedule(scheduleData);
+                              }
                             }}
                             style={{ backgroundColor: "#dc3545", color: "white", border: "none", padding: "4px 8px", borderRadius: "4px", cursor: "pointer" }}
                           >
