@@ -703,6 +703,67 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes }) {
     }
   }
 
+  // Build cleaning assignments: by default, evening shift user cleans
+  const cleaningAssignments = [];
+  const cleaningSwapByDow = new Map(); // dow -> { original_user_id, replacement_user_id }
+
+  // Collect CLEANING_SWAP facts
+  for (const fact of facts || []) {
+    if (fact.fact_type !== "CLEANING_SWAP") continue;
+    const { dow, original_user_id, replacement_user_id } = fact.fact_payload || {};
+    if (!dow) continue;
+    const factCreatedAt = new Date(fact.created_at || 0).getTime();
+    const existing = cleaningSwapByDow.get(dow);
+    const existingCreatedAt = existing ? new Date(existing.created_at || 0).getTime() : 0;
+    if (!existing || factCreatedAt > existingCreatedAt) {
+      cleaningSwapByDow.set(dow, {
+        original_user_id: original_user_id ? UserDirectory.normalizeUserId(original_user_id) : (fact.user_id ? UserDirectory.normalizeUserId(fact.user_id) : null),
+        replacement_user_id: replacement_user_id ? UserDirectory.normalizeUserId(replacement_user_id) : (fact.user_id ? UserDirectory.normalizeUserId(fact.user_id) : null),
+        created_at: fact.created_at,
+      });
+    }
+  }
+
+  // For each day, find the evening assignment and create cleaning assignment
+  const DOW_ALL = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+  for (const dow of DOW_ALL) {
+    const eveningAssignment = assignments.find(
+      (a) => a.dow === dow && (a.from === "18:00" || a.to === "21:00")
+    );
+    if (!eveningAssignment) continue;
+
+    const defaultUserId = eveningAssignment.user_id;
+    const swap = cleaningSwapByDow.get(dow);
+    let cleaningUserId = defaultUserId;
+    let isReplacement = false;
+
+    if (swap && swap.replacement_user_id) {
+      cleaningUserId = swap.replacement_user_id;
+      isReplacement = true;
+    }
+
+    cleaningAssignments.push({
+      dow,
+      user_id: cleaningUserId,
+      default_user_id: defaultUserId,
+      is_replacement: isReplacement,
+    });
+  }
+
+  // Also set cleaning_user_id on evening slots
+  for (const slot of slots) {
+    if (slot.slot_name === "Вечер" && slot.user_id) {
+      const ca = cleaningAssignments.find((c) => c.dow === slot.dow);
+      if (ca) {
+        slot.cleaning_user_id = ca.user_id;
+        slot.cleaning_is_replacement = ca.is_replacement;
+      } else {
+        slot.cleaning_user_id = slot.user_id;
+        slot.cleaning_is_replacement = false;
+      }
+    }
+  }
+
   // Collect all unique candidate user_ids from candidatesBySlot
   const allCandidateUserIds = new Set();
   for (const candidateSet of candidatesBySlot.values()) {
@@ -716,12 +777,13 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes }) {
     assignments,
     gaps,
     conflicts,
-    slots, // New: all slots with status
+    slots,
+    cleaning_assignments: cleaningAssignments,
     meta: {
       facts_count: facts?.length || 0,
       slots_count: allSlots.size,
-      candidates_count: allCandidateUserIds.size, // Count of unique candidate user_ids
-      assigned_slots_count: assignmentBySlot.size, // Count of slots with manual assignments
+      candidates_count: allCandidateUserIds.size,
+      assigned_slots_count: assignmentBySlot.size,
       engine: "v0",
     },
   };

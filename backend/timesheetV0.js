@@ -4,6 +4,8 @@
  * Principle: final schedule = fact.
  * shift_hours come directly from schedule assignments.
  * Problem shifts get -1h deduction each.
+ * Cleanings: default = evening shift user, override with CLEANING_SWAP/CLEANING_DONE.
+ * Extra classes: tiered pricing based on kids_count.
  * total_pay rounded UP to nearest 100.
  */
 
@@ -16,11 +18,13 @@ function calculateHours(from, to) {
 }
 
 const DEFAULT_CLEANING_RATE = 500; // ₽ per cleaning
-const DEFAULT_EXTRA_CLASS_RATE = 300; // ₽ per hour of extra class
+const EXTRA_CLASS_BASE_RATE = 500; // ₽ per extra class
+const EXTRA_CLASS_KIDS_THRESHOLD = 8; // kids threshold
+const EXTRA_CLASS_PER_KID_RATE = 100; // ₽ per kid above threshold
 
 /**
  * @param {Object} params
- * @param {Object} params.schedule - Schedule from buildDraftSchedule (contains assignments)
+ * @param {Object} params.schedule - Schedule from buildDraftSchedule (contains assignments, cleaning_assignments)
  * @param {Array}  params.facts - Array of persisted facts
  * @param {string} params.weekStartISO - ISO date string for Monday (YYYY-MM-DD)
  * @param {Object} params.hourlyRates - Map of user_id -> hourly rate
@@ -35,8 +39,7 @@ export function buildTimesheet({ schedule, facts, weekStartISO, hourlyRates }) {
         shift_hours: 0,
         problem_shifts: 0,
         cleaning_count: 0,
-        extra_classes: 0,
-        extra_hours: 0,
+        extra_classes_list: [], // { dow, kids_count, pay }
       });
     }
     return userData.get(userId);
@@ -44,6 +47,7 @@ export function buildTimesheet({ schedule, facts, weekStartISO, hourlyRates }) {
 
   // Step 1: Calculate shift hours per user from schedule assignments
   const assignmentBySlot = new Map(); // slotKey -> normalized user_id
+  const eveningUserByDow = new Map(); // dow -> user_id (for default cleaning)
 
   for (const assignment of schedule?.assignments || []) {
     const uid = UserDirectory.normalizeUserId(assignment.user_id);
@@ -53,6 +57,11 @@ export function buildTimesheet({ schedule, facts, weekStartISO, hourlyRates }) {
 
     const slotKey = `${assignment.dow}|${assignment.from}|${assignment.to}`;
     assignmentBySlot.set(slotKey, uid);
+
+    // Track evening shift users for default cleaning
+    if (assignment.from === "18:00" || assignment.to === "21:00") {
+      eveningUserByDow.set(assignment.dow, uid);
+    }
   }
 
   // Step 2: Count problem shifts from SHIFT_MARKED_PROBLEM and PROBLEM_SHIFT facts
@@ -76,27 +85,86 @@ export function buildTimesheet({ schedule, facts, weekStartISO, hourlyRates }) {
     }
   }
 
-  // Step 3: Collect cleaning and extra class facts
+  // Step 3: Cleanings — build per-day attribution
+  // Priority: CLEANING_DONE > CLEANING_SWAP > default (evening shift)
+  const cleaningDoneByDow = new Map(); // dow -> user_id (explicit report)
+  const cleaningSwapByDow = new Map(); // dow -> { original_user_id, replacement_user_id }
+
   for (const fact of facts || []) {
+    if (fact.fact_payload?.week_start && fact.fact_payload.week_start !== weekStartISO) continue;
+
     if (fact.fact_type === "CLEANING_DONE") {
-      if (fact.fact_payload?.week_start && fact.fact_payload.week_start !== weekStartISO) continue;
       const uid = UserDirectory.normalizeUserId(fact.user_id);
       if (!uid) continue;
-      getOrCreate(uid).cleaning_count += 1;
-    } else if (fact.fact_type === "EXTRA_CLASS") {
-      if (fact.fact_payload?.week_start && fact.fact_payload.week_start !== weekStartISO) continue;
-      const { from, to } = fact.fact_payload || {};
-      if (!from || !to) continue;
-      const uid = UserDirectory.normalizeUserId(fact.user_id);
-      if (!uid) continue;
-      const hours = calculateHours(from, to);
-      const d = getOrCreate(uid);
-      d.extra_classes += 1;
-      d.extra_hours += hours;
+      const dow = fact.fact_payload?.dow;
+      if (dow) {
+        cleaningDoneByDow.set(dow, uid);
+      } else {
+        // No specific day — count directly
+        getOrCreate(uid).cleaning_count += 1;
+      }
+    } else if (fact.fact_type === "CLEANING_SWAP") {
+      const { dow, original_user_id, replacement_user_id } = fact.fact_payload || {};
+      if (!dow) continue;
+      const replId = replacement_user_id
+        ? UserDirectory.normalizeUserId(replacement_user_id)
+        : (fact.user_id ? UserDirectory.normalizeUserId(fact.user_id) : null);
+      const origId = original_user_id
+        ? UserDirectory.normalizeUserId(original_user_id)
+        : null;
+      cleaningSwapByDow.set(dow, { original_user_id: origId, replacement_user_id: replId });
     }
   }
 
-  // Step 4: Build employees array
+  // Attribute cleanings per day
+  const DOW_ALL = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+  for (const dow of DOW_ALL) {
+    let cleaningUser = null;
+
+    if (cleaningDoneByDow.has(dow)) {
+      // Explicit report — who actually cleaned
+      cleaningUser = cleaningDoneByDow.get(dow);
+    } else if (cleaningSwapByDow.has(dow)) {
+      // Swap override
+      const swap = cleaningSwapByDow.get(dow);
+      cleaningUser = swap.replacement_user_id;
+    } else if (eveningUserByDow.has(dow)) {
+      // Default: evening shift user
+      cleaningUser = eveningUserByDow.get(dow);
+    }
+
+    if (cleaningUser) {
+      getOrCreate(cleaningUser).cleaning_count += 1;
+    }
+  }
+
+  // Step 4: Extra classes — collect with kids_count
+  for (const fact of facts || []) {
+    if (fact.fact_type !== "EXTRA_CLASS") continue;
+    if (fact.fact_payload?.week_start && fact.fact_payload.week_start !== weekStartISO) continue;
+    const uid = UserDirectory.normalizeUserId(fact.user_id);
+    if (!uid) continue;
+
+    const kidsCount = fact.fact_payload?.kids_count ?? null;
+    const dow = fact.fact_payload?.dow || null;
+
+    // Calculate pay based on kids_count
+    let pay;
+    if (kidsCount === null || kidsCount === undefined || kidsCount <= EXTRA_CLASS_KIDS_THRESHOLD) {
+      pay = EXTRA_CLASS_BASE_RATE;
+    } else {
+      const extraKids = kidsCount - EXTRA_CLASS_KIDS_THRESHOLD;
+      pay = EXTRA_CLASS_BASE_RATE + (extraKids * EXTRA_CLASS_PER_KID_RATE);
+    }
+
+    getOrCreate(uid).extra_classes_list.push({
+      dow,
+      kids_count: kidsCount,
+      pay,
+    });
+  }
+
+  // Step 5: Build employees array
   const employees = [];
 
   for (const [user_id, data] of userData) {
@@ -108,9 +176,12 @@ export function buildTimesheet({ schedule, facts, weekStartISO, hourlyRates }) {
     const shift_pay = effective_hours * rate;
 
     const cleaning_pay = data.cleaning_count * DEFAULT_CLEANING_RATE;
-    const extra_pay = data.extra_hours * DEFAULT_EXTRA_CLASS_RATE;
 
-    const total_before_rounding = shift_pay + cleaning_pay + extra_pay;
+    const extra_classes_count = data.extra_classes_list.length;
+    const extra_classes_total_pay = data.extra_classes_list.reduce((s, e) => s + e.pay, 0);
+    const extra_classes_total_kids = data.extra_classes_list.reduce((s, e) => s + (e.kids_count || 0), 0);
+
+    const total_before_rounding = shift_pay + cleaning_pay + extra_classes_total_pay;
     const total_pay = Math.ceil(total_before_rounding / 100) * 100;
 
     employees.push({
@@ -124,9 +195,10 @@ export function buildTimesheet({ schedule, facts, weekStartISO, hourlyRates }) {
       shift_pay,
       cleaning_count: data.cleaning_count,
       cleaning_pay,
-      extra_classes: data.extra_classes,
-      extra_hours: data.extra_hours,
-      extra_pay,
+      extra_classes: data.extra_classes_list,
+      extra_classes_count,
+      extra_classes_total_kids,
+      extra_classes_total_pay,
       total_before_rounding,
       total_pay,
     });
@@ -134,11 +206,12 @@ export function buildTimesheet({ schedule, facts, weekStartISO, hourlyRates }) {
 
   employees.sort((a, b) => a.user_id.localeCompare(b.user_id));
 
-  // Step 5: Totals
+  // Step 6: Totals
   const totals = {
     total_hours: employees.reduce((s, e) => s + e.effective_hours, 0),
     total_cleanings: employees.reduce((s, e) => s + e.cleaning_count, 0),
-    total_extra: employees.reduce((s, e) => s + e.extra_hours, 0),
+    total_extra_classes: employees.reduce((s, e) => s + e.extra_classes_count, 0),
+    total_extra_pay: employees.reduce((s, e) => s + e.extra_classes_total_pay, 0),
     total_pay: employees.reduce((s, e) => s + e.total_pay, 0),
   };
 

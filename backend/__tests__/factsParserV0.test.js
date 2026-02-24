@@ -615,6 +615,62 @@ describe("factsParserV0", () => {
     });
   });
 
+  describe("DSL: CLEANING_SWAP command", () => {
+    test("CLEANING_SWAP mon u2 u3 → CLEANING_SWAP", () => {
+      const facts = parseEventToFacts({ text: "CLEANING_SWAP mon u2 u3", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("CLEANING_SWAP");
+      expect(facts[0].fact_payload.dow).toBe("mon");
+      expect(facts[0].fact_payload.original_user_id).toBe("u2");
+      expect(facts[0].fact_payload.replacement_user_id).toBe("u3");
+      expect(facts[0].confidence).toBe(1.0);
+    });
+
+    test("CLEANING_SWAP 2025-01-06 wed u1 u4 → with week_start", () => {
+      const facts = parseEventToFacts({ text: "CLEANING_SWAP 2025-01-06 wed u1 u4", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("CLEANING_SWAP");
+      expect(facts[0].fact_payload.week_start).toBe("2025-01-06");
+      expect(facts[0].fact_payload.dow).toBe("wed");
+      expect(facts[0].fact_payload.original_user_id).toBe("u1");
+      expect(facts[0].fact_payload.replacement_user_id).toBe("u4");
+    });
+  });
+
+  describe("NL: CLEANING_SWAP detection", () => {
+    test("я уберусь за Дарину в чт → CLEANING_SWAP with original=u2", () => {
+      const facts = parseEventToFacts({ text: "я уберусь за Дарину в чт", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("CLEANING_SWAP");
+      expect(facts[0].fact_payload.dow).toBe("thu");
+      expect(facts[0].fact_payload.original_user_id).toBe("u2");
+    });
+
+    test("уборку за меня сделает Ксюша в пн → CLEANING_SWAP with replacement=u3", () => {
+      const facts = parseEventToFacts({ text: "уборку за меня сделает Ксюша в пн", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("CLEANING_SWAP");
+      expect(facts[0].fact_payload.dow).toBe("mon");
+      expect(facts[0].fact_payload.replacement_user_id).toBe("u3");
+    });
+  });
+
+  describe("NL: CLEANING_DONE additional patterns", () => {
+    test("уборка пн → CLEANING_DONE with dow=mon", () => {
+      const facts = parseEventToFacts({ text: "уборка пн", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("CLEANING_DONE");
+      expect(facts[0].fact_payload.dow).toBe("mon");
+    });
+
+    test("помыла зал в среду → CLEANING_DONE with dow=wed", () => {
+      const facts = parseEventToFacts({ text: "помыла зал в среду", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("CLEANING_DONE");
+      expect(facts[0].fact_payload.dow).toBe("wed");
+    });
+  });
+
   describe("NL: EXTRA_CLASS detection", () => {
     test("провела доп занятие в пн с 14 до 16 → EXTRA_CLASS", () => {
       const facts = parseEventToFacts({ text: "провела доп занятие в пн с 14 до 16", received_at: RECEIVED_AT });

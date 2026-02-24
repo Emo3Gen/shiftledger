@@ -653,6 +653,46 @@ function parseCommandFormat(text, receivedAt) {
     return results;
   }
 
+  // CLEANING_SWAP [YYYY-MM-DD?] <dow> <original_user_id> <replacement_user_id>
+  const cleanSwapMatch1 = upper.match(/^CLEANING_SWAP\s+(\d{4}-\d{2}-\d{2})\s+(\w+)\s+(\w+)\s+(\w+)$/);
+  const cleanSwapMatch2 = upper.match(/^CLEANING_SWAP\s+(\w+)\s+(\w+)\s+(\w+)$/);
+  const cleanSwapMatch = cleanSwapMatch1 || cleanSwapMatch2;
+  if (cleanSwapMatch) {
+    let weekStart, dow, originalUserId, replacementUserId;
+    if (cleanSwapMatch1) {
+      weekStart = cleanSwapMatch1[1];
+      dow = cleanSwapMatch1[2].toLowerCase();
+      originalUserId = cleanSwapMatch1[3].toLowerCase();
+      replacementUserId = cleanSwapMatch1[4].toLowerCase();
+    } else {
+      weekStart = null;
+      dow = cleanSwapMatch2[1].toLowerCase();
+      originalUserId = cleanSwapMatch2[2].toLowerCase();
+      replacementUserId = cleanSwapMatch2[3].toLowerCase();
+    }
+    if (DOW_MAP[dow] !== undefined) {
+      let date;
+      if (weekStart) {
+        date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
+      } else {
+        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+      }
+      results.push({
+        fact_type: "CLEANING_SWAP",
+        fact_payload: {
+          week_start: weekStart,
+          date,
+          dow,
+          original_user_id: originalUserId,
+          replacement_user_id: replacementUserId,
+          notes: text,
+        },
+        confidence: 1.0,
+      });
+    }
+    return results;
+  }
+
   // EXTRA_CLASS [YYYY-MM-DD?] <dow> <from>-<to> [description]
   const extraClassMatch1 = upper.match(/^EXTRA_CLASS\s+(\d{4}-\d{2}-\d{2})\s+(\w+)\s+(\d{1,2})-(\d{1,2})(?:\s+(.+))?$/);
   const extraClassMatch2 = upper.match(/^EXTRA_CLASS\s+(\w+)\s+(\d{1,2})-(\d{1,2})(?:\s+(.+))?$/);
@@ -849,6 +889,74 @@ export function parseEventToFacts(event) {
     return commandResults;
   }
 
+  // Rule 0a: CLEANING_SWAP (замена уборки)
+  // "я уберусь за Дарину в чт" / "уберусь за Ксюшу в пн"
+  const cleanSwapNameMap = {
+    "ису": "u1", "иса": "u1", "исы": "u1",
+    "дарину": "u2", "дарина": "u2", "дарины": "u2",
+    "ксюшу": "u3", "ксюша": "u3", "ксюши": "u3",
+    "карину": "u4", "карина": "u4", "карины": "u4",
+  };
+  const cleanSwapRe = /(?:уберусь\s+за|уборк[уе]\s+за\s+меня\s+сделает|подменю\s+на\s+уборке|уборк[уе]\s+за\s+\S+\s+сделает)\s*/i;
+  if (cleanSwapRe.test(lower) || (lower.includes("уборк") && lower.includes(" за "))) {
+    const dowInfo = extractRuDow(lower);
+    if (dowInfo) {
+      let originalUserId = null;
+      let replacementUserId = null;
+      // "я уберусь за [Name]" → speaker is replacement, Name is original
+      if (/уберусь\s+за/i.test(lower)) {
+        for (const [name, uid] of Object.entries(cleanSwapNameMap)) {
+          if (lower.includes(name)) { originalUserId = uid; break; }
+        }
+        // replacement_user_id will be set from event.user_id by the caller
+      }
+      // "уборку за меня сделает [Name]" → speaker is original, Name is replacement
+      else if (/уборк[уе]\s+за\s+меня\s+сделает/i.test(lower)) {
+        for (const [name, uid] of Object.entries(cleanSwapNameMap)) {
+          if (lower.includes(name)) { replacementUserId = uid; break; }
+        }
+        // original_user_id will be set from event.user_id by the caller
+      }
+      // "подменю на уборке [Name?]" → speaker is replacement
+      else if (/подменю\s+на\s+уборке/i.test(lower)) {
+        for (const [name, uid] of Object.entries(cleanSwapNameMap)) {
+          if (lower.includes(name)) { originalUserId = uid; break; }
+        }
+      }
+      // Generic: "уборку за [Name] сделает [Name2]"
+      else {
+        const names = [];
+        for (const [name, uid] of Object.entries(cleanSwapNameMap)) {
+          if (lower.includes(name) && !names.some(n => n.uid === uid)) {
+            names.push({ name, uid });
+          }
+        }
+        if (names.length >= 2) {
+          originalUserId = names[0].uid;
+          replacementUserId = names[1].uid;
+        } else if (names.length === 1) {
+          originalUserId = names[0].uid;
+        }
+      }
+
+      if (originalUserId || replacementUserId) {
+        const date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+        results.push({
+          fact_type: "CLEANING_SWAP",
+          fact_payload: {
+            date,
+            dow: dowInfo.dow,
+            original_user_id: originalUserId,
+            replacement_user_id: replacementUserId,
+            notes: text,
+          },
+          confidence: 0.7,
+        });
+        return results;
+      }
+    }
+  }
+
   // Rule 1: CLEANING_DONE (уборка выполнена)
   const cleaningPhrases = [
     "уборку сделала",
@@ -858,8 +966,12 @@ export function parseEventToFacts(event) {
     "убрался",
     "убрано",
     "уборку сделал",
+    "помыла зал",
+    "помыл зал",
   ];
-  if (cleaningPhrases.some((p) => lower.includes(p))) {
+  // Also match "уборка <dow>" pattern (short form)
+  const cleaningShortRe = /^уборк[аи]\s/i;
+  if (cleaningPhrases.some((p) => lower.includes(p)) || cleaningShortRe.test(lower)) {
     const dowInfo = extractRuDow(lower);
     const payload = {
       date: getBerlinDateFromIso(receivedAt),

@@ -9,6 +9,7 @@ function makeSchedule(assignments) {
     gaps: [],
     conflicts: [],
     slots: [],
+    cleaning_assignments: [],
   };
 }
 
@@ -101,7 +102,6 @@ describe("timesheetV0 — plan=fact", () => {
     ]);
     const facts = [
       makeFact("SHIFT_MARKED_PROBLEM", "admin1", { dow: "mon", from: "10:00", to: "11:00" }),
-      // Extra PROBLEM_SHIFT would push below 0
       makeFact("PROBLEM_SHIFT", "admin1", { dow: "mon", from: "10:00", to: "11:00", user_id: "u1" }),
     ];
     const hourlyRates = { u1: 280 };
@@ -112,57 +112,206 @@ describe("timesheetV0 — plan=fact", () => {
     expect(emp.shift_pay).toBe(0);
   });
 
-  test("cleaning: counted and paid at 500₽ each", () => {
+  // --- Cleaning tests ---
+
+  test("cleaning: default evening shift user gets cleaning", () => {
     const schedule = makeSchedule([
+      { dow: "mon", from: "18:00", to: "21:00", user_id: "u2", reason: "auto" },
+    ]);
+    const hourlyRates = { u2: 280 };
+    const result = buildTimesheet({ facts: [], weekStartISO: WEEK_START, hourlyRates, schedule });
+
+    const emp = result.employees.find((e) => e.user_id === "u2");
+    expect(emp.cleaning_count).toBe(1); // auto from evening shift
+    expect(emp.cleaning_pay).toBe(500);
+  });
+
+  test("cleaning: CLEANING_DONE overrides default", () => {
+    const schedule = makeSchedule([
+      { dow: "mon", from: "18:00", to: "21:00", user_id: "u2", reason: "auto" },
       { dow: "mon", from: "10:00", to: "13:00", user_id: "u1", reason: "auto" },
     ]);
     const facts = [
       makeFact("CLEANING_DONE", "u1", { dow: "mon" }),
-      makeFact("CLEANING_DONE", "u1", { dow: "wed" }),
     ];
-    const hourlyRates = { u1: 280 };
+    const hourlyRates = { u1: 280, u2: 280 };
     const result = buildTimesheet({ facts, weekStartISO: WEEK_START, hourlyRates, schedule });
 
-    const emp = result.employees.find((e) => e.user_id === "u1");
-    expect(emp.cleaning_count).toBe(2);
-    expect(emp.cleaning_pay).toBe(1000);
-    expect(emp.total_before_rounding).toBe(840 + 1000); // 1840
-    expect(emp.total_pay).toBe(1900); // ceil(1840/100)*100
+    const emp1 = result.employees.find((e) => e.user_id === "u1");
+    const emp2 = result.employees.find((e) => e.user_id === "u2");
+    expect(emp1.cleaning_count).toBe(1); // explicit CLEANING_DONE
+    expect(emp2.cleaning_count).toBe(0); // overridden
   });
 
-  test("extra classes: counted with hours and paid at 300₽/h", () => {
+  test("cleaning: CLEANING_SWAP overrides default", () => {
     const schedule = makeSchedule([
+      { dow: "mon", from: "18:00", to: "21:00", user_id: "u2", reason: "auto" },
       { dow: "mon", from: "10:00", to: "13:00", user_id: "u1", reason: "auto" },
     ]);
     const facts = [
-      makeFact("EXTRA_CLASS", "u1", { dow: "mon", from: "14:00", to: "16:00" }),
+      makeFact("CLEANING_SWAP", "u3", { dow: "mon", original_user_id: "u2", replacement_user_id: "u3" }),
     ];
-    const hourlyRates = { u1: 280 };
+    const hourlyRates = { u1: 280, u2: 280 };
     const result = buildTimesheet({ facts, weekStartISO: WEEK_START, hourlyRates, schedule });
 
-    const emp = result.employees.find((e) => e.user_id === "u1");
-    expect(emp.extra_classes).toBe(1);
-    expect(emp.extra_hours).toBe(2);
-    expect(emp.extra_pay).toBe(600); // 2 * 300
-    expect(emp.total_before_rounding).toBe(840 + 600); // 1440
-    expect(emp.total_pay).toBe(1500); // ceil(1440/100)*100
+    const emp2 = result.employees.find((e) => e.user_id === "u2");
+    const emp3 = result.employees.find((e) => e.user_id === "u3");
+    expect(emp2.cleaning_count).toBe(0); // swap away
+    expect(emp3.cleaning_count).toBe(1); // swap recipient
+    expect(emp3.cleaning_pay).toBe(500);
   });
 
-  test("combined: shift + cleaning + extras → rounded total", () => {
+  test("cleaning: CLEANING_DONE takes priority over CLEANING_SWAP", () => {
     const schedule = makeSchedule([
-      { dow: "mon", from: "10:00", to: "13:00", user_id: "u1", reason: "auto" },
+      { dow: "tue", from: "18:00", to: "21:00", user_id: "u2", reason: "auto" },
+    ]);
+    const facts = [
+      makeFact("CLEANING_SWAP", "u3", { dow: "tue", original_user_id: "u2", replacement_user_id: "u3" }),
+      makeFact("CLEANING_DONE", "u4", { dow: "tue" }),
+    ];
+    const hourlyRates = { u2: 280 };
+    const result = buildTimesheet({ facts, weekStartISO: WEEK_START, hourlyRates, schedule });
+
+    const emp4 = result.employees.find((e) => e.user_id === "u4");
+    const emp3 = result.employees.find((e) => e.user_id === "u3");
+    expect(emp4.cleaning_count).toBe(1); // explicit CLEANING_DONE wins
+    expect(emp3).toBeUndefined(); // u3 doesn't appear (no shifts, no cleaning)
+  });
+
+  test("cleaning: multiple days, some default some explicit", () => {
+    const schedule = makeSchedule([
+      { dow: "mon", from: "18:00", to: "21:00", user_id: "u2", reason: "auto" },
+      { dow: "tue", from: "18:00", to: "21:00", user_id: "u3", reason: "auto" },
     ]);
     const facts = [
       makeFact("CLEANING_DONE", "u1", { dow: "mon" }),
-      makeFact("EXTRA_CLASS", "u1", { dow: "tue", from: "14:00", to: "15:00" }),
+    ];
+    const hourlyRates = { u1: 280, u2: 280, u3: 280 };
+    const result = buildTimesheet({ facts, weekStartISO: WEEK_START, hourlyRates, schedule });
+
+    const emp1 = result.employees.find((e) => e.user_id === "u1");
+    const emp2 = result.employees.find((e) => e.user_id === "u2");
+    const emp3 = result.employees.find((e) => e.user_id === "u3");
+    expect(emp1.cleaning_count).toBe(1); // explicit mon
+    expect(emp2.cleaning_count).toBe(0); // mon overridden
+    expect(emp3.cleaning_count).toBe(1); // tue default
+  });
+
+  // --- Extra class tests ---
+
+  test("extra class: 5 kids (below threshold) → base_rate 500₽", () => {
+    const schedule = makeSchedule([
+      { dow: "mon", from: "10:00", to: "13:00", user_id: "u1", reason: "auto" },
+    ]);
+    const facts = [
+      makeFact("EXTRA_CLASS", "u1", { dow: "mon", kids_count: 5 }),
     ];
     const hourlyRates = { u1: 280 };
     const result = buildTimesheet({ facts, weekStartISO: WEEK_START, hourlyRates, schedule });
 
     const emp = result.employees.find((e) => e.user_id === "u1");
-    // shift: 3 * 280 = 840, cleaning: 500, extra: 1 * 300 = 300
-    expect(emp.total_before_rounding).toBe(840 + 500 + 300); // 1640
-    expect(emp.total_pay).toBe(1700); // ceil(1640/100)*100
+    expect(emp.extra_classes_count).toBe(1);
+    expect(emp.extra_classes_total_pay).toBe(500);
+    expect(emp.extra_classes[0].kids_count).toBe(5);
+    expect(emp.extra_classes[0].pay).toBe(500);
+  });
+
+  test("extra class: 8 kids (at threshold) → base_rate 500₽", () => {
+    const schedule = makeSchedule([
+      { dow: "mon", from: "10:00", to: "13:00", user_id: "u1", reason: "auto" },
+    ]);
+    const facts = [
+      makeFact("EXTRA_CLASS", "u1", { dow: "mon", kids_count: 8 }),
+    ];
+    const hourlyRates = { u1: 280 };
+    const result = buildTimesheet({ facts, weekStartISO: WEEK_START, hourlyRates, schedule });
+
+    const emp = result.employees.find((e) => e.user_id === "u1");
+    expect(emp.extra_classes_total_pay).toBe(500);
+  });
+
+  test("extra class: 12 kids (above threshold) → 500 + 4×100 = 900₽", () => {
+    const schedule = makeSchedule([
+      { dow: "mon", from: "10:00", to: "13:00", user_id: "u1", reason: "auto" },
+    ]);
+    const facts = [
+      makeFact("EXTRA_CLASS", "u1", { dow: "mon", kids_count: 12 }),
+    ];
+    const hourlyRates = { u1: 280 };
+    const result = buildTimesheet({ facts, weekStartISO: WEEK_START, hourlyRates, schedule });
+
+    const emp = result.employees.find((e) => e.user_id === "u1");
+    expect(emp.extra_classes_count).toBe(1);
+    expect(emp.extra_classes_total_pay).toBe(900); // 500 + 4*100
+    expect(emp.extra_classes[0].pay).toBe(900);
+  });
+
+  test("extra class: 15 kids → 500 + 7×100 = 1200₽", () => {
+    const schedule = makeSchedule([
+      { dow: "mon", from: "10:00", to: "13:00", user_id: "u1", reason: "auto" },
+    ]);
+    const facts = [
+      makeFact("EXTRA_CLASS", "u1", { dow: "mon", kids_count: 15 }),
+    ];
+    const hourlyRates = { u1: 280 };
+    const result = buildTimesheet({ facts, weekStartISO: WEEK_START, hourlyRates, schedule });
+
+    const emp = result.employees.find((e) => e.user_id === "u1");
+    expect(emp.extra_classes_total_pay).toBe(1200);
+  });
+
+  test("extra class: no kids_count → base_rate 500₽", () => {
+    const schedule = makeSchedule([
+      { dow: "mon", from: "10:00", to: "13:00", user_id: "u1", reason: "auto" },
+    ]);
+    const facts = [
+      makeFact("EXTRA_CLASS", "u1", { dow: "mon" }),
+    ];
+    const hourlyRates = { u1: 280 };
+    const result = buildTimesheet({ facts, weekStartISO: WEEK_START, hourlyRates, schedule });
+
+    const emp = result.employees.find((e) => e.user_id === "u1");
+    expect(emp.extra_classes_count).toBe(1);
+    expect(emp.extra_classes_total_pay).toBe(500);
+  });
+
+  test("multiple extra classes summed correctly", () => {
+    const schedule = makeSchedule([
+      { dow: "mon", from: "10:00", to: "13:00", user_id: "u1", reason: "auto" },
+    ]);
+    const facts = [
+      makeFact("EXTRA_CLASS", "u1", { dow: "mon", kids_count: 12 }), // 900
+      makeFact("EXTRA_CLASS", "u1", { dow: "wed", kids_count: 5 }),  // 500
+    ];
+    const hourlyRates = { u1: 280 };
+    const result = buildTimesheet({ facts, weekStartISO: WEEK_START, hourlyRates, schedule });
+
+    const emp = result.employees.find((e) => e.user_id === "u1");
+    expect(emp.extra_classes_count).toBe(2);
+    expect(emp.extra_classes_total_pay).toBe(1400); // 900 + 500
+    expect(emp.extra_classes_total_kids).toBe(17); // 12 + 5
+  });
+
+  // --- Combined tests ---
+
+  test("combined: shift + cleaning (default) + extras → rounded total", () => {
+    const schedule = makeSchedule([
+      { dow: "mon", from: "18:00", to: "21:00", user_id: "u1", reason: "auto" },
+    ]);
+    const facts = [
+      makeFact("EXTRA_CLASS", "u1", { dow: "tue", kids_count: 10 }),
+    ];
+    const hourlyRates = { u1: 280 };
+    const result = buildTimesheet({ facts, weekStartISO: WEEK_START, hourlyRates, schedule });
+
+    const emp = result.employees.find((e) => e.user_id === "u1");
+    // shift: 3 * 280 = 840, cleaning: 1 * 500 (default evening), extra: 500 + 2*100 = 700
+    expect(emp.shift_pay).toBe(840);
+    expect(emp.cleaning_count).toBe(1);
+    expect(emp.cleaning_pay).toBe(500);
+    expect(emp.extra_classes_total_pay).toBe(700);
+    expect(emp.total_before_rounding).toBe(840 + 500 + 700); // 2040
+    expect(emp.total_pay).toBe(2100); // ceil(2040/100)*100
   });
 
   test("empty input → zero timesheet", () => {
@@ -218,7 +367,9 @@ describe("timesheetV0 — plan=fact", () => {
       { dow: "mon", from: "10:00", to: "13:00", user_id: "u1", reason: "auto" },
       { dow: "mon", from: "18:00", to: "21:00", user_id: "u2", reason: "auto" },
     ]);
-    const facts = [makeFact("CLEANING_DONE", "u1", { dow: "mon" })];
+    const facts = [
+      makeFact("CLEANING_DONE", "u1", { dow: "mon" }),
+    ];
     const hourlyRates = { u1: 280, u2: 280 };
     const result = buildTimesheet({ facts, weekStartISO: WEEK_START, hourlyRates, schedule });
 
@@ -273,5 +424,43 @@ describe("timesheetV0 — plan=fact", () => {
     const result = buildTimesheet({ facts: [], weekStartISO: WEEK_START, hourlyRates, schedule });
     const emp = result.employees.find((e) => e.user_id === "u1");
     expect(emp.name).toBe("Иса");
+  });
+
+  test("full scenario: shifts + problem + cleanings + extras", () => {
+    const schedule = makeSchedule([
+      { dow: "mon", from: "10:00", to: "13:00", user_id: "u1", reason: "auto" },
+      { dow: "mon", from: "18:00", to: "21:00", user_id: "u2", reason: "auto" },
+      { dow: "tue", from: "18:00", to: "21:00", user_id: "u3", reason: "auto" },
+    ]);
+    const facts = [
+      makeFact("PROBLEM_SHIFT", "admin1", { dow: "mon", from: "10:00", to: "13:00", user_id: "u1" }),
+      makeFact("CLEANING_DONE", "u1", { dow: "mon" }), // u1 cleaned instead of default u2
+      makeFact("EXTRA_CLASS", "u1", { dow: "mon", kids_count: 12 }), // 900₽
+      makeFact("EXTRA_CLASS", "u2", { dow: "wed", kids_count: 5 }),  // 500₽
+    ];
+    const hourlyRates = { u1: 280, u2: 280, u3: 280 };
+    const result = buildTimesheet({ facts, weekStartISO: WEEK_START, hourlyRates, schedule });
+
+    const emp1 = result.employees.find((e) => e.user_id === "u1");
+    // u1: 3h shift, 1 problem (-1h), 1 cleaning (explicit), 1 extra (12 kids)
+    expect(emp1.shift_hours).toBe(3);
+    expect(emp1.problem_shifts).toBe(1);
+    expect(emp1.effective_hours).toBe(2);
+    expect(emp1.shift_pay).toBe(560); // 2*280
+    expect(emp1.cleaning_count).toBe(1);
+    expect(emp1.cleaning_pay).toBe(500);
+    expect(emp1.extra_classes_count).toBe(1);
+    expect(emp1.extra_classes_total_pay).toBe(900); // 500+4*100
+
+    const emp2 = result.employees.find((e) => e.user_id === "u2");
+    // u2: 3h shift, 0 cleaning (overridden by u1), 1 extra (5 kids)
+    expect(emp2.shift_hours).toBe(3);
+    expect(emp2.cleaning_count).toBe(0); // overridden by CLEANING_DONE u1
+    expect(emp2.extra_classes_count).toBe(1);
+    expect(emp2.extra_classes_total_pay).toBe(500);
+
+    const emp3 = result.employees.find((e) => e.user_id === "u3");
+    // u3: 3h shift, 1 cleaning (default evening tue)
+    expect(emp3.cleaning_count).toBe(1);
   });
 });
