@@ -614,4 +614,77 @@ describe("factsParserV0", () => {
       expect(facts[0].fact_payload.to).toBe("17:00");
     });
   });
+
+  describe("DSL: PROBLEM command", () => {
+    test("PROBLEM mon 10-13 u1 → PROBLEM_SHIFT", () => {
+      const facts = parseEventToFacts({ text: "PROBLEM mon 10-13 u1", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("PROBLEM_SHIFT");
+      expect(facts[0].fact_payload.dow).toBe("mon");
+      expect(facts[0].fact_payload.from).toBe("10:00");
+      expect(facts[0].fact_payload.to).toBe("13:00");
+      expect(facts[0].fact_payload.user_id).toBe("u1");
+      expect(facts[0].fact_payload.reason).toBeNull();
+      expect(facts[0].confidence).toBe(1.0);
+    });
+
+    test("PROBLEM mon 10-13 u1 late → PROBLEM_SHIFT with reason", () => {
+      const facts = parseEventToFacts({ text: "PROBLEM mon 10-13 u1 late", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("PROBLEM_SHIFT");
+      expect(facts[0].fact_payload.user_id).toBe("u1");
+      expect(facts[0].fact_payload.reason).toBe("late");
+    });
+
+    test("PROBLEM 2025-01-06 thu 18-21 u2 → PROBLEM_SHIFT with week_start", () => {
+      const facts = parseEventToFacts({ text: "PROBLEM 2025-01-06 thu 18-21 u2", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("PROBLEM_SHIFT");
+      expect(facts[0].fact_payload.week_start).toBe("2025-01-06");
+      expect(facts[0].fact_payload.dow).toBe("thu");
+      expect(facts[0].fact_payload.from).toBe("18:00");
+      expect(facts[0].fact_payload.to).toBe("21:00");
+      expect(facts[0].fact_payload.user_id).toBe("u2");
+    });
+
+    test("PROBLEM 2025-01-06 mon 10-13 u1 no children → PROBLEM_SHIFT with reason containing spaces", () => {
+      const facts = parseEventToFacts({ text: "PROBLEM 2025-01-06 mon 10-13 u1 no children", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("PROBLEM_SHIFT");
+      expect(facts[0].fact_payload.user_id).toBe("u1");
+      expect(facts[0].fact_payload.reason).toBe("no children");
+    });
+  });
+
+  describe("NL: PROBLEM_SHIFT detection", () => {
+    test("проблема пн утро Иса опоздала → PROBLEM_SHIFT", () => {
+      const facts = parseEventToFacts({ text: "проблема пн утро Иса опоздала", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("PROBLEM_SHIFT");
+      expect(facts[0].fact_payload.dow).toBe("mon");
+      expect(facts[0].fact_payload.from).toBe("10:00");
+      expect(facts[0].fact_payload.to).toBe("13:00");
+      expect(facts[0].fact_payload.user_id).toBe("u1");
+      expect(facts[0].fact_payload.reason).toBe("опоздала");
+    });
+
+    test("⚠ чт вечер Дарина → PROBLEM_SHIFT", () => {
+      const facts = parseEventToFacts({ text: "⚠ чт вечер Дарина", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("PROBLEM_SHIFT");
+      expect(facts[0].fact_payload.dow).toBe("thu");
+      expect(facts[0].fact_payload.from).toBe("18:00");
+      expect(facts[0].fact_payload.to).toBe("21:00");
+      expect(facts[0].fact_payload.user_id).toBe("u2");
+    });
+
+    test("проблема ср утро Ксюша не пришли дети → PROBLEM_SHIFT with reason", () => {
+      const facts = parseEventToFacts({ text: "проблема ср утро Ксюша не пришли дети", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("PROBLEM_SHIFT");
+      expect(facts[0].fact_payload.dow).toBe("wed");
+      expect(facts[0].fact_payload.user_id).toBe("u3");
+      expect(facts[0].fact_payload.reason).toBe("не пришли дети");
+    });
+  });
 });

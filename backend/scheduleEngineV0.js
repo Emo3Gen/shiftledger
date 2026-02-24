@@ -443,6 +443,9 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes }) {
   
   // Track assignment timestamps to detect changes (if assignment is newer than confirmation, reset)
   const assignmentTimestampsBySlot = new Map(); // key: "dow|from|to", value: created_at of latest assignment
+
+  // Track PROBLEM_SHIFT facts by slot key
+  const problemShiftsBySlot = new Map(); // key: "dow|from|to", value: { user_id, reason, created_at }
   
   for (const fact of facts || []) {
     if (fact.fact_type === "SCHEDULE_CONFIRMED") {
@@ -505,6 +508,23 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes }) {
     }
     // NOTE: SHIFT_WORKED is intentionally NOT treated as confirmation
     // SHIFT_WORKED is a fact about work done, not a schedule confirmation
+
+    if (fact.fact_type === "PROBLEM_SHIFT") {
+      const { dow, from, to, user_id: targetUserId, reason } = fact.fact_payload || {};
+      if (dow && from && to) {
+        const slotKey = `${dow}|${from}|${to}`;
+        const factCreatedAt = new Date(fact.created_at || 0).getTime();
+        const existing = problemShiftsBySlot.get(slotKey);
+        const existingCreatedAt = existing ? new Date(existing.created_at).getTime() : 0;
+        if (!existing || factCreatedAt > existingCreatedAt) {
+          problemShiftsBySlot.set(slotKey, {
+            user_id: targetUserId ? UserDirectory.normalizeUserId(targetUserId) : null,
+            reason: reason || null,
+            created_at: fact.created_at,
+          });
+        }
+      }
+    }
   }
 
   // Build slots with status
@@ -626,6 +646,15 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes }) {
         }
       }
 
+      // Check PROBLEM_SHIFT facts for this slot
+      const problemShift = problemShiftsBySlot.get(slotKey);
+      if (problemShift && (!problemShift.user_id || problemShift.user_id === user_id)) {
+        isProblematic = true;
+        if (!problemReasons.includes("marked_by_admin")) {
+          problemReasons.push("marked_by_admin");
+        }
+      }
+
       // Check if shift was a replacement (from gap that was closed)
       if (assignment) {
         // Check if there was a gap before this assignment
@@ -667,6 +696,8 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes }) {
         status,
         has_problem: hasProblem,
         is_problematic: isProblematic,
+        is_problem: !!problemShift,
+        problem_reason: problemShift?.reason || null,
         problem_reasons: problemReasons,
       });
     }

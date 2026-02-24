@@ -252,6 +252,53 @@ function parseCommandFormat(text, receivedAt) {
     }
   }
 
+  // PROBLEM [YYYY-MM-DD?] <dow> <from>-<to> <user_id> [reason]
+  // Example: "PROBLEM mon 10-13 u1 late" -> PROBLEM_SHIFT
+  const problemMatch1 = upper.match(/^PROBLEM\s+(\d{4}-\d{2}-\d{2})\s+(\w+)\s+(\d{1,2})-(\d{1,2})\s+(\w+)(?:\s+(.+))?$/);
+  const problemMatch2 = upper.match(/^PROBLEM\s+(\w+)\s+(\d{1,2})-(\d{1,2})\s+(\w+)(?:\s+(.+))?$/);
+  const problemMatch = problemMatch1 || problemMatch2;
+  if (problemMatch) {
+    let weekStart, dow, fromHour, toHour, userId, reason;
+    if (problemMatch1) {
+      weekStart = problemMatch1[1];
+      dow = problemMatch1[2].toLowerCase();
+      fromHour = problemMatch1[3].padStart(2, "0");
+      toHour = problemMatch1[4].padStart(2, "0");
+      userId = problemMatch1[5].toLowerCase();
+      reason = problemMatch1[6] || null;
+    } else {
+      weekStart = null;
+      dow = problemMatch2[1].toLowerCase();
+      fromHour = problemMatch2[2].padStart(2, "0");
+      toHour = problemMatch2[3].padStart(2, "0");
+      userId = problemMatch2[4].toLowerCase();
+      reason = problemMatch2[5] || null;
+    }
+    if (DOW_MAP[dow] !== undefined) {
+      let date;
+      if (weekStart) {
+        date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
+      } else {
+        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+      }
+      results.push({
+        fact_type: "PROBLEM_SHIFT",
+        fact_payload: {
+          week_start: weekStart,
+          date,
+          dow,
+          from: `${fromHour}:00`,
+          to: `${toHour}:00`,
+          user_id: userId,
+          reason: reason?.toLowerCase() || null,
+          notes: text,
+        },
+        confidence: 1.0,
+      });
+      return results;
+    }
+  }
+
   // CONFIRM_SHIFT_FACT [YYYY-MM-DD?] <dow> <from>-<to> [ok|problem] - confirm shift fact (ok = plan=fact, problem = needs adjustment)
   const confirmShiftFactMatch = upper.match(/^CONFIRM_SHIFT_FACT(?:\s+(\d{4}-\d{2}-\d{2}))?\s+(\w+)\s+(\d{1,2})-(\d{1,2})\s+(OK|PROBLEM)(?:\s+(.+))?$/);
   if (confirmShiftFactMatch) {
@@ -824,6 +871,53 @@ export function parseEventToFacts(event) {
         confidence: 0.75,
       });
       return results;
+    }
+  }
+
+  // Rule 1c: PROBLEM_SHIFT (проблема / ⚠ — admin marks a problem shift)
+  // "проблема пн утро Иса опоздала" or "⚠ чт вечер Дарина"
+  const problemPhrases = ["проблема", "⚠"];
+  if (problemPhrases.some((p) => lower.includes(p))) {
+    const dowInfo = extractRuDow(lower);
+    const time = dowInfo ? extractTime(lower) : null;
+    if (dowInfo && time) {
+      // Try to extract employee name from text
+      const nameMap = {
+        "иса": "u1", "иса,": "u1",
+        "дарина": "u2", "дарина,": "u2",
+        "ксюша": "u3", "ксюша,": "u3",
+        "карина": "u4", "карина,": "u4",
+      };
+      let targetUserId = null;
+      let reason = null;
+      // Find name in text
+      for (const [name, uid] of Object.entries(nameMap)) {
+        if (lower.includes(name)) {
+          targetUserId = uid;
+          // Extract reason: everything after the name
+          const nameIdx = lower.indexOf(name);
+          const afterName = lower.slice(nameIdx + name.length).trim().replace(/^,\s*/, "");
+          if (afterName) reason = afterName;
+          break;
+        }
+      }
+      if (targetUserId) {
+        const date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+        results.push({
+          fact_type: "PROBLEM_SHIFT",
+          fact_payload: {
+            date,
+            dow: dowInfo.dow,
+            from: time.from,
+            to: time.to,
+            user_id: targetUserId,
+            reason,
+            notes: text,
+          },
+          confidence: 0.75,
+        });
+        return results;
+      }
     }
   }
 

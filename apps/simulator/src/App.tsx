@@ -1408,6 +1408,7 @@ export const App: React.FC = () => {
                                 <div style={{ fontSize: "0.85em", color: "#666" }}>
                                   {slot.hours != null ? `${slot.hours.toFixed(1)} ч` : "—"}
                                   {slot.replaced_user_id && " 🔄"}
+                                  {slot.is_problem && " ⚠️"}
                                 </div>
                               </>
                             ) : (
@@ -1463,6 +1464,7 @@ export const App: React.FC = () => {
                                 <div style={{ fontSize: "0.85em", color: "#666" }}>
                                   {slot.hours != null ? `${slot.hours.toFixed(1)} ч` : "—"}
                                   {slot.replaced_user_id && " 🔄"}
+                                  {slot.is_problem && " ⚠️"}
                                 </div>
                               </>
                             ) : (
@@ -2063,6 +2065,13 @@ export const App: React.FC = () => {
                   onClick={() => debugSend(`APPROVE_OVERTIME ${weekStartISO} thu 18-21`, "owner")}
                 >
                   APPROVE_OVERTIME
+                </button>
+                <button
+                  type="button"
+                  style={{ fontSize: "0.7em", padding: "2px 4px", backgroundColor: "#ffc107", color: "black", border: "none", borderRadius: "2px" }}
+                  onClick={() => debugSend(`PROBLEM ${weekStartISO} mon 10-13 u1 late`, "admin")}
+                >
+                  PROBLEM (пн утро u1)
                 </button>
               </div>
             </div>
