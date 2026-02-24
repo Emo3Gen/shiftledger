@@ -880,15 +880,14 @@ export const App: React.FC = () => {
                           <th style={{ textAlign: "left", padding: "2px 3px" }}>Имя</th>
                           <th style={{ textAlign: "right", padding: "2px 3px" }}>Часы</th>
                           <th style={{ textAlign: "right", padding: "2px 3px" }}>Пробл.</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Вычет</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Эфф.</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Ставка</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Смены</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Эфф.ч</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Смены ₽</th>
                           <th style={{ textAlign: "right", padding: "2px 3px" }}>Уб.</th>
                           <th style={{ textAlign: "right", padding: "2px 3px" }}>Уб. ₽</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Доп ч.</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Доп ₽</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Итого</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Допы</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Дети</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Допы ₽</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px", fontWeight: "bold" }}>Итого ₽</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -897,14 +896,13 @@ export const App: React.FC = () => {
                             <td style={{ padding: "2px 3px" }}>{emp.name || emp.user_id}</td>
                             <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtNum(emp.shift_hours)}</td>
                             <td style={{ textAlign: "right", padding: "2px 3px", color: emp.problem_shifts > 0 ? "#dc3545" : undefined }}>{emp.problem_shifts}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px", color: emp.problem_deduction_hours > 0 ? "#dc3545" : undefined }}>{emp.problem_deduction_hours > 0 ? `-${emp.problem_deduction_hours}` : "0"}</td>
                             <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtNum(emp.effective_hours)}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.rate}</td>
                             <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.shift_pay)}</td>
                             <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.cleaning_count}</td>
                             <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.cleaning_pay)}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtNum(emp.extra_hours)}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.extra_pay)}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.extra_classes_count ?? emp.extra_classes?.length ?? 0}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.extra_classes_total_kids ?? 0}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.extra_classes_total_pay ?? emp.extra_pay ?? 0)}</td>
                             <td style={{ textAlign: "right", padding: "2px 3px", fontWeight: "bold" }}>{fmtRub(emp.total_pay)}</td>
                           </tr>
                         ))}
@@ -1452,6 +1450,9 @@ export const App: React.FC = () => {
                               : slot?.status === "PROBLEM"
                                 ? "#dc3545"
                                 : "#dc3545";
+                        // Cleaning info for evening slots
+                        const cleaningUser = slot?.cleaning_user_id;
+                        const cleaningIsSwap = slot?.cleaning_is_replacement;
                         return (
                           <div
                             key={`${dow}-evening`}
@@ -1477,6 +1478,11 @@ export const App: React.FC = () => {
                                   {slot.hours != null ? `${slot.hours.toFixed(1)} ч` : "—"}
                                   {slot.replaced_user_id && " 🔄"}
                                   {slot.is_problem && " ⚠️"}
+                                </div>
+                                <div style={{ fontSize: "0.8em", color: "#8B4513", marginTop: "2px" }}>
+                                  {cleaningUser && cleaningIsSwap
+                                    ? `🧹→${UserDirectory.getDisplayName(cleaningUser)}`
+                                    : "🧹"}
                                 </div>
                               </>
                             ) : (
@@ -1584,15 +1590,14 @@ export const App: React.FC = () => {
                           <th style={{ textAlign: "left", padding: "2px 3px" }}>Имя</th>
                           <th style={{ textAlign: "right", padding: "2px 3px" }}>Часы</th>
                           <th style={{ textAlign: "right", padding: "2px 3px" }}>Пробл.</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Вычет</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Эфф.часы</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Ставка</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Эфф.ч</th>
                           <th style={{ textAlign: "right", padding: "2px 3px" }}>Смены ₽</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Уборки</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Уборки ₽</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Допы ч.</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Уб.</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Уб. ₽</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Допы</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Дети</th>
                           <th style={{ textAlign: "right", padding: "2px 3px" }}>Допы ₽</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Итого ₽</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px", fontWeight: "bold" }}>Итого ₽</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1601,14 +1606,13 @@ export const App: React.FC = () => {
                             <td style={{ padding: "2px 3px" }}>{emp.name || emp.user_id}</td>
                             <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtNum(emp.shift_hours)}</td>
                             <td style={{ textAlign: "right", padding: "2px 3px", color: emp.problem_shifts > 0 ? "#dc3545" : undefined }}>{emp.problem_shifts}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px", color: emp.problem_deduction_hours > 0 ? "#dc3545" : undefined }}>{emp.problem_deduction_hours > 0 ? `-${emp.problem_deduction_hours}` : "0"}</td>
                             <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtNum(emp.effective_hours)}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.rate}</td>
                             <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.shift_pay)}</td>
                             <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.cleaning_count}</td>
                             <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.cleaning_pay)}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtNum(emp.extra_hours)}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.extra_pay)}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.extra_classes_count ?? emp.extra_classes?.length ?? 0}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.extra_classes_total_kids ?? 0}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.extra_classes_total_pay ?? emp.extra_pay ?? 0)}</td>
                             <td style={{ textAlign: "right", padding: "2px 3px", fontWeight: "bold" }}>{fmtRub(emp.total_pay)}</td>
                           </tr>
                         ))}
@@ -1948,6 +1952,19 @@ export const App: React.FC = () => {
                         await sendMsg("u4", "пт вечер не смогу, кто свободен?");
                         await sendMsg("u2", "я смогу в пт вечер");
 
+                        // Шаг 5: Уборки
+                        console.log("[SCENARIO B] Уборки");
+                        await sendMsg("u2", "убралась во вторник");
+                        await sendMsg("u3", "уборку в среду за меня сделает Карина");
+                        await sendMsg("u4", "убралась в среду");
+                        await sendMsg("u1", "убрался в четверг");
+
+                        // Шаг 6: Доп занятия
+                        console.log("[SCENARIO B] Доп занятия");
+                        await sendMsg("u1", "доп занятие пн 12 детей");
+                        await sendMsg("u2", "допы ср 5 детей");
+                        await sendMsg("u4", "провела доп пт 10 детей");
+
                         // Обновить данные
                         await loadDialogEvents(selectedChatId, selectedTenant);
                         await refreshWeekState();
@@ -1960,46 +1977,130 @@ export const App: React.FC = () => {
                         // Count replacements
                         const replacements = (scheduleData.slots || []).filter((s: any) => s.replaced_user_id);
                         console.log("[SCENARIO B] ✅ Замены в графике:", replacements.length);
-                        alert(`Сценарий B завершён (4 замены).\nЗамены в графике: ${replacements.length}\n• чт утро: Ксюша за Иса\n• пн вечер: Карина за Дарина\n• ср утро: Иса за Ксюша/Дарина\n• пт вечер: Дарина за Карина\nПроверьте 🔄 в графике.`);
+                        alert(`Сценарий B завершён (4 замены + уборки + допы).\nЗамены: ${replacements.length}\n• чт утро: Ксюша за Иса\n• пн вечер: Карина за Дарина\n• ср утро: Иса за Ксюша/Дарина\n• пт вечер: Дарина за Карина\nУборки: u2 вт, u4 ср (за u3), u1 чт\nДопы: u1 пн 12д, u2 ср 5д, u4 пт 10д\nПроверьте 🔄 и 🧹 в графике.`);
                       } catch (e: any) {
                         console.error("[SCENARIO B] Ошибка:", e);
                         alert(`Ошибка: ${String(e?.message || e)}`);
                       }
                     }}
                   >
-                    Сценарий B: Замена (4 замены)
+                    Сценарий B: Замены + Уборки + Допы
                   </button>
                   <button
                     type="button"
                     style={{ fontSize: "0.8em", padding: "4px 8px", backgroundColor: "#ffc107", color: "black", border: "none", borderRadius: "4px", cursor: "pointer" }}
                     onClick={async () => {
-                      console.log("[SCENARIO C] Зарплата");
+                      console.log("[SCENARIO C] Зарплата (полный цикл)");
                       if (!selectedChatId || !selectedTenant) {
                         alert("Выберите chat и tenant");
                         return;
                       }
                       try {
-                        // 1. Загрузить табель
-                        console.log("[SCENARIO C] Шаг 1: Загрузка табеля");
+                        const sendMsg = async (userId: string, text: string) => {
+                          await fetch("/debug/send", {
+                            method: "POST",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({
+                              tenant_id: selectedTenant,
+                              chat_id: selectedChatId,
+                              user_id: userId,
+                              text,
+                              meta: { role: "staff" },
+                            }),
+                          });
+                          await new Promise((r) => setTimeout(r, 250));
+                        };
+
+                        // Шаг 1: Запустить Сценарий A (сбор доступности + черновик)
+                        console.log("[SCENARIO C] Шаг 1: Сбор доступности");
+                        await debugSend(`OPEN_WEEK ${weekStartISO}`, "admin");
+                        // Иса (u1) — утренние
+                        await sendMsg("u1", `AVAIL ${weekStartISO} mon 10-13`);
+                        await sendMsg("u1", `AVAIL ${weekStartISO} tue 10-13`);
+                        await sendMsg("u1", `AVAIL ${weekStartISO} wed 10-13`);
+                        await sendMsg("u1", `AVAIL ${weekStartISO} thu 10-13`);
+                        await sendMsg("u1", `AVAIL ${weekStartISO} fri 10-13`);
+                        await sendMsg("u1", `AVAIL ${weekStartISO} sat 10-13`);
+                        // Дарина (u2) — вечерние + доп
+                        await sendMsg("u2", `AVAIL ${weekStartISO} mon 18-21`);
+                        await sendMsg("u2", `AVAIL ${weekStartISO} tue 18-21`);
+                        await sendMsg("u2", `AVAIL ${weekStartISO} wed 10-13`);
+                        await sendMsg("u2", `AVAIL ${weekStartISO} thu 10-13`);
+                        await sendMsg("u2", `AVAIL ${weekStartISO} sat 10-13`);
+                        await sendMsg("u2", `AVAIL ${weekStartISO} sun 18-21`);
+                        // Ксюша (u3) — вечерние
+                        await sendMsg("u3", `AVAIL ${weekStartISO} wed 18-21`);
+                        await sendMsg("u3", `AVAIL ${weekStartISO} thu 18-21`);
+                        await sendMsg("u3", `AVAIL ${weekStartISO} fri 18-21`);
+                        await sendMsg("u3", `AVAIL ${weekStartISO} sun 10-13`);
+                        // Карина (u4) — вечерние
+                        await sendMsg("u4", `AVAIL ${weekStartISO} sat 18-21`);
+                        await sendMsg("u4", `AVAIL ${weekStartISO} fri 18-21`);
+
+                        // Собрать график
+                        console.log("[SCENARIO C] Шаг 2: Сборка графика");
+                        const buildRes = await fetch("/debug/build-schedule", {
+                          method: "POST",
+                          headers: { "content-type": "application/json" },
+                          body: JSON.stringify({
+                            chat_id: selectedChatId,
+                            week_start: weekStartISO,
+                            user_id: "admin1",
+                          }),
+                        });
+                        const buildData = await buildRes.json();
+                        if (!buildRes.ok || buildData.ok === false) {
+                          alert(`Ошибка сборки: ${buildData.error || "unknown"}`);
+                          return;
+                        }
+                        setSchedule(buildData.schedule);
+                        await debugSend(`PROPOSE ${weekStartISO}`, "admin");
+                        await refreshWeekState();
+
+                        // Шаг 3: Замены (из Сценария B)
+                        console.log("[SCENARIO C] Шаг 3: 4 замены");
+                        await sendMsg("u1", "девочки, не могу в четверг утро, кто сможет?");
+                        await sendMsg("u3", "я смогу выйти в чт утро");
+                        await sendMsg("u2", "не смогу в понедельник вечер, подмените пожалуйста");
+                        await sendMsg("u4", "могу в пн вечер, подменю");
+                        await sendMsg("u3", "в среду утро не получится, кто может?");
+                        await sendMsg("u1", "я выйду в ср утро");
+                        await sendMsg("u4", "пт вечер не смогу, кто свободен?");
+                        await sendMsg("u2", "я смогу в пт вечер");
+
+                        // Шаг 4: Уборки
+                        console.log("[SCENARIO C] Шаг 4: Уборки");
+                        await sendMsg("u2", "убралась во вторник");
+                        await sendMsg("u3", "уборку в среду за меня сделает Карина");
+                        await sendMsg("u4", "убралась в среду");
+                        await sendMsg("u1", "убрался в четверг");
+
+                        // Шаг 5: Доп занятия
+                        console.log("[SCENARIO C] Шаг 5: Доп занятия");
+                        await sendMsg("u1", "доп занятие пн 12 детей");
+                        await sendMsg("u2", "допы ср 5 детей");
+                        await sendMsg("u4", "провела доп пт 10 детей");
+
+                        // Шаг 6: Пересчитать график и табель
+                        console.log("[SCENARIO C] Шаг 6: Пересчёт");
+                        await loadDialogEvents(selectedChatId, selectedTenant);
+                        await refreshWeekState();
+                        const scheduleRes = await fetch(
+                          `/debug/schedule?chat_id=${encodeURIComponent(selectedChatId)}&week_start=${encodeURIComponent(weekStartISO)}`,
+                        );
+                        const scheduleData = await scheduleRes.json();
+                        setSchedule(scheduleData);
                         await loadTimesheet();
-                        
-                        // 2. Отметить работу
-                        console.log("[SCENARIO C] Шаг 2: Отметка работы");
-                        await debugSend(`WORKED ${weekStartISO} mon 10-13`, "staff");
-                        await debugSend(`WORKED ${weekStartISO} tue 10-13`, "staff");
-                        
-                        // 3. Перезагрузить табель
-                        await loadTimesheet();
-                        
-                        console.log("[SCENARIO C] ✅ Ожидаемый результат: табель показывает отработанные часы и расчёт зарплаты");
-                        alert("Сценарий C завершён. Проверьте: табель показывает отработанные часы и расчёт зарплаты");
+
+                        console.log("[SCENARIO C] ✅ Полный цикл завершён");
+                        alert("Сценарий C завершён (полный цикл).\n• Доступность → Черновик → Замены → Уборки → Допы → Табель\nПроверьте табель с уборками и допами.");
                       } catch (e: any) {
                         console.error("[SCENARIO C] Ошибка:", e);
                         alert(`Ошибка: ${String(e?.message || e)}`);
                       }
                     }}
                   >
-                    Сценарий C: Зарплата
+                    Сценарий C: Полный цикл
                   </button>
                 </div>
               </div>
