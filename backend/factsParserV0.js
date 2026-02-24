@@ -31,6 +31,17 @@ function nextWeekdayBerlin(isoString, targetIndex) {
   return addDaysBerlin(isoString, diff);
 }
 
+// Resolve day-of-week to the same Mon–Sun week as receivedAt.
+// Used for reporting facts (CLEANING_DONE, EXTRA_CLASS) where the user
+// references a day within the current work week, even if it's in the past.
+function sameWeekdayBerlin(isoString, targetIndex) {
+  const date = new Date(isoString);
+  let day = date.getUTCDay(); // 0..6, Sunday=0
+  if (day === 0) day = 7; // Monday=1..Sunday=7
+  const diff = (targetIndex + 1) - day; // range: -6..+6
+  return addDaysBerlin(isoString, diff);
+}
+
 function parseTimeWindow(text) {
   const re = /с\s*(\d{1,2})(?:[:\.](\d{2}))?\s*до\s*(\d{1,2})(?:[:\.](\d{2}))?/i;
   const m = text.match(re);
@@ -637,7 +648,7 @@ function parseCommandFormat(text, receivedAt) {
       if (weekStart) {
         date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
       } else {
-        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+        date = sameWeekdayBerlin(receivedAt, DOW_MAP[dow]);
       }
       results.push({
         fact_type: "CLEANING_DONE",
@@ -675,7 +686,7 @@ function parseCommandFormat(text, receivedAt) {
       if (weekStart) {
         date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
       } else {
-        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+        date = sameWeekdayBerlin(receivedAt, DOW_MAP[dow]);
       }
       results.push({
         fact_type: "CLEANING_SWAP",
@@ -717,7 +728,7 @@ function parseCommandFormat(text, receivedAt) {
       if (weekStart) {
         date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
       } else {
-        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+        date = sameWeekdayBerlin(receivedAt, DOW_MAP[dow]);
       }
       results.push({
         fact_type: "EXTRA_CLASS",
@@ -759,7 +770,7 @@ function parseCommandFormat(text, receivedAt) {
       if (weekStart) {
         date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
       } else {
-        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+        date = sameWeekdayBerlin(receivedAt, DOW_MAP[dow]);
       }
       results.push({
         fact_type: "EXTRA_CLASS",
@@ -952,8 +963,8 @@ export function parseEventToFacts(event) {
         }
         // replacement_user_id will be set from event.user_id by the caller
       }
-      // "уборку за меня сделает [Name]" → speaker is original, Name is replacement
-      else if (/уборк[уе]\s+за\s+меня\s+сделает/i.test(lower)) {
+      // "уборку за меня сделает [Name]" / "уборку в среду за меня сделает [Name]" → speaker is original, Name is replacement
+      else if (/уборк[уе].*за\s+меня\s+сделает/i.test(lower)) {
         for (const [name, uid] of Object.entries(cleanSwapNameMap)) {
           if (lower.includes(name)) { replacementUserId = uid; break; }
         }
@@ -982,7 +993,7 @@ export function parseEventToFacts(event) {
       }
 
       if (originalUserId || replacementUserId) {
-        const date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+        const date = sameWeekdayBerlin(receivedAt, dowInfo.dowIndex);
         results.push({
           fact_type: "CLEANING_SWAP",
           fact_payload: {
@@ -1021,7 +1032,7 @@ export function parseEventToFacts(event) {
     };
     if (dowInfo) {
       payload.dow = dowInfo.dow;
-      payload.date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+      payload.date = sameWeekdayBerlin(receivedAt, dowInfo.dowIndex);
     }
     results.push({
       fact_type: "CLEANING_DONE",
@@ -1060,7 +1071,7 @@ export function parseEventToFacts(event) {
         kidsCount = parseInt(plainNumberMatch[1], 10);
       }
 
-      const date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+      const date = sameWeekdayBerlin(receivedAt, dowInfo.dowIndex);
 
       // Also try to extract time range (optional)
       const time = extractTime(lower);
