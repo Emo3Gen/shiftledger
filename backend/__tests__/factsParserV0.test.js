@@ -25,6 +25,26 @@ describe("factsParserV0", () => {
       expect(facts[0].fact_payload.from).toBe("18:00");
       expect(facts[0].fact_payload.to).toBe("21:00");
     });
+
+    test("AVAIL 2025-01-06 mon 10-13 → SHIFT_AVAILABILITY with week_start", () => {
+      const facts = parseEventToFacts({ text: "AVAIL 2025-01-06 mon 10-13", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("SHIFT_AVAILABILITY");
+      expect(facts[0].fact_payload.week_start).toBe("2025-01-06");
+      expect(facts[0].fact_payload.dow).toBe("mon");
+      expect(facts[0].fact_payload.from).toBe("10:00");
+      expect(facts[0].fact_payload.to).toBe("13:00");
+      expect(facts[0].fact_payload.availability).toBe("can");
+    });
+
+    test("AVAIL 2025-01-06 thu 18-21 → date calculated from week_start", () => {
+      const facts = parseEventToFacts({ text: "AVAIL 2025-01-06 thu 18-21", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_payload.dow).toBe("thu");
+      expect(facts[0].fact_payload.from).toBe("18:00");
+      expect(facts[0].fact_payload.to).toBe("21:00");
+      expect(facts[0].fact_payload.week_start).toBe("2025-01-06");
+    });
   });
 
   describe("DSL: CANT command", () => {

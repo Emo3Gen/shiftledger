@@ -90,17 +90,34 @@ function parseCommandFormat(text, receivedAt) {
   const trimmed = text.trim();
   const upper = trimmed.toUpperCase();
 
-  // AVAIL <dow> <from>-<to>
-  // Example: "AVAIL mon 10-13" -> SHIFT_AVAILABILITY
-  const availMatch = upper.match(/^AVAIL\s+(mon|tue|wed|thu|fri|sat|sun)\s+(\d{1,2})-(\d{1,2})$/i);
-  if (availMatch) {
-    const dow = availMatch[1].toLowerCase();
-    const fromHour = availMatch[2].padStart(2, "0");
-    const toHour = availMatch[3].padStart(2, "0");
-    const date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+  // AVAIL [YYYY-MM-DD?] <dow> <from>-<to>
+  // Example: "AVAIL mon 10-13" or "AVAIL 2026-02-23 mon 10-13" -> SHIFT_AVAILABILITY
+  const availMatch1 = upper.match(/^AVAIL\s+(\d{4}-\d{2}-\d{2})\s+(mon|tue|wed|thu|fri|sat|sun)\s+(\d{1,2})-(\d{1,2})$/i);
+  const availMatch2 = upper.match(/^AVAIL\s+(mon|tue|wed|thu|fri|sat|sun)\s+(\d{1,2})-(\d{1,2})$/i);
+  const availMatchAny = availMatch1 || availMatch2;
+  if (availMatchAny) {
+    let weekStart, dow, fromHour, toHour;
+    if (availMatch1) {
+      weekStart = availMatch1[1];
+      dow = availMatch1[2].toLowerCase();
+      fromHour = availMatch1[3].padStart(2, "0");
+      toHour = availMatch1[4].padStart(2, "0");
+    } else {
+      weekStart = null;
+      dow = availMatch2[1].toLowerCase();
+      fromHour = availMatch2[2].padStart(2, "0");
+      toHour = availMatch2[3].padStart(2, "0");
+    }
+    let date;
+    if (weekStart) {
+      date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
+    } else {
+      date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+    }
     results.push({
       fact_type: "SHIFT_AVAILABILITY",
       fact_payload: {
+        week_start: weekStart,
         date,
         dow,
         from: `${fromHour}:00`,
@@ -113,18 +130,35 @@ function parseCommandFormat(text, receivedAt) {
     return results; // Command format takes priority
   }
 
-  // CANT <dow> <from>-<to>
-  // Example: "CANT thu 18-21" -> SHIFT_UNAVAILABILITY
-  const cantMatch = upper.match(/^CANT\s+(\w+)\s+(\d{1,2})-(\d{1,2})$/);
-  if (cantMatch) {
-    const dow = cantMatch[1].toLowerCase();
-    const fromHour = cantMatch[2].padStart(2, "0");
-    const toHour = cantMatch[3].padStart(2, "0");
+  // CANT [YYYY-MM-DD?] <dow> <from>-<to>
+  // Example: "CANT thu 18-21" or "CANT 2026-02-23 thu 18-21" -> SHIFT_UNAVAILABILITY
+  const cantMatch1 = upper.match(/^CANT\s+(\d{4}-\d{2}-\d{2})\s+(\w+)\s+(\d{1,2})-(\d{1,2})$/);
+  const cantMatch2 = upper.match(/^CANT\s+(\w+)\s+(\d{1,2})-(\d{1,2})$/);
+  const cantMatchAny = cantMatch1 || cantMatch2;
+  if (cantMatchAny) {
+    let weekStart, dow, fromHour, toHour;
+    if (cantMatch1) {
+      weekStart = cantMatch1[1];
+      dow = cantMatch1[2].toLowerCase();
+      fromHour = cantMatch1[3].padStart(2, "0");
+      toHour = cantMatch1[4].padStart(2, "0");
+    } else {
+      weekStart = null;
+      dow = cantMatch2[1].toLowerCase();
+      fromHour = cantMatch2[2].padStart(2, "0");
+      toHour = cantMatch2[3].padStart(2, "0");
+    }
     if (DOW_MAP[dow] !== undefined) {
-      const date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+      let date;
+      if (weekStart) {
+        date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
+      } else {
+        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+      }
       results.push({
         fact_type: "SHIFT_UNAVAILABILITY",
         fact_payload: {
+          week_start: weekStart,
           date,
           dow,
           from: `${fromHour}:00`,

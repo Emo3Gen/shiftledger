@@ -1888,27 +1888,27 @@ export const App: React.FC = () => {
                         // Шаг 0: Сначала собрать график (Сценарий A)
                         console.log("[SCENARIO B] Шаг 0: Сборка графика (Сценарий A)");
                         await debugSend(`OPEN_WEEK ${weekStartISO}`, "admin");
-                        // Isa availability
-                        await debugSend(`AVAIL ${weekStartISO} mon 10-13`, "staff");
-                        await debugSend(`AVAIL ${weekStartISO} tue 10-13`, "staff");
-                        await debugSend(`AVAIL ${weekStartISO} thu 10-13`, "staff");
-                        await debugSend(`AVAIL ${weekStartISO} fri 10-13`, "staff");
-                        await debugSend(`AVAIL ${weekStartISO} sat 10-13`, "staff");
-                        // Darina availability
-                        await debugSend(`AVAIL ${weekStartISO} mon 18-21`, "staff");
-                        await debugSend(`AVAIL ${weekStartISO} tue 18-21`, "staff");
-                        await debugSend(`AVAIL ${weekStartISO} wed 10-13`, "staff");
-                        await debugSend(`AVAIL ${weekStartISO} thu 10-13`, "staff");
-                        await debugSend(`AVAIL ${weekStartISO} sat 10-13`, "staff");
-                        await debugSend(`AVAIL ${weekStartISO} sun 18-21`, "staff");
-                        // Ksyusha availability (for replacements)
-                        await debugSend(`AVAIL ${weekStartISO} wed 18-21`, "staff");
-                        await debugSend(`AVAIL ${weekStartISO} thu 18-21`, "staff");
-                        await debugSend(`AVAIL ${weekStartISO} fri 18-21`, "staff");
-                        await debugSend(`AVAIL ${weekStartISO} sun 10-13`, "staff");
-                        // Karina availability
-                        await debugSend(`AVAIL ${weekStartISO} sat 18-21`, "staff");
-                        await debugSend(`AVAIL ${weekStartISO} fri 18-21`, "staff");
+                        // Иса (u1) — утренние смены
+                        await sendMsg("u1", `AVAIL ${weekStartISO} mon 10-13`);
+                        await sendMsg("u1", `AVAIL ${weekStartISO} tue 10-13`);
+                        await sendMsg("u1", `AVAIL ${weekStartISO} thu 10-13`);
+                        await sendMsg("u1", `AVAIL ${weekStartISO} fri 10-13`);
+                        await sendMsg("u1", `AVAIL ${weekStartISO} sat 10-13`);
+                        // Дарина (u2) — вечерние + доп
+                        await sendMsg("u2", `AVAIL ${weekStartISO} mon 18-21`);
+                        await sendMsg("u2", `AVAIL ${weekStartISO} tue 18-21`);
+                        await sendMsg("u2", `AVAIL ${weekStartISO} wed 10-13`);
+                        await sendMsg("u2", `AVAIL ${weekStartISO} thu 10-13`);
+                        await sendMsg("u2", `AVAIL ${weekStartISO} sat 10-13`);
+                        await sendMsg("u2", `AVAIL ${weekStartISO} sun 18-21`);
+                        // Ксюша (u3) — вечерние (для замен)
+                        await sendMsg("u3", `AVAIL ${weekStartISO} wed 18-21`);
+                        await sendMsg("u3", `AVAIL ${weekStartISO} thu 18-21`);
+                        await sendMsg("u3", `AVAIL ${weekStartISO} fri 18-21`);
+                        await sendMsg("u3", `AVAIL ${weekStartISO} sun 10-13`);
+                        // Карина (u4) — вечерние
+                        await sendMsg("u4", `AVAIL ${weekStartISO} sat 18-21`);
+                        await sendMsg("u4", `AVAIL ${weekStartISO} fri 18-21`);
 
                         const buildRes = await fetch("/debug/build-schedule", {
                           method: "POST",
