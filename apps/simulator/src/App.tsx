@@ -51,6 +51,23 @@ const UserDirectory = {
   },
 };
 
+// Formatting helpers for payroll table
+function fmtNum(n: number | null | undefined): string {
+  if (n == null) return "0";
+  // Show 1 decimal for non-integer, none for integer
+  return n % 1 === 0 ? String(n) : n.toFixed(1);
+}
+function fmtRub(n: number | null | undefined): string {
+  if (n == null || n === 0) return "0 ₽";
+  const s = Math.round(n).toString();
+  // Add thousands separator (space)
+  const parts = [];
+  for (let i = s.length; i > 0; i -= 3) {
+    parts.unshift(s.slice(Math.max(0, i - 3), i));
+  }
+  return parts.join("\u2009") + " ₽"; // thin space separator
+}
+
 export const App: React.FC = () => {
   const [tenants, setTenants] = React.useState<Tenant[]>([]);
   const [selectedTenant, setSelectedTenant] = React.useState<string | null>(null);
@@ -853,47 +870,42 @@ export const App: React.FC = () => {
                   </div>
                   {timesheet.totals && (
                     <div style={{ marginBottom: "8px", padding: "4px", backgroundColor: "#f0f0f0", borderRadius: "4px" }}>
-                      <strong>Итого:</strong> {timesheet.totals.hours_worked?.toFixed(1)} ч,{" "}
-                      {timesheet.totals.total_pay?.toFixed(0) || timesheet.totals.amount?.toFixed(0)} ₽
-                      {(timesheet.totals.cleaning_pay > 0 || timesheet.totals.extra_classes_pay > 0) && (
-                        <span style={{ fontSize: "0.85em", color: "#666" }}>
-                          {" "}(смены: {timesheet.totals.amount?.toFixed(0)} ₽
-                          {timesheet.totals.cleaning_pay > 0 && <>, уборки: {timesheet.totals.cleaning_pay.toFixed(0)} ₽</>}
-                          {timesheet.totals.extra_classes_pay > 0 && <>, допы: {timesheet.totals.extra_classes_pay.toFixed(0)} ₽</>})
-                        </span>
-                      )}
+                      <strong>Итого:</strong> {fmtNum(timesheet.totals.total_hours)} ч, {fmtRub(timesheet.totals.total_pay)}
                     </div>
                   )}
-                  {timesheet.rows && timesheet.rows.length > 0 ? (
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.75em" }}>
+                  {timesheet.employees && timesheet.employees.length > 0 ? (
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.7em" }}>
                       <thead>
                         <tr style={{ borderBottom: "1px solid #ccc" }}>
-                          <th style={{ textAlign: "left", padding: "2px 4px" }}>Сотрудник</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Часы</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Уборки</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Допы</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Итого ₽</th>
+                          <th style={{ textAlign: "left", padding: "2px 3px" }}>Имя</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Часы</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Пробл.</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Вычет</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Эфф.</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Ставка</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Смены</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Уб.</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Уб. ₽</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Доп ч.</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Доп ₽</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Итого</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {timesheet.rows.map((row: any, idx: number) => (
+                        {timesheet.employees.map((emp: any, idx: number) => (
                           <tr key={idx} style={{ borderBottom: "1px solid #eee" }}>
-                            <td style={{ padding: "2px 4px" }}>
-                              {row.display_name || row.user_id}
-                              {row.is_unknown && <span style={{ color: "#dc3545", fontSize: "0.7em", marginLeft: "4px" }}>(Неизвестный сотрудник)</span>}
-                            </td>
-                            <td style={{ textAlign: "right", padding: "2px 4px" }}>
-                              {row.hours_worked?.toFixed(1)} ч
-                            </td>
-                            <td style={{ textAlign: "right", padding: "2px 4px" }}>
-                              {row.cleaning_count > 0 ? row.cleaning_count : "—"}
-                            </td>
-                            <td style={{ textAlign: "right", padding: "2px 4px" }}>
-                              {row.extra_classes_count > 0 ? row.extra_classes_count : "—"}
-                            </td>
-                            <td style={{ textAlign: "right", padding: "2px 4px", fontWeight: "bold" }}>
-                              {row.total_pay?.toFixed(0) || row.amount?.toFixed(0)} ₽
-                            </td>
+                            <td style={{ padding: "2px 3px" }}>{emp.name || emp.user_id}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtNum(emp.shift_hours)}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px", color: emp.problem_shifts > 0 ? "#dc3545" : undefined }}>{emp.problem_shifts}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px", color: emp.problem_deduction_hours > 0 ? "#dc3545" : undefined }}>{emp.problem_deduction_hours > 0 ? `-${emp.problem_deduction_hours}` : "0"}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtNum(emp.effective_hours)}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.rate}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.shift_pay)}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.cleaning_count}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.cleaning_pay)}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtNum(emp.extra_hours)}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.extra_pay)}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px", fontWeight: "bold" }}>{fmtRub(emp.total_pay)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1557,38 +1569,11 @@ export const App: React.FC = () => {
                 {timesheet && (
                   <div style={{ marginTop: "8px" }}>
                     <div style={{ fontSize: "0.85em", marginBottom: "8px" }}>
-                      <strong>Итого:</strong> {timesheet.totals?.hours_worked?.toFixed(1)} ч,{" "}
-                      смены: {timesheet.totals?.amount?.toFixed(0)} ₽
-                      {(timesheet.totals?.cleaning_pay > 0 || timesheet.totals?.extra_classes_pay > 0) && (
-                        <span>
-                          {timesheet.totals?.cleaning_pay > 0 && <>, уборки: {timesheet.totals.cleaning_pay.toFixed(0)} ₽</>}
-                          {timesheet.totals?.extra_classes_pay > 0 && <>, допы: {timesheet.totals.extra_classes_pay.toFixed(0)} ₽</>}
-                          , <strong>всего: {timesheet.totals?.total_pay?.toFixed(0)} ₽</strong>
-                        </span>
-                      )}
+                      <strong>Итого:</strong> {fmtNum(timesheet.totals?.total_hours)} ч, {fmtRub(timesheet.totals?.total_pay)}
                     </div>
-                    {/* Show planned hours per user */}
-                    {schedule && schedule.slots && (() => {
-                      const userHours = new Map<string, number>();
-                      for (const slot of schedule.slots) {
-                        if (slot.user_id && slot.hours) {
-                          userHours.set(slot.user_id, (userHours.get(slot.user_id) || 0) + slot.hours);
-                        }
-                      }
-                      return (
-                        <div style={{ fontSize: "0.8em", marginTop: "8px", marginBottom: "8px", padding: "4px", backgroundColor: "#f5f5f5", borderRadius: "4px" }}>
-                          <div style={{ fontWeight: "bold", marginBottom: "4px" }}>Запланировано часов:</div>
-                          {Array.from(userHours.entries()).map(([userId, hours]) => (
-                            <div key={userId} style={{ marginBottom: "2px" }}>
-                              {UserDirectory.getDisplayName(userId)}: {hours.toFixed(1)} ч
-                            </div>
-                          ))}
-                        </div>
-                      );
-                    })()}
                     <table
                       style={{
-                        fontSize: "0.8em",
+                        fontSize: "0.75em",
                         borderCollapse: "collapse",
                         width: "100%",
                         marginTop: "4px",
@@ -1596,59 +1581,35 @@ export const App: React.FC = () => {
                     >
                       <thead>
                         <tr style={{ borderBottom: "1px solid #ccc" }}>
-                          <th style={{ textAlign: "left", padding: "2px 4px" }}>Сотрудник</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>План</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Факт</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Перераб.</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Смены ₽</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Уборки</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Допы</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Доплата</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Итого ₽</th>
-                          <th style={{ textAlign: "left", padding: "2px 4px" }}>Флаги</th>
+                          <th style={{ textAlign: "left", padding: "2px 3px" }}>Имя</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Часы</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Пробл.</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Вычет</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Эфф.часы</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Ставка</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Смены ₽</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Уборки</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Уборки ₽</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Допы ч.</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Допы ₽</th>
+                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Итого ₽</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {timesheet.rows?.map((row: any, idx: number) => (
+                        {timesheet.employees?.map((emp: any, idx: number) => (
                           <tr key={idx} style={{ borderBottom: "1px solid #eee" }}>
-                            <td style={{ padding: "2px 4px" }}>
-                              {row.display_name || row.user_id}
-                              {row.is_unknown && <span style={{ color: "#dc3545", fontSize: "0.7em", marginLeft: "4px" }}>(Неизвестный сотрудник)</span>}
-                            </td>
-                            <td style={{ textAlign: "right", padding: "2px 4px" }}>
-                              {row.hours_planned?.toFixed(1)} ч
-                            </td>
-                            <td style={{ textAlign: "right", padding: "2px 4px" }}>
-                              {row.hours_worked?.toFixed(1)} ч
-                            </td>
-                            <td style={{ textAlign: "right", padding: "2px 4px" }}>
-                              {row.overtime_hours?.toFixed(1)} ч
-                            </td>
-                            <td style={{ textAlign: "right", padding: "2px 4px" }}>
-                              {row.amount?.toFixed(0)} ₽
-                            </td>
-                            <td style={{ textAlign: "right", padding: "2px 4px" }}>
-                              {row.cleaning_count > 0 ? `${row.cleaning_count} (${row.cleaning_pay?.toFixed(0)} ₽)` : "—"}
-                            </td>
-                            <td style={{ textAlign: "right", padding: "2px 4px" }}>
-                              {row.extra_classes_count > 0 ? `${row.extra_classes_count} (${row.extra_classes_hours?.toFixed(1)} ч)` : "—"}
-                            </td>
-                            <td style={{ textAlign: "right", padding: "2px 4px" }}>
-                              {(row.cleaning_pay > 0 || row.extra_classes_pay > 0) ? `${((row.cleaning_pay || 0) + (row.extra_classes_pay || 0)).toFixed(0)} ₽` : "—"}
-                            </td>
-                            <td style={{ textAlign: "right", padding: "2px 4px", fontWeight: "bold" }}>
-                              {row.total_pay?.toFixed(0)} ₽
-                            </td>
-                            <td style={{ padding: "2px 4px", fontSize: "0.75em" }}>
-                              {row.flags
-                                ?.map((flag: string) => {
-                                  if (flag === "worked_without_plan") return "Работа без плана";
-                                  if (flag === "overtime") return "Переработка";
-                                  if (flag === "no_show") return "Неявка";
-                                  return flag;
-                                })
-                                .join(", ") || "—"}
-                            </td>
+                            <td style={{ padding: "2px 3px" }}>{emp.name || emp.user_id}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtNum(emp.shift_hours)}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px", color: emp.problem_shifts > 0 ? "#dc3545" : undefined }}>{emp.problem_shifts}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px", color: emp.problem_deduction_hours > 0 ? "#dc3545" : undefined }}>{emp.problem_deduction_hours > 0 ? `-${emp.problem_deduction_hours}` : "0"}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtNum(emp.effective_hours)}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.rate}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.shift_pay)}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.cleaning_count}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.cleaning_pay)}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtNum(emp.extra_hours)}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.extra_pay)}</td>
+                            <td style={{ textAlign: "right", padding: "2px 3px", fontWeight: "bold" }}>{fmtRub(emp.total_pay)}</td>
                           </tr>
                         ))}
                       </tbody>
