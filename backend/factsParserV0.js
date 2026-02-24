@@ -538,6 +538,83 @@ function parseCommandFormat(text, receivedAt) {
     return results;
   }
 
+  // CLEANING [YYYY-MM-DD?] <dow>
+  const cleaningMatch1 = upper.match(/^CLEANING\s+(\d{4}-\d{2}-\d{2})\s+(\w+)$/);
+  const cleaningMatch2 = upper.match(/^CLEANING\s+(\w+)$/);
+  const cleaningMatch = cleaningMatch1 || cleaningMatch2;
+  if (cleaningMatch) {
+    let weekStart, dow;
+    if (cleaningMatch1) {
+      weekStart = cleaningMatch1[1];
+      dow = cleaningMatch1[2].toLowerCase();
+    } else {
+      weekStart = null;
+      dow = cleaningMatch2[1].toLowerCase();
+    }
+    if (DOW_MAP[dow] !== undefined) {
+      let date;
+      if (weekStart) {
+        date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
+      } else {
+        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+      }
+      results.push({
+        fact_type: "CLEANING_DONE",
+        fact_payload: {
+          week_start: weekStart,
+          date,
+          dow,
+          notes: text,
+        },
+        confidence: 1.0,
+      });
+    }
+    return results;
+  }
+
+  // EXTRA_CLASS [YYYY-MM-DD?] <dow> <from>-<to> [description]
+  const extraClassMatch1 = upper.match(/^EXTRA_CLASS\s+(\d{4}-\d{2}-\d{2})\s+(\w+)\s+(\d{1,2})-(\d{1,2})(?:\s+(.+))?$/);
+  const extraClassMatch2 = upper.match(/^EXTRA_CLASS\s+(\w+)\s+(\d{1,2})-(\d{1,2})(?:\s+(.+))?$/);
+  const extraClassMatch = extraClassMatch1 || extraClassMatch2;
+  if (extraClassMatch) {
+    let weekStart, dow, fromHour, toHour, description;
+    if (extraClassMatch1) {
+      weekStart = extraClassMatch1[1];
+      dow = extraClassMatch1[2].toLowerCase();
+      fromHour = extraClassMatch1[3].padStart(2, "0");
+      toHour = extraClassMatch1[4].padStart(2, "0");
+      description = extraClassMatch1[5] || null;
+    } else {
+      weekStart = null;
+      dow = extraClassMatch2[1].toLowerCase();
+      fromHour = extraClassMatch2[2].padStart(2, "0");
+      toHour = extraClassMatch2[3].padStart(2, "0");
+      description = extraClassMatch2[4] || null;
+    }
+    if (DOW_MAP[dow] !== undefined) {
+      let date;
+      if (weekStart) {
+        date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
+      } else {
+        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+      }
+      results.push({
+        fact_type: "EXTRA_CLASS",
+        fact_payload: {
+          week_start: weekStart,
+          date,
+          dow,
+          from: `${fromHour}:00`,
+          to: `${toHour}:00`,
+          description,
+          notes: text,
+        },
+        confidence: 1.0,
+      });
+    }
+    return results;
+  }
+
   return []; // Not a command format, return empty array
 }
 
@@ -702,15 +779,52 @@ export function parseEventToFacts(event) {
     "уборку сделал",
   ];
   if (cleaningPhrases.some((p) => lower.includes(p))) {
+    const dowInfo = extractRuDow(lower);
+    const payload = {
+      date: getBerlinDateFromIso(receivedAt),
+      notes: text,
+    };
+    if (dowInfo) {
+      payload.dow = dowInfo.dow;
+      payload.date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+    }
     results.push({
       fact_type: "CLEANING_DONE",
-      fact_payload: {
-        date: getBerlinDateFromIso(receivedAt),
-        notes: text,
-      },
+      fact_payload: payload,
       confidence: 0.8,
     });
     return results;
+  }
+
+  // Rule 1b: EXTRA_CLASS (доп занятие)
+  const extraClassPhrases = [
+    "доп занятие",
+    "допзанятие",
+    "провела доп",
+    "провёл доп",
+    "провел доп",
+    "дополнительное занятие",
+    "доп урок",
+    "допурок",
+  ];
+  if (extraClassPhrases.some((p) => lower.includes(p))) {
+    const dowInfo = extractRuDow(lower);
+    const time = dowInfo ? extractTime(lower) : null;
+    if (dowInfo && time) {
+      const date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+      results.push({
+        fact_type: "EXTRA_CLASS",
+        fact_payload: {
+          date,
+          dow: dowInfo.dow,
+          from: time.from,
+          to: time.to,
+          notes: text,
+        },
+        confidence: 0.75,
+      });
+      return results;
+    }
   }
 
   // Rule 2: Replacement request detection (BEFORE general NL — "не могу...кто сможет" must not be caught as plain unavailability)

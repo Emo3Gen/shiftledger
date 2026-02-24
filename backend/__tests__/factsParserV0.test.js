@@ -537,4 +537,81 @@ describe("factsParserV0", () => {
       expect(facts[0].fact_payload.week_start).toBeNull();
     });
   });
+
+  describe("DSL: CLEANING command", () => {
+    test("CLEANING mon → CLEANING_DONE with dow=mon", () => {
+      const facts = parseEventToFacts({ text: "CLEANING mon", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("CLEANING_DONE");
+      expect(facts[0].fact_payload.dow).toBe("mon");
+      expect(facts[0].confidence).toBe(1.0);
+    });
+
+    test("CLEANING 2025-01-06 wed → CLEANING_DONE with week_start and dow", () => {
+      const facts = parseEventToFacts({ text: "CLEANING 2025-01-06 wed", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("CLEANING_DONE");
+      expect(facts[0].fact_payload.dow).toBe("wed");
+      expect(facts[0].fact_payload.week_start).toBe("2025-01-06");
+    });
+  });
+
+  describe("DSL: EXTRA_CLASS command", () => {
+    test("EXTRA_CLASS mon 14-16 → EXTRA_CLASS with dow, from, to", () => {
+      const facts = parseEventToFacts({ text: "EXTRA_CLASS mon 14-16", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("EXTRA_CLASS");
+      expect(facts[0].fact_payload.dow).toBe("mon");
+      expect(facts[0].fact_payload.from).toBe("14:00");
+      expect(facts[0].fact_payload.to).toBe("16:00");
+      expect(facts[0].confidence).toBe(1.0);
+    });
+
+    test("EXTRA_CLASS 2025-01-06 thu 15-17 math → EXTRA_CLASS with week_start and description", () => {
+      const facts = parseEventToFacts({ text: "EXTRA_CLASS 2025-01-06 thu 15-17 math", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("EXTRA_CLASS");
+      expect(facts[0].fact_payload.dow).toBe("thu");
+      expect(facts[0].fact_payload.from).toBe("15:00");
+      expect(facts[0].fact_payload.to).toBe("17:00");
+      expect(facts[0].fact_payload.description).toBe("MATH");
+      expect(facts[0].fact_payload.week_start).toBe("2025-01-06");
+    });
+  });
+
+  describe("NL: CLEANING_DONE with dow extraction", () => {
+    test("сделала уборку в понедельник → CLEANING_DONE with dow=mon", () => {
+      const facts = parseEventToFacts({ text: "сделала уборку в понедельник", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("CLEANING_DONE");
+      expect(facts[0].fact_payload.dow).toBe("mon");
+    });
+
+    test("убралась → CLEANING_DONE without dow (no day mentioned)", () => {
+      const facts = parseEventToFacts({ text: "убралась", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("CLEANING_DONE");
+      expect(facts[0].fact_payload.dow).toBeUndefined();
+    });
+  });
+
+  describe("NL: EXTRA_CLASS detection", () => {
+    test("провела доп занятие в пн с 14 до 16 → EXTRA_CLASS", () => {
+      const facts = parseEventToFacts({ text: "провела доп занятие в пн с 14 до 16", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("EXTRA_CLASS");
+      expect(facts[0].fact_payload.dow).toBe("mon");
+      expect(facts[0].fact_payload.from).toBe("14:00");
+      expect(facts[0].fact_payload.to).toBe("16:00");
+    });
+
+    test("допзанятие в ср 15-17 → EXTRA_CLASS", () => {
+      const facts = parseEventToFacts({ text: "допзанятие в ср 15-17", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("EXTRA_CLASS");
+      expect(facts[0].fact_payload.dow).toBe("wed");
+      expect(facts[0].fact_payload.from).toBe("15:00");
+      expect(facts[0].fact_payload.to).toBe("17:00");
+    });
+  });
 });

@@ -854,7 +854,14 @@ export const App: React.FC = () => {
                   {timesheet.totals && (
                     <div style={{ marginBottom: "8px", padding: "4px", backgroundColor: "#f0f0f0", borderRadius: "4px" }}>
                       <strong>Итого:</strong> {timesheet.totals.hours_worked?.toFixed(1)} ч,{" "}
-                      {timesheet.totals.amount?.toFixed(0)} ₽
+                      {timesheet.totals.total_pay?.toFixed(0) || timesheet.totals.amount?.toFixed(0)} ₽
+                      {(timesheet.totals.cleaning_pay > 0 || timesheet.totals.extra_classes_pay > 0) && (
+                        <span style={{ fontSize: "0.85em", color: "#666" }}>
+                          {" "}(смены: {timesheet.totals.amount?.toFixed(0)} ₽
+                          {timesheet.totals.cleaning_pay > 0 && <>, уборки: {timesheet.totals.cleaning_pay.toFixed(0)} ₽</>}
+                          {timesheet.totals.extra_classes_pay > 0 && <>, допы: {timesheet.totals.extra_classes_pay.toFixed(0)} ₽</>})
+                        </span>
+                      )}
                     </div>
                   )}
                   {timesheet.rows && timesheet.rows.length > 0 ? (
@@ -862,10 +869,10 @@ export const App: React.FC = () => {
                       <thead>
                         <tr style={{ borderBottom: "1px solid #ccc" }}>
                           <th style={{ textAlign: "left", padding: "2px 4px" }}>Сотрудник</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Запланировано</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Отработано</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Переработка</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Сумма</th>
+                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Часы</th>
+                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Уборки</th>
+                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Допы</th>
+                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Итого ₽</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -876,16 +883,16 @@ export const App: React.FC = () => {
                               {row.is_unknown && <span style={{ color: "#dc3545", fontSize: "0.7em", marginLeft: "4px" }}>(Неизвестный сотрудник)</span>}
                             </td>
                             <td style={{ textAlign: "right", padding: "2px 4px" }}>
-                              {row.hours_planned?.toFixed(1)} ч
-                            </td>
-                            <td style={{ textAlign: "right", padding: "2px 4px" }}>
                               {row.hours_worked?.toFixed(1)} ч
                             </td>
                             <td style={{ textAlign: "right", padding: "2px 4px" }}>
-                              {row.overtime_hours?.toFixed(1)} ч
+                              {row.cleaning_count > 0 ? row.cleaning_count : "—"}
                             </td>
                             <td style={{ textAlign: "right", padding: "2px 4px" }}>
-                              {row.amount?.toFixed(0)} ₽
+                              {row.extra_classes_count > 0 ? row.extra_classes_count : "—"}
+                            </td>
+                            <td style={{ textAlign: "right", padding: "2px 4px", fontWeight: "bold" }}>
+                              {row.total_pay?.toFixed(0) || row.amount?.toFixed(0)} ₽
                             </td>
                           </tr>
                         ))}
@@ -1549,7 +1556,14 @@ export const App: React.FC = () => {
                   <div style={{ marginTop: "8px" }}>
                     <div style={{ fontSize: "0.85em", marginBottom: "8px" }}>
                       <strong>Итого:</strong> {timesheet.totals?.hours_worked?.toFixed(1)} ч,{" "}
-                      {timesheet.totals?.amount?.toFixed(0)} ₽
+                      смены: {timesheet.totals?.amount?.toFixed(0)} ₽
+                      {(timesheet.totals?.cleaning_pay > 0 || timesheet.totals?.extra_classes_pay > 0) && (
+                        <span>
+                          {timesheet.totals?.cleaning_pay > 0 && <>, уборки: {timesheet.totals.cleaning_pay.toFixed(0)} ₽</>}
+                          {timesheet.totals?.extra_classes_pay > 0 && <>, допы: {timesheet.totals.extra_classes_pay.toFixed(0)} ₽</>}
+                          , <strong>всего: {timesheet.totals?.total_pay?.toFixed(0)} ₽</strong>
+                        </span>
+                      )}
                     </div>
                     {/* Show planned hours per user */}
                     {schedule && schedule.slots && (() => {
@@ -1581,10 +1595,14 @@ export const App: React.FC = () => {
                       <thead>
                         <tr style={{ borderBottom: "1px solid #ccc" }}>
                           <th style={{ textAlign: "left", padding: "2px 4px" }}>Сотрудник</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Запланировано</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Отработано</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Переработка</th>
-                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Сумма</th>
+                          <th style={{ textAlign: "right", padding: "2px 4px" }}>План</th>
+                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Факт</th>
+                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Перераб.</th>
+                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Смены ₽</th>
+                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Уборки</th>
+                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Допы</th>
+                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Доплата</th>
+                          <th style={{ textAlign: "right", padding: "2px 4px" }}>Итого ₽</th>
                           <th style={{ textAlign: "left", padding: "2px 4px" }}>Флаги</th>
                         </tr>
                       </thead>
@@ -1606,6 +1624,18 @@ export const App: React.FC = () => {
                             </td>
                             <td style={{ textAlign: "right", padding: "2px 4px" }}>
                               {row.amount?.toFixed(0)} ₽
+                            </td>
+                            <td style={{ textAlign: "right", padding: "2px 4px" }}>
+                              {row.cleaning_count > 0 ? `${row.cleaning_count} (${row.cleaning_pay?.toFixed(0)} ₽)` : "—"}
+                            </td>
+                            <td style={{ textAlign: "right", padding: "2px 4px" }}>
+                              {row.extra_classes_count > 0 ? `${row.extra_classes_count} (${row.extra_classes_hours?.toFixed(1)} ч)` : "—"}
+                            </td>
+                            <td style={{ textAlign: "right", padding: "2px 4px" }}>
+                              {(row.cleaning_pay > 0 || row.extra_classes_pay > 0) ? `${((row.cleaning_pay || 0) + (row.extra_classes_pay || 0)).toFixed(0)} ₽` : "—"}
+                            </td>
+                            <td style={{ textAlign: "right", padding: "2px 4px", fontWeight: "bold" }}>
+                              {row.total_pay?.toFixed(0)} ₽
                             </td>
                             <td style={{ padding: "2px 4px", fontSize: "0.75em" }}>
                               {row.flags
