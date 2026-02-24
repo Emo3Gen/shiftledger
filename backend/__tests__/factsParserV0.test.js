@@ -689,6 +689,66 @@ describe("factsParserV0", () => {
       expect(facts[0].fact_payload.from).toBe("15:00");
       expect(facts[0].fact_payload.to).toBe("17:00");
     });
+
+    test("доп занятие пн 12 детей → EXTRA_CLASS with kids_count=12", () => {
+      const facts = parseEventToFacts({ text: "доп занятие пн 12 детей", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("EXTRA_CLASS");
+      expect(facts[0].fact_payload.dow).toBe("mon");
+      expect(facts[0].fact_payload.kids_count).toBe(12);
+    });
+
+    test("допы вт 5 детей → EXTRA_CLASS with kids_count=5", () => {
+      const facts = parseEventToFacts({ text: "допы вт 5 детей", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("EXTRA_CLASS");
+      expect(facts[0].fact_payload.dow).toBe("tue");
+      expect(facts[0].fact_payload.kids_count).toBe(5);
+    });
+
+    test("провела мастер-класс ср 15 детей → EXTRA_CLASS with kids_count=15", () => {
+      const facts = parseEventToFacts({ text: "провела мастер-класс ср 15 детей", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("EXTRA_CLASS");
+      expect(facts[0].fact_payload.dow).toBe("wed");
+      expect(facts[0].fact_payload.kids_count).toBe(15);
+    });
+
+    test("дополнительное занятие чт 7 человек → EXTRA_CLASS with kids_count=7", () => {
+      const facts = parseEventToFacts({ text: "дополнительное занятие чт 7 человек", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("EXTRA_CLASS");
+      expect(facts[0].fact_payload.dow).toBe("thu");
+      expect(facts[0].fact_payload.kids_count).toBe(7);
+    });
+
+    test("провела доп пт 10 детей → EXTRA_CLASS with kids_count=10", () => {
+      const facts = parseEventToFacts({ text: "провела доп пт 10 детей", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("EXTRA_CLASS");
+      expect(facts[0].fact_payload.dow).toBe("fri");
+      expect(facts[0].fact_payload.kids_count).toBe(10);
+    });
+  });
+
+  describe("DSL: EXTRA_CLASS with kids_count", () => {
+    test("EXTRA_CLASS mon 12 → EXTRA_CLASS with kids_count=12", () => {
+      const facts = parseEventToFacts({ text: "EXTRA_CLASS mon 12", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("EXTRA_CLASS");
+      expect(facts[0].fact_payload.dow).toBe("mon");
+      expect(facts[0].fact_payload.kids_count).toBe(12);
+    });
+
+    test("EXTRA_CLASS 2025-01-06 thu 15 math → with week_start, kids_count, description", () => {
+      const facts = parseEventToFacts({ text: "EXTRA_CLASS 2025-01-06 thu 15 math", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("EXTRA_CLASS");
+      expect(facts[0].fact_payload.dow).toBe("thu");
+      expect(facts[0].fact_payload.kids_count).toBe(15);
+      expect(facts[0].fact_payload.description).toBe("MATH");
+      expect(facts[0].fact_payload.week_start).toBe("2025-01-06");
+    });
   });
 
   describe("DSL: PROBLEM command", () => {

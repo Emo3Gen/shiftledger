@@ -693,7 +693,49 @@ function parseCommandFormat(text, receivedAt) {
     return results;
   }
 
-  // EXTRA_CLASS [YYYY-MM-DD?] <dow> <from>-<to> [description]
+  // EXTRA_CLASS [YYYY-MM-DD?] <dow> <kids_count> [description]
+  // New format: EXTRA_CLASS mon 12 (kids count, no dash = not a time range)
+  const extraClassKidsMatch1 = upper.match(/^EXTRA_CLASS\s+(\d{4}-\d{2}-\d{2})\s+(\w+)\s+(\d{1,3})(?:\s+(.+))?$/);
+  const extraClassKidsMatch2 = upper.match(/^EXTRA_CLASS\s+(\w+)\s+(\d{1,3})(?:\s+(.+))?$/);
+  // Only match if the number doesn't look like a time range (no dash after it)
+  const extraClassKidsMatch = extraClassKidsMatch1 || extraClassKidsMatch2;
+  if (extraClassKidsMatch) {
+    let weekStart, dow, kidsCount, description;
+    if (extraClassKidsMatch1) {
+      weekStart = extraClassKidsMatch1[1];
+      dow = extraClassKidsMatch1[2].toLowerCase();
+      kidsCount = parseInt(extraClassKidsMatch1[3], 10);
+      description = extraClassKidsMatch1[4] || null;
+    } else {
+      weekStart = null;
+      dow = extraClassKidsMatch2[1].toLowerCase();
+      kidsCount = parseInt(extraClassKidsMatch2[2], 10);
+      description = extraClassKidsMatch2[3] || null;
+    }
+    if (DOW_MAP[dow] !== undefined) {
+      let date;
+      if (weekStart) {
+        date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
+      } else {
+        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+      }
+      results.push({
+        fact_type: "EXTRA_CLASS",
+        fact_payload: {
+          week_start: weekStart,
+          date,
+          dow,
+          kids_count: kidsCount,
+          description,
+          notes: text,
+        },
+        confidence: 1.0,
+      });
+      return results;
+    }
+  }
+
+  // EXTRA_CLASS [YYYY-MM-DD?] <dow> <from>-<to> [description] (legacy: time range)
   const extraClassMatch1 = upper.match(/^EXTRA_CLASS\s+(\d{4}-\d{2}-\d{2})\s+(\w+)\s+(\d{1,2})-(\d{1,2})(?:\s+(.+))?$/);
   const extraClassMatch2 = upper.match(/^EXTRA_CLASS\s+(\w+)\s+(\d{1,2})-(\d{1,2})(?:\s+(.+))?$/);
   const extraClassMatch = extraClassMatch1 || extraClassMatch2;
@@ -989,7 +1031,7 @@ export function parseEventToFacts(event) {
     return results;
   }
 
-  // Rule 1b: EXTRA_CLASS (доп занятие)
+  // Rule 1b: EXTRA_CLASS (доп занятие) with kids_count support
   const extraClassPhrases = [
     "доп занятие",
     "допзанятие",
@@ -999,21 +1041,44 @@ export function parseEventToFacts(event) {
     "дополнительное занятие",
     "доп урок",
     "допурок",
+    "мастер-класс",
+    "мастер класс",
   ];
-  if (extraClassPhrases.some((p) => lower.includes(p))) {
+  // Also match short forms: "допы пн 5 детей", "доп пн 10"
+  const extraShortRe = /(?:^|\s)доп[ыа]?\s/i;
+  if (extraClassPhrases.some((p) => lower.includes(p)) || extraShortRe.test(lower)) {
     const dowInfo = extractRuDow(lower);
-    const time = dowInfo ? extractTime(lower) : null;
-    if (dowInfo && time) {
+    if (dowInfo) {
+      // Try to extract kids_count from text
+      const kidsMatch = lower.match(/(\d{1,3})\s*(?:дет[еиёй]|ребён|реб[ёе]нк|человек|чел|д\b)/i);
+      const plainNumberMatch = lower.match(/(?:доп[ыа]?\s+(?:\S+\s+)?|мастер[- ]класс\s+(?:\S+\s+)?)(\d{1,3})(?:\s|$)/i);
+      let kidsCount = null;
+
+      if (kidsMatch) {
+        kidsCount = parseInt(kidsMatch[1], 10);
+      } else if (plainNumberMatch) {
+        kidsCount = parseInt(plainNumberMatch[1], 10);
+      }
+
       const date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+
+      // Also try to extract time range (optional)
+      const time = extractTime(lower);
+
+      const payload = {
+        date,
+        dow: dowInfo.dow,
+        kids_count: kidsCount,
+        notes: text,
+      };
+      if (time) {
+        payload.from = time.from;
+        payload.to = time.to;
+      }
+
       results.push({
         fact_type: "EXTRA_CLASS",
-        fact_payload: {
-          date,
-          dow: dowInfo.dow,
-          from: time.from,
-          to: time.to,
-          notes: text,
-        },
+        fact_payload: payload,
         confidence: 0.75,
       });
       return results;
