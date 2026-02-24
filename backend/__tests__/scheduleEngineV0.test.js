@@ -295,4 +295,101 @@ describe("scheduleEngineV0", () => {
     expect(friMorning.replaced_user_id).toBeNull();
     expect(friMorning.reason).toContain("Замена");
   });
+
+  test("SHIFT_REPLACEMENT skips swap when SHIFT_ASSIGNMENT already assigns replacement user (recalc scenario)", () => {
+    // Simulates recalculation after build-schedule: SHIFT_ASSIGNMENT with assigned_user_id=u3
+    // already exists, and SHIFT_REPLACEMENT also says u3 should work this slot.
+    // The engine must NOT produce "Ксюша за Ксюша".
+    const facts = [
+      // Persisted SHIFT_ASSIGNMENT from prior build (replacement result)
+      makeFact({
+        fact_type: "SHIFT_ASSIGNMENT",
+        user_id: "admin1",
+        fact_payload: {
+          dow: "thu",
+          from: "10:00",
+          to: "13:00",
+          assigned_user_id: "u3",
+          replaced_user_id: "u1",
+          reason: "🔄 Замена: Ксюша за Иса",
+        },
+        created_at: "2025-01-05T13:00:00Z",
+      }),
+      // Original SHIFT_REPLACEMENT fact still present
+      makeFact({
+        fact_type: "SHIFT_REPLACEMENT",
+        user_id: "u3",
+        fact_payload: { dow: "thu", from: "10:00", to: "13:00" },
+        created_at: "2025-01-05T12:00:00Z",
+      }),
+    ];
+    const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+    const thuMorning = result.assignments.find(
+      (a) => a.dow === "thu" && a.from === "10:00" && a.to === "13:00"
+    );
+    expect(thuMorning).toBeDefined();
+    expect(thuMorning.user_id).toBe("u3");
+    // Must NOT have replaced_user_id === user_id (the "X за X" bug)
+    expect(thuMorning.replaced_user_id).not.toBe("u3");
+  });
+
+  test("SHIFT_ASSIGNMENT preserves replaced_user_id and reason from fact_payload", () => {
+    const facts = [
+      makeFact({
+        fact_type: "SHIFT_ASSIGNMENT",
+        user_id: "admin1",
+        fact_payload: {
+          dow: "mon",
+          from: "10:00",
+          to: "13:00",
+          assigned_user_id: "u3",
+          replaced_user_id: "u1",
+          reason: "🔄 Замена: Ксюша за Иса",
+        },
+        created_at: "2025-01-05T11:00:00Z",
+      }),
+    ];
+    const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+    const monMorning = result.assignments.find(
+      (a) => a.dow === "mon" && a.from === "10:00" && a.to === "13:00"
+    );
+    expect(monMorning).toBeDefined();
+    expect(monMorning.user_id).toBe("u3");
+    expect(monMorning.replaced_user_id).toBe("u1");
+    expect(monMorning.reason).toContain("Замена");
+  });
+
+  test("SHIFT_REPLACEMENT still applies when SHIFT_ASSIGNMENT has different user", () => {
+    // SHIFT_ASSIGNMENT assigns u1, but SHIFT_REPLACEMENT says u3 should replace.
+    // Replacement should still override.
+    const facts = [
+      makeFact({
+        fact_type: "SHIFT_ASSIGNMENT",
+        user_id: "admin1",
+        fact_payload: {
+          dow: "wed",
+          from: "18:00",
+          to: "21:00",
+          assigned_user_id: "u1",
+        },
+        created_at: "2025-01-05T10:00:00Z",
+      }),
+      makeFact({
+        fact_type: "SHIFT_REPLACEMENT",
+        user_id: "u3",
+        fact_payload: { dow: "wed", from: "18:00", to: "21:00" },
+        created_at: "2025-01-05T12:00:00Z",
+      }),
+    ];
+    const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+    const wedEvening = result.assignments.find(
+      (a) => a.dow === "wed" && a.from === "18:00" && a.to === "21:00"
+    );
+    expect(wedEvening).toBeDefined();
+    expect(wedEvening.user_id).toBe("u3");
+    expect(wedEvening.replaced_user_id).toBe("u1");
+    expect(wedEvening.reason).toContain("Замена");
+    expect(wedEvening.reason).toContain("Ксюша");
+    expect(wedEvening.reason).toContain("Иса");
+  });
 });

@@ -1039,6 +1039,7 @@ app.post("/debug/build-schedule", validateBody(BuildScheduleSchema), async (req,
           from: assignment.from,
           to: assignment.to,
           assigned_user_id: assignment.user_id,
+          replaced_user_id: assignment.replaced_user_id || null,
           reason: assignment.reason || "auto-assigned",
         };
         const hashInput = `SHIFT_ASSIGNMENT|${JSON.stringify(factPayload)}|v0`;

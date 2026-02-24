@@ -95,8 +95,11 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes }) {
         from,
         to,
         user_id: normalizedUserId, // Use normalized ID
+        replaced_user_id: fact.fact_payload?.replaced_user_id
+          ? UserDirectory.normalizeUserId(fact.fact_payload.replaced_user_id)
+          : null,
         created_at: fact.created_at,
-        reason: "manual assignment",
+        reason: fact.fact_payload?.reason || "manual assignment",
       });
     }
   }
@@ -189,6 +192,7 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes }) {
       from: assignment.from,
       to: assignment.to,
       user_id: assignment.user_id,
+      replaced_user_id: assignment.replaced_user_id || null,
       reason: assignment.reason,
     });
   }
@@ -382,18 +386,25 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes }) {
 
   // Step 3.5: Apply SHIFT_REPLACEMENT overrides
   // If a replacement fact exists for a slot, swap the assigned user to the replacement user.
+  // Skip if the slot is already assigned to the replacement user (e.g. from a persisted
+  // SHIFT_ASSIGNMENT created by a prior build-schedule that already applied the replacement).
   for (const [slotKey, repl] of replacementBySlot.entries()) {
     const [dow, from, to] = slotKey.split("|");
     const existingIdx = assignments.findIndex(
       (a) => a.dow === dow && a.from === from && a.to === to,
     );
-    const replacedName = UserDirectory.getDisplayName(
-      existingIdx >= 0 ? assignments[existingIdx].user_id : null,
-    );
-    const replacementName = UserDirectory.getDisplayName(repl.replacement_user_id);
 
     if (existingIdx >= 0) {
       const original = assignments[existingIdx];
+
+      // Already assigned to the replacement user — skip swap
+      if (original.user_id === repl.replacement_user_id) {
+        continue;
+      }
+
+      const replacedName = UserDirectory.getDisplayName(original.user_id);
+      const replacementName = UserDirectory.getDisplayName(repl.replacement_user_id);
+
       // Update hours tracking
       const hours = calculateSlotHours(from, to);
       assignedHoursByUser.set(original.user_id, (assignedHoursByUser.get(original.user_id) || 0) - hours);
@@ -409,6 +420,7 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes }) {
       };
     } else {
       // No prior assignment — replacement is the first assignment for this slot
+      const replacementName = UserDirectory.getDisplayName(repl.replacement_user_id);
       const hours = calculateSlotHours(from, to);
       assignedHoursByUser.set(repl.replacement_user_id, (assignedHoursByUser.get(repl.replacement_user_id) || 0) + hours);
       assignments.push({
