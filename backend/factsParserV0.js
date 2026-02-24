@@ -715,7 +715,7 @@ export function parseEventToFacts(event) {
 
   // Rule 2: Replacement request detection (BEFORE general NL — "не могу...кто сможет" must not be caught as plain unavailability)
   // "я не могу в чт утро, кто сможет?" → SHIFT_UNAVAILABILITY + needs_replacement flag
-  const replacementRequestRe = /(?:не\s+могу|не\s+смогу|не\s+выйду|заболела?|болею).*(?:кто\s+сможет|кто\s+выйдет|кто\s+заменит|нужна\s+замена|замена)/i;
+  const replacementRequestRe = /(?:не\s+могу|не\s+смогу|не\s+выйду|не\s+получится|заболела?|болею).*(?:кто\s+сможет|кто\s+выйдет|кто\s+заменит|кто\s+свободен|кто\s+может|нужна\s+замена|подмените|подменить|подмени|замена)/i;
   if (replacementRequestRe.test(lower)) {
     const dowInfo = extractRuDow(lower);
     const time = dowInfo ? extractTime(lower) : null;
@@ -739,8 +739,8 @@ export function parseEventToFacts(event) {
   }
 
   // Rule 3: Replacement offer detection (BEFORE general NL — "я смогу"/"могу заменить" must not be caught as plain availability)
-  // "я смогу" / "я выйду" / "могу заменить" → SHIFT_REPLACEMENT
-  const replacementOfferRe = /(?:я\s+смогу|я\s+выйду|могу\s+заменить|я\s+заменю|выйду\s+за)/i;
+  // "я смогу" / "я выйду" / "могу заменить" / "подменю" → SHIFT_REPLACEMENT
+  const replacementOfferRe = /(?:я\s+смогу|я\s+выйду|могу\s+заменить|я\s+заменю|выйду\s+за|подменю|могу\s+подменить)/i;
   if (replacementOfferRe.test(lower)) {
     const dowInfo = extractRuDow(lower);
     const time = dowInfo ? extractTime(lower) : null;

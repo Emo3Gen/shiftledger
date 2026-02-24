@@ -1871,46 +1871,89 @@ export const App: React.FC = () => {
                     type="button"
                     style={{ fontSize: "0.8em", padding: "4px 8px", backgroundColor: "#28a745", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
                     onClick={async () => {
-                      console.log("[SCENARIO B] Замена смены");
+                      console.log("[SCENARIO B] Замена смены (4 замены)");
                       if (!selectedChatId || !selectedTenant) {
                         alert("Выберите chat и tenant");
                         return;
                       }
                       try {
-                        if (!schedule || !schedule.slots) {
-                          alert("Сначала соберите график (Сценарий A)");
+                        const sendMsg = async (userId: string, text: string) => {
+                          await fetch("/debug/send", {
+                            method: "POST",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({
+                              tenant_id: selectedTenant,
+                              chat_id: selectedChatId,
+                              user_id: userId,
+                              text,
+                              meta: { role: "staff" },
+                            }),
+                          });
+                          await new Promise((r) => setTimeout(r, 250));
+                        };
+
+                        // Шаг 0: Сначала собрать график (Сценарий A)
+                        console.log("[SCENARIO B] Шаг 0: Сборка графика (Сценарий A)");
+                        await debugSend(`OPEN_WEEK ${weekStartISO}`, "admin");
+                        // Isa availability
+                        await debugSend(`AVAIL ${weekStartISO} mon 10-13`, "staff");
+                        await debugSend(`AVAIL ${weekStartISO} tue 10-13`, "staff");
+                        await debugSend(`AVAIL ${weekStartISO} thu 10-13`, "staff");
+                        await debugSend(`AVAIL ${weekStartISO} fri 10-13`, "staff");
+                        await debugSend(`AVAIL ${weekStartISO} sat 10-13`, "staff");
+                        // Darina availability
+                        await debugSend(`AVAIL ${weekStartISO} mon 18-21`, "staff");
+                        await debugSend(`AVAIL ${weekStartISO} tue 18-21`, "staff");
+                        await debugSend(`AVAIL ${weekStartISO} wed 10-13`, "staff");
+                        await debugSend(`AVAIL ${weekStartISO} thu 10-13`, "staff");
+                        await debugSend(`AVAIL ${weekStartISO} sat 10-13`, "staff");
+                        await debugSend(`AVAIL ${weekStartISO} sun 18-21`, "staff");
+                        // Ksyusha availability (for replacements)
+                        await debugSend(`AVAIL ${weekStartISO} wed 18-21`, "staff");
+                        await debugSend(`AVAIL ${weekStartISO} thu 18-21`, "staff");
+                        await debugSend(`AVAIL ${weekStartISO} fri 18-21`, "staff");
+                        await debugSend(`AVAIL ${weekStartISO} sun 10-13`, "staff");
+                        // Karina availability
+                        await debugSend(`AVAIL ${weekStartISO} sat 18-21`, "staff");
+                        await debugSend(`AVAIL ${weekStartISO} fri 18-21`, "staff");
+
+                        const buildRes = await fetch("/debug/build-schedule", {
+                          method: "POST",
+                          headers: { "content-type": "application/json" },
+                          body: JSON.stringify({
+                            chat_id: selectedChatId,
+                            week_start: weekStartISO,
+                            user_id: "admin1",
+                          }),
+                        });
+                        const buildData = await buildRes.json();
+                        if (!buildRes.ok || buildData.ok === false) {
+                          alert(`Ошибка сборки: ${buildData.error || "unknown"}`);
                           return;
                         }
-                        // Шаг 1: Иса (u1) не может выйти в чт утро
-                        console.log("[SCENARIO B] Шаг 1: Иса не может в чт утро");
-                        // Send as u1 (isa)
-                        await fetch("/debug/send", {
-                          method: "POST",
-                          headers: { "content-type": "application/json" },
-                          body: JSON.stringify({
-                            tenant_id: selectedTenant,
-                            chat_id: selectedChatId,
-                            user_id: "u1",
-                            text: "не могу в чт утро, кто сможет?",
-                            meta: { role: "staff" },
-                          }),
-                        });
-                        await new Promise((r) => setTimeout(r, 300));
+                        setSchedule(buildData.schedule);
+                        await debugSend(`PROPOSE ${weekStartISO}`, "admin");
+                        await refreshWeekState();
 
-                        // Шаг 2: Ксюша (u3) выходит на замену
-                        console.log("[SCENARIO B] Шаг 2: Ксюша выходит на замену");
-                        await fetch("/debug/send", {
-                          method: "POST",
-                          headers: { "content-type": "application/json" },
-                          body: JSON.stringify({
-                            tenant_id: selectedTenant,
-                            chat_id: selectedChatId,
-                            user_id: "u3",
-                            text: "я смогу выйти в чт утро",
-                            meta: { role: "staff" },
-                          }),
-                        });
-                        await new Promise((r) => setTimeout(r, 300));
+                        // Шаг 1: Замена 1 — Иса не может в чт утро → Ксюша выходит
+                        console.log("[SCENARIO B] Замена 1: Иса → Ксюша (чт утро)");
+                        await sendMsg("u1", "девочки, не могу в четверг утро, кто сможет?");
+                        await sendMsg("u3", "я смогу выйти в чт утро");
+
+                        // Шаг 2: Замена 2 — Дарина не может в пн вечер → Карина выходит
+                        console.log("[SCENARIO B] Замена 2: Дарина → Карина (пн вечер)");
+                        await sendMsg("u2", "не смогу в понедельник вечер, подмените пожалуйста");
+                        await sendMsg("u4", "могу в пн вечер, подменю");
+
+                        // Шаг 3: Замена 3 — Ксюша не может в ср утро → Иса выходит
+                        console.log("[SCENARIO B] Замена 3: Ксюша → Иса (ср утро)");
+                        await sendMsg("u3", "в среду утро не получится, кто может?");
+                        await sendMsg("u1", "я выйду в ср утро");
+
+                        // Шаг 4: Замена 4 — Карина не может в пт вечер → Дарина выходит
+                        console.log("[SCENARIO B] Замена 4: Карина → Дарина (пт вечер)");
+                        await sendMsg("u4", "пт вечер не смогу, кто свободен?");
+                        await sendMsg("u2", "я смогу в пт вечер");
 
                         // Обновить данные
                         await loadDialogEvents(selectedChatId, selectedTenant);
@@ -1921,15 +1964,17 @@ export const App: React.FC = () => {
                         const scheduleData = await scheduleRes.json();
                         setSchedule(scheduleData);
 
-                        console.log("[SCENARIO B] ✅ Ожидаемый результат: замена зарегистрирована, чт утро обновлён");
-                        alert("Сценарий B завершён. Проверьте:\n• Чат: сообщения о замене с 🔄\n• Факты: SHIFT_UNAVAILABILITY + SHIFT_REPLACEMENT");
+                        // Count replacements
+                        const replacements = (scheduleData.slots || []).filter((s: any) => s.replaced_user_id);
+                        console.log("[SCENARIO B] ✅ Замены в графике:", replacements.length);
+                        alert(`Сценарий B завершён (4 замены).\nЗамены в графике: ${replacements.length}\n• чт утро: Ксюша за Иса\n• пн вечер: Карина за Дарина\n• ср утро: Иса за Ксюша/Дарина\n• пт вечер: Дарина за Карина\nПроверьте 🔄 в графике.`);
                       } catch (e: any) {
                         console.error("[SCENARIO B] Ошибка:", e);
                         alert(`Ошибка: ${String(e?.message || e)}`);
                       }
                     }}
                   >
-                    Сценарий B: Замена
+                    Сценарий B: Замена (4 замены)
                   </button>
                   <button
                     type="button"

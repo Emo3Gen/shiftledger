@@ -478,6 +478,55 @@ describe("factsParserV0", () => {
       expect(f).toBeDefined();
       expect(f.fact_payload.dow).toBe("fri");
     });
+
+    test("'могу в пн вечер, подменю' → SHIFT_REPLACEMENT", () => {
+      const facts = parseEventToFacts({ text: "могу в пн вечер, подменю", received_at: RECEIVED_AT });
+      const f = facts.find((x) => x.fact_type === "SHIFT_REPLACEMENT");
+      expect(f).toBeDefined();
+      expect(f.fact_payload.dow).toBe("mon");
+      expect(f.fact_payload.from).toBe("18:00");
+      expect(f.fact_payload.to).toBe("21:00");
+    });
+
+    test("'я смогу в пт вечер' → SHIFT_REPLACEMENT", () => {
+      const facts = parseEventToFacts({ text: "я смогу в пт вечер", received_at: RECEIVED_AT });
+      const f = facts.find((x) => x.fact_type === "SHIFT_REPLACEMENT");
+      expect(f).toBeDefined();
+      expect(f.fact_payload.dow).toBe("fri");
+      expect(f.fact_payload.from).toBe("18:00");
+    });
+  });
+
+  describe("NL: replacement request with new patterns", () => {
+    test("'не смогу в понедельник вечер, подмените пожалуйста' → SHIFT_UNAVAILABILITY needs_replacement", () => {
+      const facts = parseEventToFacts({ text: "не смогу в понедельник вечер, подмените пожалуйста", received_at: RECEIVED_AT });
+      const f = facts.find((x) => x.fact_type === "SHIFT_UNAVAILABILITY");
+      expect(f).toBeDefined();
+      expect(f.fact_payload.dow).toBe("mon");
+      expect(f.fact_payload.from).toBe("18:00");
+      expect(f.fact_payload.to).toBe("21:00");
+      expect(f.fact_payload.needs_replacement).toBe(true);
+    });
+
+    test("'в среду утро не получится, кто может?' → SHIFT_UNAVAILABILITY needs_replacement", () => {
+      const facts = parseEventToFacts({ text: "в среду утро не получится, кто может?", received_at: RECEIVED_AT });
+      const f = facts.find((x) => x.fact_type === "SHIFT_UNAVAILABILITY");
+      expect(f).toBeDefined();
+      expect(f.fact_payload.dow).toBe("wed");
+      expect(f.fact_payload.from).toBe("10:00");
+      expect(f.fact_payload.to).toBe("13:00");
+      expect(f.fact_payload.needs_replacement).toBe(true);
+    });
+
+    test("'пт вечер не смогу, кто свободен?' → SHIFT_UNAVAILABILITY needs_replacement", () => {
+      const facts = parseEventToFacts({ text: "пт вечер не смогу, кто свободен?", received_at: RECEIVED_AT });
+      const f = facts.find((x) => x.fact_type === "SHIFT_UNAVAILABILITY");
+      expect(f).toBeDefined();
+      expect(f.fact_payload.dow).toBe("fri");
+      expect(f.fact_payload.from).toBe("18:00");
+      expect(f.fact_payload.to).toBe("21:00");
+      expect(f.fact_payload.needs_replacement).toBe(true);
+    });
   });
 
   describe("DSL: WORKED without week_start", () => {
