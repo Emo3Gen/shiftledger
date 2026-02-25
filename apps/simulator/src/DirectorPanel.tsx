@@ -129,6 +129,10 @@ function fmtRub(n: number | null | undefined): string {
 async function fetchJSON(url: string) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) {
+    throw new Error(`${url}: expected JSON, got ${ct || "unknown content-type"}`);
+  }
   return res.json();
 }
 
@@ -142,6 +146,10 @@ async function putJSON(url: string, body: any) {
     const text = await res.text().catch(() => "");
     throw new Error(`${res.status} ${res.statusText}: ${text}`);
   }
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) {
+    throw new Error(`${url}: expected JSON, got ${ct || "unknown content-type"}`);
+  }
   return res.json();
 }
 
@@ -154,6 +162,10 @@ async function postJSON(url: string, body: any) {
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`${res.status} ${res.statusText}: ${text}`);
+  }
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) {
+    throw new Error(`${url}: expected JSON, got ${ct || "unknown content-type"}`);
   }
   return res.json();
 }
