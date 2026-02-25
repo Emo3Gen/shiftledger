@@ -431,29 +431,32 @@ const ControlButtons: React.FC<{
   chatId: string;
   userId: string;
   onAction: () => void;
-}> = ({ weekState, chatId, userId, onAction }) => {
-  const [loading, setLoading] = React.useState(false);
+  onToast: (text: string, type: "ok" | "err") => void;
+}> = ({ weekState, chatId, userId, onAction, onToast }) => {
+  const [busy, setBusy] = React.useState<string | null>(null);
 
-  const doAction = async (text: string) => {
-    setLoading(true);
+  const doAction = async (text: string, label: string) => {
+    setBusy(label);
     try {
       await postJSON("/debug/send", { chat_id: chatId, user_id: userId, text });
       onAction();
-    } catch (e) {
-      console.error(e);
+      onToast(`${label} \u2014 готово`, "ok");
+    } catch (e: any) {
+      onToast(`${label}: ${e.message}`, "err");
     }
-    setLoading(false);
+    setBusy(null);
   };
 
   const doBuildSchedule = async () => {
-    setLoading(true);
+    setBusy("Собрать график");
     try {
       await postJSON("/debug/build-schedule", { chat_id: chatId, user_id: userId });
       onAction();
-    } catch (e) {
-      console.error(e);
+      onToast("График собран", "ok");
+    } catch (e: any) {
+      onToast(`Сборка графика: ${e.message}`, "err");
     }
-    setLoading(false);
+    setBusy(null);
   };
 
   const state = weekState?.state || "COLLECTING";
@@ -461,25 +464,25 @@ const ControlButtons: React.FC<{
   return (
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
       <button
-        onClick={() => doAction("WEEK_OPEN")}
-        disabled={loading || state !== "CLOSED"}
+        onClick={() => doAction("WEEK_OPEN", "Начать сбор")}
+        disabled={!!busy || state !== "CLOSED"}
         style={btnStyle("#007bff")}
       >
-        Начать сбор
+        {busy === "Начать сбор" ? "Загрузка..." : "Начать сбор"}
       </button>
       <button
         onClick={doBuildSchedule}
-        disabled={loading || state !== "COLLECTING"}
+        disabled={!!busy || state !== "COLLECTING"}
         style={btnStyle("#28a745")}
       >
-        Собрать график
+        {busy === "Собрать график" ? "Загрузка..." : "Собрать график"}
       </button>
       <button
-        onClick={() => doAction("WEEK_LOCK")}
-        disabled={loading || state !== "ACTIVE"}
+        onClick={() => doAction("WEEK_LOCK", "Закрыть неделю")}
+        disabled={!!busy || state !== "ACTIVE"}
         style={btnStyle("#6c757d")}
       >
-        Закрыть неделю
+        {busy === "Закрыть неделю" ? "Загрузка..." : "Закрыть неделю"}
       </button>
     </div>
   );
@@ -785,7 +788,7 @@ const WorkflowGuide: React.FC = () => {
 export const DirectorPanel: React.FC = () => {
   const userId = "admin1";
 
-  const [chatId, setChatId] = React.useState<string>("debug_chat");
+  const [chatId, setChatId] = React.useState<string>("dev_seed_chat");
   const [weekStart, setWeekStart] = React.useState<string>(getMonday());
   const [availableWeeks, setAvailableWeeks] = React.useState<string[]>([]);
   const [schedule, setSchedule] = React.useState<Schedule | null>(null);
@@ -797,6 +800,7 @@ export const DirectorPanel: React.FC = () => {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState("");
   const [activeSection, setActiveSection] = React.useState<"schedule" | "payroll" | "settings">("schedule");
+  const [toast, setToast] = React.useState<{ text: string; type: "ok" | "err" } | null>(null);
 
   // Employee form modal state
   const [empFormOpen, setEmpFormOpen] = React.useState(false);
@@ -807,11 +811,17 @@ export const DirectorPanel: React.FC = () => {
   const settingSaveTimers = React.useRef<Record<string, NodeJS.Timeout>>({});
   // Debounced save for employees
   const empSaveTimers = React.useRef<Record<string, NodeJS.Timeout>>({});
-  // Track if initial week detection has run
-  const initialWeekDetected = React.useRef(false);
+  // Stable ref for chatId so callbacks always have the latest value
+  const chatIdRef = React.useRef(chatId);
+  chatIdRef.current = chatId;
 
-  const loadWeekData = React.useCallback(async (ws: string, chatIdOverride?: string) => {
-    const cid = chatIdOverride || chatId;
+  const showToast = (text: string, type: "ok" | "err" = "ok") => {
+    setToast({ text, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const loadWeekData = React.useCallback(async (ws: string, cid: string) => {
+    console.log(`[DirectorPanel] loadWeekData: chat=${cid}, week=${ws}`);
     const errors: string[] = [];
 
     const [schedRes, wsRes, tsRes, empRes, settRes, evRes] = await Promise.all([
@@ -822,6 +832,8 @@ export const DirectorPanel: React.FC = () => {
       fetchJSON("/api/settings?tenant_id=dev").catch((e) => { errors.push(`Настройки: ${e.message}`); return null; }),
       fetchJSON(`/events?chat_id=${cid}&limit=30`).catch((e) => { errors.push(`События: ${e.message}`); return null; }),
     ]);
+
+    console.log(`[DirectorPanel] loaded: slots=${schedRes?.slots?.length ?? 0}, assigned=${schedRes?.slots?.filter((s: any) => s.user_id).length ?? 0}`);
 
     if (schedRes) setSchedule(schedRes);
     if (wsRes?.week_state) setWeekState(wsRes.week_state);
@@ -834,16 +846,15 @@ export const DirectorPanel: React.FC = () => {
     setLoading(false);
   }, []);
 
-  // On mount: discover chat_id from dialogs, detect available weeks, auto-select latest
+  // Single mount effect: discover chat_id, best week, load data ONCE
   React.useEffect(() => {
+    let cancelled = false;
     (async () => {
-      // Step 1: find the active chat_id (prefer dev_seed_chat, then first dialog)
+      // Step 1: find the active chat_id
       let activeChatId = "dev_seed_chat";
       try {
-        // Check if dev_seed_chat has data
         const seedWeeks = await fetchJSON("/debug/weeks?chat_id=dev_seed_chat").catch(() => null);
         if (!seedWeeks?.weeks?.length) {
-          // No seed data, look for dialogs
           const dialogsRes = await fetchJSON("/debug/dialogs?tenant_id=emu").catch(() => null);
           const dialogs: Array<{ chat_id: string }> = dialogsRes?.dialogs || [];
           if (dialogs.length > 0) {
@@ -851,49 +862,61 @@ export const DirectorPanel: React.FC = () => {
           }
         }
       } catch {
-        // fallback to dev_seed_chat
+        // fallback
       }
-      setChatId(activeChatId);
 
-      // Step 2: find available weeks for this chat
+      // Step 2: find available weeks
+      let weeks: string[] = [];
       try {
         const weeksRes = await fetchJSON(`/debug/weeks?chat_id=${activeChatId}`).catch(() => null);
-        const weeks: string[] = weeksRes?.weeks || [];
-        setAvailableWeeks(weeks);
-
-        if (!initialWeekDetected.current && weeks.length > 0) {
-          initialWeekDetected.current = true;
-          const today = getMonday();
-          const bestWeek = weeks.includes(today) ? today : weeks[0];
-          setWeekStart(bestWeek);
-          await loadWeekData(bestWeek, activeChatId);
-          return;
-        }
+        weeks = weeksRes?.weeks || [];
       } catch {
         // ignore
       }
-      initialWeekDetected.current = true;
-      await loadWeekData(weekStart, activeChatId);
+
+      const today = getMonday();
+      const bestWeek = weeks.length > 0 ? (weeks.includes(today) ? today : weeks[0]) : today;
+
+      if (cancelled) return;
+
+      // Set all state at once, then load data exactly once
+      setChatId(activeChatId);
+      chatIdRef.current = activeChatId;
+      setWeekStart(bestWeek);
+      setAvailableWeeks(weeks);
+      console.log(`[DirectorPanel] init: chat=${activeChatId}, week=${bestWeek}, available=${weeks.join(",")}`);
+      await loadWeekData(bestWeek, activeChatId);
     })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { cancelled = true; };
+  }, [loadWeekData]);
 
-  // Reload when weekStart changes (after initial load)
-  const prevWeek = React.useRef(weekStart);
+  // Auto-refresh every 30s (uses refs for stable values)
   React.useEffect(() => {
-    if (prevWeek.current !== weekStart && initialWeekDetected.current) {
-      prevWeek.current = weekStart;
-      setLoading(true);
-      loadWeekData(weekStart);
-    }
-  }, [weekStart, loadWeekData]);
-
-  // Auto-refresh every 30s
-  React.useEffect(() => {
-    const interval = setInterval(() => loadWeekData(weekStart), 30000);
+    const interval = setInterval(() => {
+      loadWeekData(weekStart, chatIdRef.current);
+    }, 30000);
     return () => clearInterval(interval);
   }, [weekStart, loadWeekData]);
 
-  const goWeek = (delta: number) => setWeekStart((ws) => shiftWeek(ws, delta));
+  // Week navigation: load data immediately with the new week
+  const goWeek = (delta: number) => {
+    setWeekStart((ws) => {
+      const next = shiftWeek(ws, delta);
+      setLoading(true);
+      loadWeekData(next, chatIdRef.current);
+      return next;
+    });
+  };
+
+  const goToday = () => {
+    const today = getMonday();
+    setWeekStart(today);
+    setLoading(true);
+    loadWeekData(today, chatIdRef.current);
+  };
+
+  // Reload helper for buttons
+  const reload = () => loadWeekData(weekStart, chatIdRef.current);
 
   const handleSettingChange = (key: string, value: any) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
@@ -903,7 +926,7 @@ export const DirectorPanel: React.FC = () => {
       try {
         await putJSON(`/api/settings/${key}`, { value, tenant_id: "dev" });
       } catch (e) {
-        console.error("Failed to save setting", key, e);
+        showToast(`Ошибка сохранения: ${key}`, "err");
       }
     }, 800);
   };
@@ -917,7 +940,7 @@ export const DirectorPanel: React.FC = () => {
       try {
         await putJSON(`/api/employees/${id}`, { [field]: value });
       } catch (e) {
-        console.error("Failed to save employee", id, field, e);
+        showToast(`Ошибка сохранения сотрудника ${id}`, "err");
       }
     }, 800);
   };
@@ -964,7 +987,8 @@ export const DirectorPanel: React.FC = () => {
     }
 
     setEmpFormOpen(false);
-    await loadWeekData(weekStart);
+    showToast("Сотрудник сохранён", "ok");
+    await reload();
   };
 
   if (loading) {
@@ -1037,7 +1061,7 @@ export const DirectorPanel: React.FC = () => {
         <button onClick={() => goWeek(1)} style={navBtnStyle} title="Следующая неделя">{"\u2192"}</button>
         {weekStart !== getMonday() && (
           <button
-            onClick={() => setWeekStart(getMonday())}
+            onClick={goToday}
             style={{ ...navBtnStyle, fontSize: 12, padding: "4px 10px" }}
             title="Текущая неделя"
           >
@@ -1054,7 +1078,7 @@ export const DirectorPanel: React.FC = () => {
 
       {/* Control buttons */}
       <div style={{ marginBottom: 16 }}>
-        <ControlButtons weekState={weekState} chatId={chatId} userId={userId} onAction={() => loadWeekData(weekStart)} />
+        <ControlButtons weekState={weekState} chatId={chatId} userId={userId} onAction={reload} onToast={showToast} />
       </div>
 
       {/* Workflow guide (collapsible) */}
@@ -1137,6 +1161,19 @@ export const DirectorPanel: React.FC = () => {
           onSave={handleSaveEmployee}
           onClose={() => setEmpFormOpen(false)}
         />
+      )}
+
+      {/* Toast notification */}
+      {toast && (
+        <div style={{
+          position: "fixed", top: 20, right: 20, padding: "10px 20px",
+          background: toast.type === "ok" ? "#28a745" : "#dc3545",
+          color: "#fff", borderRadius: 8, fontSize: 14, fontWeight: 500,
+          boxShadow: "0 4px 12px rgba(0,0,0,0.2)", zIndex: 2000,
+          animation: "fadeIn 0.2s ease",
+        }}>
+          {toast.type === "ok" ? "\u2705 " : "\u274C "}{toast.text}
+        </div>
       )}
     </div>
   );
