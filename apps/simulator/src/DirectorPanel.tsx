@@ -726,6 +726,60 @@ const FeedbackButton: React.FC = () => {
   );
 };
 
+// WorkflowGuide (collapsible help)
+const WorkflowGuide: React.FC = () => {
+  const [open, setOpen] = React.useState(false);
+
+  return (
+    <div style={{
+      marginBottom: 12, border: "1px solid #dee2e6", borderRadius: 6,
+      background: open ? "#f8f9fa" : "transparent",
+    }}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          width: "100%", padding: "8px 12px", background: "none", border: "none",
+          cursor: "pointer", textAlign: "left", fontSize: 13, color: "#666",
+          display: "flex", alignItems: "center", gap: 6,
+        }}
+      >
+        <span style={{ fontSize: 11 }}>{open ? "\u25BC" : "\u25B6"}</span>
+        Как работать с панелью?
+      </button>
+      {open && (
+        <div style={{ padding: "0 12px 12px", fontSize: 13, lineHeight: 1.6 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Цикл недели:</div>
+          <div style={{ marginBottom: 4 }}>
+            <strong>1. Начать сбор</strong> {"\u2014"} открывает новую неделю.
+            Бот начинает спрашивать сотрудников о доступности (кто когда может работать).
+          </div>
+          <div style={{ marginBottom: 4 }}>
+            <strong>2. Собрать график</strong> {"\u2014"} после сбора ответов формирует
+            расписание автоматически (распределяет смены по доступности и минимальным часам).
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <strong>3. Закрыть неделю</strong> {"\u2014"} фиксирует график и рассчитывает
+            зарплаты (смены + уборки + доп.занятия).
+          </div>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Вкладки:</div>
+          <div style={{ marginBottom: 4 }}>
+            <strong>Расписание</strong> {"\u2014"} текущий график на выбранную неделю.
+            Цвета: зелёный = назначен, оранжевый = пусто, синий = замена, красный = проблема.
+          </div>
+          <div style={{ marginBottom: 4 }}>
+            <strong>Зарплаты</strong> {"\u2014"} табель и расчёт за неделю.
+            Клик по строке {"\u2014"} детали (ставка, проблемные смены, округление).
+          </div>
+          <div>
+            <strong>Настройки</strong> {"\u2014"} Смены (время начала/конца), Сотрудники
+            (добавить/редактировать), Ставки (оплата за час, уборку, доп.занятия).
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ---- Main DirectorPanel ----
 
 export const DirectorPanel: React.FC = () => {
@@ -783,16 +837,21 @@ export const DirectorPanel: React.FC = () => {
   // On mount: discover chat_id from dialogs, detect available weeks, auto-select latest
   React.useEffect(() => {
     (async () => {
-      // Step 1: find the active chat_id
-      let activeChatId = "debug_chat";
+      // Step 1: find the active chat_id (prefer dev_seed_chat, then first dialog)
+      let activeChatId = "dev_seed_chat";
       try {
-        const dialogsRes = await fetchJSON("/debug/dialogs?tenant_id=emu").catch(() => null);
-        const dialogs: Array<{ chat_id: string }> = dialogsRes?.dialogs || [];
-        if (dialogs.length > 0) {
-          activeChatId = dialogs[0].chat_id;
+        // Check if dev_seed_chat has data
+        const seedWeeks = await fetchJSON("/debug/weeks?chat_id=dev_seed_chat").catch(() => null);
+        if (!seedWeeks?.weeks?.length) {
+          // No seed data, look for dialogs
+          const dialogsRes = await fetchJSON("/debug/dialogs?tenant_id=emu").catch(() => null);
+          const dialogs: Array<{ chat_id: string }> = dialogsRes?.dialogs || [];
+          if (dialogs.length > 0) {
+            activeChatId = dialogs[0].chat_id;
+          }
         }
       } catch {
-        // fallback to debug_chat
+        // fallback to dev_seed_chat
       }
       setChatId(activeChatId);
 
@@ -997,6 +1056,9 @@ export const DirectorPanel: React.FC = () => {
       <div style={{ marginBottom: 16 }}>
         <ControlButtons weekState={weekState} chatId={chatId} userId={userId} onAction={() => loadWeekData(weekStart)} />
       </div>
+
+      {/* Workflow guide (collapsible) */}
+      <WorkflowGuide />
 
       {/* Section tabs */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>

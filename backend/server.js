@@ -23,6 +23,7 @@ import logger from "./logger.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 import { generalLimiter, ingestLimiter } from "./middleware/rateLimiter.js";
 import { createBot } from "./telegram/bot.js";
+import { runDevSeed } from "./devSeed.js";
 import swaggerUi from "swagger-ui-express";
 import { specs as swaggerSpecs } from "./swagger.js";
 import {
@@ -1458,6 +1459,25 @@ UserDirectory.syncFromDB(employeeService).finally(() => {
   app.listen(port, () => {
     logger.info({ port: Number(port), env: envName }, "Server started");
     logger.info(`Swagger UI: http://localhost:${port}/api-docs`);
+
+    // Dev seed: auto-load test data if not in production
+    if (envName !== "production") {
+      const seedBuildSchedule = async (chatId, weekStart) => {
+        const tenantId = process.env.DEFAULT_TENANT_ID || "dev";
+        const slotTypes = await loadSlotTypes(tenantId);
+        const seedSettings = await settingsService.getAll(tenantId);
+        const { data: facts } = await supabase
+          .from("facts")
+          .select("*")
+          .eq("chat_id", chatId)
+          .order("created_at", { ascending: true })
+          .limit(500);
+        buildDraftSchedule({ facts: facts ?? [], weekStartISO: weekStart, slotTypes, settings: seedSettings });
+      };
+      runDevSeed(ingestInternal, seedBuildSchedule).catch((e) =>
+        logger.error({ err: e }, "Dev seed error"),
+      );
+    }
 
     // Start Telegram bot if token is configured
     if (process.env.TELEGRAM_BOT_TOKEN) {
