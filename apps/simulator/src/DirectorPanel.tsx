@@ -436,69 +436,85 @@ const ControlButtons: React.FC<{
   const [busy, setBusy] = React.useState<string | null>(null);
 
   const doAction = async (text: string, label: string) => {
+    console.log(`[ControlButtons] ${label}: sending "${text}" to chat=${chatId}`);
     setBusy(label);
     try {
       await postJSON("/debug/send", { chat_id: chatId, user_id: userId, text });
+      console.log(`[ControlButtons] ${label}: success`);
       onAction();
       onToast(`${label} \u2014 готово`, "ok");
     } catch (e: any) {
+      console.error(`[ControlButtons] ${label}: error`, e);
       onToast(`${label}: ${e.message}`, "err");
     }
     setBusy(null);
   };
 
   const doBuildSchedule = async () => {
+    console.log(`[ControlButtons] Собрать график: chat=${chatId}`);
     setBusy("Собрать график");
     try {
       await postJSON("/debug/build-schedule", { chat_id: chatId, user_id: userId });
+      console.log("[ControlButtons] Собрать график: success");
       onAction();
       onToast("График собран", "ok");
     } catch (e: any) {
+      console.error("[ControlButtons] Собрать график: error", e);
       onToast(`Сборка графика: ${e.message}`, "err");
     }
     setBusy(null);
   };
 
   const state = weekState?.state || "COLLECTING";
+  const d1 = !!busy || state !== "CLOSED";
+  const d2 = !!busy || state !== "COLLECTING";
+  const d3 = !!busy || state !== "ACTIVE";
 
   return (
-    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
       <button
         onClick={() => doAction("WEEK_OPEN", "Начать сбор")}
-        disabled={!!busy || state !== "CLOSED"}
-        style={btnStyle("#007bff")}
+        disabled={d1}
+        style={btnStyle("#007bff", d1)}
+        className="dp-btn"
       >
         {busy === "Начать сбор" ? "Загрузка..." : "Начать сбор"}
       </button>
       <button
         onClick={doBuildSchedule}
-        disabled={!!busy || state !== "COLLECTING"}
-        style={btnStyle("#28a745")}
+        disabled={d2}
+        style={btnStyle("#28a745", d2)}
+        className="dp-btn"
       >
         {busy === "Собрать график" ? "Загрузка..." : "Собрать график"}
       </button>
       <button
         onClick={() => doAction("WEEK_LOCK", "Закрыть неделю")}
-        disabled={!!busy || state !== "ACTIVE"}
-        style={btnStyle("#6c757d")}
+        disabled={d3}
+        style={btnStyle("#6c757d", d3)}
+        className="dp-btn"
       >
         {busy === "Закрыть неделю" ? "Загрузка..." : "Закрыть неделю"}
       </button>
+      <span style={{ fontSize: 12, color: "#999", marginLeft: 4 }}>
+        ({state === "COLLECTING" ? "сбор" : state === "ACTIVE" ? "активна" : "закрыта"})
+      </span>
     </div>
   );
 };
 
-function btnStyle(color: string): React.CSSProperties {
+function btnStyle(color: string, disabled = false): React.CSSProperties {
   return {
     padding: "8px 16px",
-    background: color,
+    background: disabled ? "#adb5bd" : color,
     color: "#fff",
     border: "none",
     borderRadius: 6,
-    cursor: "pointer",
+    cursor: disabled ? "not-allowed" : "pointer",
     fontSize: 14,
     fontWeight: 500,
-    opacity: 1,
+    opacity: disabled ? 0.6 : 1,
+    transition: "all 0.15s ease",
   };
 }
 
@@ -1014,6 +1030,13 @@ export const DirectorPanel: React.FC = () => {
 
   return (
     <div style={{ maxWidth: 960, margin: "0 auto", padding: "16px 20px", fontFamily: "system-ui, sans-serif" }}>
+      {/* CSS for hover/active effects (can't do with inline styles) */}
+      <style>{`
+        .dp-btn:not(:disabled):hover { filter: brightness(0.85); }
+        .dp-btn:not(:disabled):active { filter: brightness(0.7); transform: scale(0.97); }
+        .dp-tab:hover { filter: brightness(0.9); }
+        .dp-tab:active { transform: scale(0.97); }
+      `}</style>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div>
@@ -1086,13 +1109,13 @@ export const DirectorPanel: React.FC = () => {
 
       {/* Section tabs */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        <button style={sectionBtnStyle(activeSection === "schedule")} onClick={() => setActiveSection("schedule")}>
+        <button className="dp-tab" style={sectionBtnStyle(activeSection === "schedule")} onClick={() => setActiveSection("schedule")}>
           Расписание
         </button>
-        <button style={sectionBtnStyle(activeSection === "payroll")} onClick={() => setActiveSection("payroll")}>
+        <button className="dp-tab" style={sectionBtnStyle(activeSection === "payroll")} onClick={() => setActiveSection("payroll")}>
           Зарплаты
         </button>
-        <button style={sectionBtnStyle(activeSection === "settings")} onClick={() => setActiveSection("settings")}>
+        <button className="dp-tab" style={sectionBtnStyle(activeSection === "settings")} onClick={() => setActiveSection("settings")}>
           Настройки
         </button>
       </div>
