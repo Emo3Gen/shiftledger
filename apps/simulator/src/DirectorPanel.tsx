@@ -13,6 +13,7 @@ type Employee = {
   telegram_user_id?: string;
   telegram_username?: string;
   phone?: string;
+  meta?: Record<string, unknown>;
 };
 
 type Slot = {
@@ -69,6 +70,18 @@ type WeekState = {
 
 type SettingsMap = Record<string, any>;
 
+type EmployeeFormData = {
+  id: string;
+  name: string;
+  role: string;
+  rate_per_hour: number;
+  min_hours_per_week: number;
+  max_hours_per_week: number;
+  telegram_username: string;
+  phone: string;
+  notes: string;
+};
+
 // ---- Constants ----
 
 const DOW_RU: Record<string, string> = {
@@ -82,6 +95,18 @@ const STATE_LABELS: Record<string, { label: string; color: string }> = {
   CLOSED: { label: "Неделя закрыта", color: "#6c757d" },
 };
 
+const EMPTY_FORM: EmployeeFormData = {
+  id: "",
+  name: "",
+  role: "junior",
+  rate_per_hour: 280,
+  min_hours_per_week: 0,
+  max_hours_per_week: 40,
+  telegram_username: "",
+  phone: "",
+  notes: "",
+};
+
 // ---- Helpers ----
 
 function fmtRub(n: number | null | undefined): string {
@@ -92,14 +117,6 @@ function fmtRub(n: number | null | undefined): string {
     parts.unshift(s.slice(Math.max(0, i - 3), i));
   }
   return parts.join("\u2009") + " \u20BD";
-}
-
-function getMonday(): string {
-  const d = new Date();
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  const mon = new Date(d.setDate(diff));
-  return mon.toISOString().slice(0, 10);
 }
 
 // ---- API ----
@@ -116,7 +133,10 @@ async function putJSON(url: string, body: any) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`${res.status} ${res.statusText}: ${text}`);
+  }
   return res.json();
 }
 
@@ -126,11 +146,114 @@ async function postJSON(url: string, body: any) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`${res.status} ${res.statusText}: ${text}`);
+  }
   return res.json();
 }
 
 // ---- Components ----
+
+// EmployeeFormModal
+const EmployeeFormModal: React.FC<{
+  initial: EmployeeFormData;
+  isEdit: boolean;
+  onSave: (data: EmployeeFormData) => Promise<void>;
+  onClose: () => void;
+}> = ({ initial, isEdit, onSave, onClose }) => {
+  const [form, setForm] = React.useState<EmployeeFormData>(initial);
+  const [saving, setSaving] = React.useState(false);
+  const [err, setErr] = React.useState("");
+
+  const set = (field: keyof EmployeeFormData, value: string | number) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSave = async () => {
+    if (!form.id.trim() || !form.name.trim()) {
+      setErr("ID и Имя обязательны");
+      return;
+    }
+    setSaving(true);
+    setErr("");
+    try {
+      await onSave(form);
+    } catch (e: any) {
+      setErr(e.message || "Ошибка сохранения");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex",
+      alignItems: "center", justifyContent: "center", zIndex: 1000,
+    }} onClick={onClose}>
+      <div style={{
+        background: "#fff", borderRadius: 10, padding: 24, width: 420, maxWidth: "90vw",
+        maxHeight: "90vh", overflowY: "auto", boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+      }} onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ margin: "0 0 16px" }}>{isEdit ? "Редактировать сотрудника" : "Новый сотрудник"}</h3>
+
+        {err && <div style={{ padding: 8, background: "#ffebee", color: "#c62828", borderRadius: 4, marginBottom: 12, fontSize: 13 }}>{err}</div>}
+
+        <label style={formLabelStyle}>ID</label>
+        <input style={formInputStyle} value={form.id} disabled={isEdit}
+          onChange={(e) => set("id", e.target.value)} placeholder="u5" />
+
+        <label style={formLabelStyle}>Имя</label>
+        <input style={formInputStyle} value={form.name}
+          onChange={(e) => set("name", e.target.value)} placeholder="Анна Петрова" />
+
+        <label style={formLabelStyle}>Роль</label>
+        <select style={formInputStyle} value={form.role}
+          onChange={(e) => set("role", e.target.value)}>
+          <option value="junior">Junior</option>
+          <option value="senior">Senior</option>
+          <option value="staff">Staff</option>
+        </select>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div>
+            <label style={formLabelStyle}>Ставка/час (\u20BD)</label>
+            <input style={formInputStyle} type="number" value={form.rate_per_hour}
+              onChange={(e) => set("rate_per_hour", Number(e.target.value))} />
+          </div>
+          <div>
+            <label style={formLabelStyle}>Мин. часов/нед</label>
+            <input style={formInputStyle} type="number" value={form.min_hours_per_week}
+              onChange={(e) => set("min_hours_per_week", Number(e.target.value))} />
+          </div>
+        </div>
+
+        <label style={formLabelStyle}>Telegram username</label>
+        <input style={formInputStyle} value={form.telegram_username}
+          onChange={(e) => set("telegram_username", e.target.value)} placeholder="@username" />
+
+        <label style={formLabelStyle}>Телефон</label>
+        <input style={formInputStyle} value={form.phone}
+          onChange={(e) => set("phone", e.target.value)} placeholder="+7 900 123-45-67" />
+
+        <label style={formLabelStyle}>Заметки</label>
+        <textarea style={{ ...formInputStyle, height: 60, resize: "vertical" }} value={form.notes}
+          onChange={(e) => set("notes", e.target.value)} placeholder="Любые заметки..." />
+
+        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+          <button onClick={handleSave} disabled={saving} style={btnStyle("#007bff")}>
+            {saving ? "Сохранение..." : "Сохранить"}
+          </button>
+          <button onClick={onClose} style={{ ...btnStyle("#6c757d"), background: "#e9ecef", color: "#333" }}>
+            Отмена
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const formLabelStyle: React.CSSProperties = { display: "block", fontSize: 12, color: "#666", marginBottom: 2, marginTop: 10 };
+const formInputStyle: React.CSSProperties = { width: "100%", padding: "6px 10px", border: "1px solid #ccc", borderRadius: 4, fontSize: 14, boxSizing: "border-box" };
 
 // LiveScheduleGrid
 const LiveScheduleGrid: React.FC<{ schedule: Schedule | null; employees: Employee[] }> = ({ schedule, employees }) => {
@@ -139,7 +262,7 @@ const LiveScheduleGrid: React.FC<{ schedule: Schedule | null; employees: Employe
   }
 
   const empMap = new Map(employees.map((e) => [e.id, e.name]));
-  const getName = (uid: string | null) => (uid ? empMap.get(uid) || uid : "—");
+  const getName = (uid: string | null) => (uid ? empMap.get(uid) || uid : "\u2014");
 
   const slotNames = [...new Set(schedule.slots.map((s) => s.slot_name).filter(Boolean))];
   const activeDays = DOW_ORDER.filter((d) => schedule.slots!.some((s) => s.dow === d));
@@ -181,8 +304,8 @@ const LiveScheduleGrid: React.FC<{ schedule: Schedule | null; employees: Employe
 
                 return (
                   <td key={sn} style={{ padding: "8px 12px", background: bg }}>
-                    {isReplacement && "🔄 "}
-                    {isProblem && "🔺 "}
+                    {isReplacement && "\uD83D\uDD04 "}
+                    {isProblem && "\uD83D\uDD3A "}
                     {name}
                     {isReplacement && slot?.replaced_user_id && (
                       <span style={{ fontSize: 11, color: "#666" }}> (за {getName(slot.replaced_user_id)})</span>
@@ -192,8 +315,8 @@ const LiveScheduleGrid: React.FC<{ schedule: Schedule | null; employees: Employe
               })}
               <td style={{ padding: "8px 12px" }}>
                 {cleaningByDow[dow] ? (
-                  <span>🧹 {getName(cleaningByDow[dow])}</span>
-                ) : "—"}
+                  <span>\uD83E\uDDF9 {getName(cleaningByDow[dow])}</span>
+                ) : "\u2014"}
               </td>
             </tr>
           ))}
@@ -233,8 +356,8 @@ const PayrollTable: React.FC<{ timesheet: Timesheet | null; employees: Employee[
               <td style={tdStyle}>{emp.name}</td>
               <td style={tdStyle}>{emp.effective_hours}ч</td>
               <td style={tdStyle}>{fmtRub(emp.shift_pay)}</td>
-              <td style={tdStyle}>{emp.cleaning_count > 0 ? fmtRub(emp.cleaning_pay) : "—"}</td>
-              <td style={tdStyle}>{emp.extra_classes_count > 0 ? fmtRub(emp.extra_classes_total_pay) : "—"}</td>
+              <td style={tdStyle}>{emp.cleaning_count > 0 ? fmtRub(emp.cleaning_pay) : "\u2014"}</td>
+              <td style={tdStyle}>{emp.extra_classes_count > 0 ? fmtRub(emp.extra_classes_total_pay) : "\u2014"}</td>
               <td style={{ ...tdStyle, fontWeight: 600 }}>{fmtRub(emp.total_pay)}</td>
             </tr>
             {expandedIdx === idx && (
@@ -362,7 +485,9 @@ const SettingsPanel: React.FC<{
   employees: Employee[];
   onSettingChange: (key: string, value: any) => void;
   onEmployeeChange: (id: string, field: string, value: any) => void;
-}> = ({ settings, employees, onSettingChange, onEmployeeChange }) => {
+  onAddEmployee: () => void;
+  onEditEmployee: (emp: Employee) => void;
+}> = ({ settings, employees, onSettingChange, onEmployeeChange, onAddEmployee, onEditEmployee }) => {
   const [tab, setTab] = React.useState<"shifts" | "employees" | "rates">("shifts");
 
   const tabBtnStyle = (active: boolean): React.CSSProperties => ({
@@ -408,52 +533,79 @@ const SettingsPanel: React.FC<{
         )}
 
         {tab === "employees" && (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr>
-                <th style={thStyle}>ID</th>
-                <th style={thStyle}>Имя</th>
-                <th style={thStyle}>Роль</th>
-                <th style={thStyle}>Ставка</th>
-                <th style={thStyle}>Мин.ч</th>
-                <th style={thStyle}>Telegram</th>
-              </tr>
-            </thead>
-            <tbody>
-              {employees.map((emp) => (
-                <tr key={emp.id} style={{ borderBottom: "1px solid #eee" }}>
-                  <td style={tdStyle}>{emp.id}</td>
-                  <td style={tdStyle}>
-                    <input
-                      style={{ ...inputStyle, width: "100%" }}
-                      value={emp.name}
-                      onChange={(e) => onEmployeeChange(emp.id, "name", e.target.value)}
-                    />
-                  </td>
-                  <td style={tdStyle}>{emp.role}</td>
-                  <td style={tdStyle}>
-                    <input
-                      style={{ ...inputStyle, width: 60 }}
-                      type="number"
-                      value={emp.rate_per_hour}
-                      onChange={(e) => onEmployeeChange(emp.id, "rate_per_hour", Number(e.target.value))}
-                    />
-                  </td>
-                  <td style={tdStyle}>
-                    <input
-                      style={{ ...inputStyle, width: 50 }}
-                      type="number"
-                      value={emp.min_hours_per_week}
-                      onChange={(e) => onEmployeeChange(emp.id, "min_hours_per_week", Number(e.target.value))}
-                    />
-                  </td>
-                  <td style={tdStyle}>
-                    {emp.telegram_username ? `@${emp.telegram_username}` : emp.telegram_user_id || "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+              <button onClick={onAddEmployee} style={btnStyle("#28a745")}>+ Добавить сотрудника</button>
+            </div>
+            {employees.length === 0 ? (
+              <div style={{ padding: 16, color: "#999", textAlign: "center" }}>
+                Нет сотрудников. Нажмите «+ Добавить сотрудника», чтобы создать первого.
+              </div>
+            ) : (
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>ID</th>
+                    <th style={thStyle}>Имя</th>
+                    <th style={thStyle}>Роль</th>
+                    <th style={thStyle}>Ставка</th>
+                    <th style={thStyle}>Мин.ч</th>
+                    <th style={thStyle}>Telegram</th>
+                    <th style={thStyle}>Тел.</th>
+                    <th style={{ ...thStyle, width: 40 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {employees.map((emp) => (
+                    <tr key={emp.id} style={{ borderBottom: "1px solid #eee" }}>
+                      <td style={tdStyle}>{emp.id}</td>
+                      <td style={tdStyle}>
+                        <input
+                          style={{ ...inputStyle, width: "100%" }}
+                          value={emp.name}
+                          onChange={(e) => onEmployeeChange(emp.id, "name", e.target.value)}
+                        />
+                      </td>
+                      <td style={tdStyle}>{emp.role}</td>
+                      <td style={tdStyle}>
+                        <input
+                          style={{ ...inputStyle, width: 60 }}
+                          type="number"
+                          value={emp.rate_per_hour}
+                          onChange={(e) => onEmployeeChange(emp.id, "rate_per_hour", Number(e.target.value))}
+                        />
+                      </td>
+                      <td style={tdStyle}>
+                        <input
+                          style={{ ...inputStyle, width: 50 }}
+                          type="number"
+                          value={emp.min_hours_per_week}
+                          onChange={(e) => onEmployeeChange(emp.id, "min_hours_per_week", Number(e.target.value))}
+                        />
+                      </td>
+                      <td style={tdStyle}>
+                        {emp.telegram_username ? `@${emp.telegram_username}` : emp.telegram_user_id || "\u2014"}
+                      </td>
+                      <td style={tdStyle}>
+                        {emp.phone || "\u2014"}
+                      </td>
+                      <td style={tdStyle}>
+                        <button
+                          onClick={() => onEditEmployee(emp)}
+                          style={{
+                            padding: "3px 8px", background: "#e9ecef", border: "1px solid #ced4da",
+                            borderRadius: 4, cursor: "pointer", fontSize: 12,
+                          }}
+                        >
+                          Ред.
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         )}
 
         {tab === "rates" && (
@@ -548,34 +700,37 @@ export const DirectorPanel: React.FC = () => {
   const [error, setError] = React.useState("");
   const [activeSection, setActiveSection] = React.useState<"schedule" | "payroll" | "settings">("schedule");
 
+  // Employee form modal state
+  const [empFormOpen, setEmpFormOpen] = React.useState(false);
+  const [empFormEdit, setEmpFormEdit] = React.useState(false);
+  const [empFormData, setEmpFormData] = React.useState<EmployeeFormData>(EMPTY_FORM);
+
   // Debounced save for settings
   const settingSaveTimers = React.useRef<Record<string, NodeJS.Timeout>>({});
   // Debounced save for employees
   const empSaveTimers = React.useRef<Record<string, NodeJS.Timeout>>({});
 
   const loadAll = React.useCallback(async () => {
-    try {
-      setError("");
-      const [schedRes, wsRes, tsRes, empRes, settRes, evRes] = await Promise.all([
-        fetchJSON(`/debug/schedule?chat_id=${chatId}`).catch(() => null),
-        fetchJSON(`/debug/week_state?chat_id=${chatId}`).catch(() => null),
-        fetchJSON(`/debug/timesheet?chat_id=${chatId}`).catch(() => null),
-        fetchJSON("/api/employees").catch(() => ({ employees: [] })),
-        fetchJSON("/api/settings?tenant_id=dev").catch(() => ({ settings: {} })),
-        fetchJSON(`/events?chat_id=${chatId}&limit=30`).catch(() => ({ events: [] })),
-      ]);
+    const errors: string[] = [];
 
-      if (schedRes) setSchedule(schedRes);
-      if (wsRes?.week_state) setWeekState(wsRes.week_state);
-      if (tsRes?.timesheet) setTimesheet(tsRes.timesheet);
-      setEmployees(empRes?.employees || []);
-      setSettings(settRes?.settings || {});
-      setEvents(evRes?.events || []);
-    } catch (e: any) {
-      setError(e.message || "Ошибка загрузки");
-    } finally {
-      setLoading(false);
-    }
+    const [schedRes, wsRes, tsRes, empRes, settRes, evRes] = await Promise.all([
+      fetchJSON(`/debug/schedule?chat_id=${chatId}`).catch((e) => { errors.push(`Расписание: ${e.message}`); return null; }),
+      fetchJSON(`/debug/week_state?chat_id=${chatId}`).catch((e) => { errors.push(`Статус недели: ${e.message}`); return null; }),
+      fetchJSON(`/debug/timesheet?chat_id=${chatId}`).catch((e) => { errors.push(`Зарплаты: ${e.message}`); return null; }),
+      fetchJSON("/api/employees").catch((e) => { errors.push(`Сотрудники: ${e.message}`); return null; }),
+      fetchJSON("/api/settings?tenant_id=dev").catch((e) => { errors.push(`Настройки: ${e.message}`); return null; }),
+      fetchJSON(`/events?chat_id=${chatId}&limit=30`).catch((e) => { errors.push(`События: ${e.message}`); return null; }),
+    ]);
+
+    if (schedRes) setSchedule(schedRes);
+    if (wsRes?.week_state) setWeekState(wsRes.week_state);
+    if (tsRes?.timesheet) setTimesheet(tsRes.timesheet);
+    setEmployees(empRes?.employees || []);
+    setSettings(settRes?.settings || {});
+    setEvents(evRes?.events || []);
+
+    setError(errors.length > 0 ? errors.join("; ") : "");
+    setLoading(false);
   }, []);
 
   React.useEffect(() => { loadAll(); }, [loadAll]);
@@ -611,6 +766,51 @@ export const DirectorPanel: React.FC = () => {
         console.error("Failed to save employee", id, field, e);
       }
     }, 800);
+  };
+
+  const handleAddEmployee = () => {
+    setEmpFormData(EMPTY_FORM);
+    setEmpFormEdit(false);
+    setEmpFormOpen(true);
+  };
+
+  const handleEditEmployee = (emp: Employee) => {
+    setEmpFormData({
+      id: emp.id,
+      name: emp.name,
+      role: emp.role,
+      rate_per_hour: emp.rate_per_hour,
+      min_hours_per_week: emp.min_hours_per_week,
+      max_hours_per_week: emp.max_hours_per_week,
+      telegram_username: emp.telegram_username || "",
+      phone: emp.phone || "",
+      notes: (emp.meta as any)?.notes || "",
+    });
+    setEmpFormEdit(true);
+    setEmpFormOpen(true);
+  };
+
+  const handleSaveEmployee = async (data: EmployeeFormData) => {
+    const body: any = {
+      name: data.name,
+      role: data.role,
+      rate_per_hour: data.rate_per_hour,
+      min_hours_per_week: data.min_hours_per_week,
+      max_hours_per_week: data.max_hours_per_week,
+    };
+    if (data.telegram_username) body.telegram_username = data.telegram_username.replace(/^@/, "");
+    if (data.phone) body.phone = data.phone;
+    if (data.notes) body.meta = { notes: data.notes };
+
+    if (empFormEdit) {
+      await putJSON(`/api/employees/${data.id}`, body);
+    } else {
+      body.id = data.id;
+      await postJSON("/api/employees", body);
+    }
+
+    setEmpFormOpen(false);
+    await loadAll();
   };
 
   if (loading) {
@@ -663,7 +863,7 @@ export const DirectorPanel: React.FC = () => {
       </div>
 
       {error && (
-        <div style={{ padding: 12, background: "#ffebee", color: "#c62828", borderRadius: 6, marginBottom: 12 }}>
+        <div style={{ padding: 12, background: "#ffebee", color: "#c62828", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>
           {error}
         </div>
       )}
@@ -718,6 +918,8 @@ export const DirectorPanel: React.FC = () => {
               employees={employees}
               onSettingChange={handleSettingChange}
               onEmployeeChange={handleEmployeeChange}
+              onAddEmployee={handleAddEmployee}
+              onEditEmployee={handleEditEmployee}
             />
           </div>
         )}
@@ -739,6 +941,16 @@ export const DirectorPanel: React.FC = () => {
       </div>
 
       <FeedbackButton />
+
+      {/* Employee form modal */}
+      {empFormOpen && (
+        <EmployeeFormModal
+          initial={empFormData}
+          isEdit={empFormEdit}
+          onSave={handleSaveEmployee}
+          onClose={() => setEmpFormOpen(false)}
+        />
+      )}
     </div>
   );
 };

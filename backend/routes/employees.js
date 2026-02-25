@@ -23,6 +23,9 @@ const CreateEmployeeSchema = z.object({
   rate_per_hour: z.number().min(0).default(0),
   min_hours_per_week: z.number().min(0).default(0),
   max_hours_per_week: z.number().min(0).default(40),
+  telegram_user_id: z.string().max(50).optional(),
+  telegram_username: z.string().max(100).optional(),
+  phone: z.string().max(20).optional(),
   meta: z.record(z.unknown()).optional(),
 });
 

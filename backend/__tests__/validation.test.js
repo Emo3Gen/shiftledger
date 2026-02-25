@@ -4,6 +4,7 @@ import {
   ScheduleQuerySchema,
   FactsQuerySchema,
   EventsQuerySchema,
+  ParseEventParamsSchema,
 } from "../validation/schemas.js";
 import { validateBody, validateQuery, validateParams } from "../middleware/validate.js";
 
@@ -146,7 +147,7 @@ describe("Zod validation schemas", () => {
 
   describe("validateParams middleware", () => {
     test("valid params → calls next()", () => {
-      const { ParseEventParamsSchema } = require("../validation/schemas.js");
+      // ParseEventParamsSchema imported at top
       const middleware = validateParams(ParseEventParamsSchema);
       const req = { params: { eventId: "42" } };
       const res = { status() { return this; }, json() { return this; } };
@@ -156,7 +157,7 @@ describe("Zod validation schemas", () => {
     });
 
     test("invalid params → returns 400", () => {
-      const { ParseEventParamsSchema } = require("../validation/schemas.js");
+      // ParseEventParamsSchema imported at top
       const middleware = validateParams(ParseEventParamsSchema);
       const req = { params: { eventId: "not-a-number" } };
       const res = {

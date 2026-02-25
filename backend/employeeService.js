@@ -80,18 +80,23 @@ export async function getById(id) {
  * Create a new employee.
  */
 export async function create(employee) {
+  const row = {
+    id: employee.id,
+    name: employee.name,
+    role: employee.role || "staff",
+    rate_per_hour: employee.rate_per_hour || 0,
+    min_hours_per_week: employee.min_hours_per_week || 0,
+    max_hours_per_week: employee.max_hours_per_week || 40,
+    is_active: true,
+    meta: employee.meta || {},
+  };
+  if (employee.telegram_user_id) row.telegram_user_id = employee.telegram_user_id;
+  if (employee.telegram_username) row.telegram_username = employee.telegram_username;
+  if (employee.phone) row.phone = employee.phone;
+
   const { data, error } = await supabase
     .from("employees")
-    .insert({
-      id: employee.id,
-      name: employee.name,
-      role: employee.role || "staff",
-      rate_per_hour: employee.rate_per_hour || 0,
-      min_hours_per_week: employee.min_hours_per_week || 0,
-      max_hours_per_week: employee.max_hours_per_week || 40,
-      is_active: true,
-      meta: employee.meta || {},
-    })
+    .insert(row)
     .select("*")
     .single();
 

@@ -409,46 +409,32 @@ describe("formatPinnedSchedule", () => {
 // --- Employee-Telegram mapping ---
 
 describe("employee-telegram mapping", () => {
-  // Mock employeeService for testing
-  const mockEmployeeService = {
-    getByTelegramUserId: jest.fn(),
-    getById: jest.fn(),
-    linkTelegram: jest.fn(),
-  };
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
   test("getByTelegramUserId returns employee when found", async () => {
-    mockEmployeeService.getByTelegramUserId.mockResolvedValue({
-      id: "u1",
-      name: "Иса",
-      telegram_user_id: "67890",
-    });
+    const getByTelegramUserId = async (tgId) =>
+      tgId === "67890" ? { id: "u1", name: "Иса", telegram_user_id: "67890" } : null;
 
-    const result = await mockEmployeeService.getByTelegramUserId("67890");
+    const result = await getByTelegramUserId("67890");
     expect(result).not.toBeNull();
     expect(result.id).toBe("u1");
     expect(result.name).toBe("Иса");
   });
 
   test("getByTelegramUserId returns null for unknown user", async () => {
-    mockEmployeeService.getByTelegramUserId.mockResolvedValue(null);
+    const getByTelegramUserId = async () => null;
 
-    const result = await mockEmployeeService.getByTelegramUserId("99999");
+    const result = await getByTelegramUserId("99999");
     expect(result).toBeNull();
   });
 
   test("linkTelegram updates employee with telegram info", async () => {
-    mockEmployeeService.linkTelegram.mockResolvedValue({
-      id: "u1",
+    const linkTelegram = async (empId, tgId, tgUsername) => ({
+      id: empId,
       name: "Иса",
-      telegram_user_id: "67890",
-      telegram_username: "isa_user",
+      telegram_user_id: tgId,
+      telegram_username: tgUsername,
     });
 
-    const result = await mockEmployeeService.linkTelegram("u1", "67890", "isa_user");
+    const result = await linkTelegram("u1", "67890", "isa_user");
     expect(result.telegram_user_id).toBe("67890");
     expect(result.telegram_username).toBe("isa_user");
   });
