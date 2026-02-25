@@ -98,6 +98,7 @@ export const App: React.FC = () => {
   const [escalations, setEscalations] = React.useState<Map<string, NodeJS.Timeout>>(new Map());
   const [pendingUsers, setPendingUsers] = React.useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = React.useState<"schedule" | "timesheet" | "empty">("schedule");
+  const [expandedEmpIdx, setExpandedEmpIdx] = React.useState<number | null>(null);
   
   // ActiveTasks: неблокирующие задачи вместо эскалаций
   type TaskStatus = "OPEN" | "RESOLVED";
@@ -1602,19 +1603,55 @@ export const App: React.FC = () => {
                       </thead>
                       <tbody>
                         {timesheet.employees?.map((emp: any, idx: number) => (
-                          <tr key={idx} style={{ borderBottom: "1px solid #eee" }}>
-                            <td style={{ padding: "2px 3px" }}>{emp.name || emp.user_id}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtNum(emp.shift_hours)}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px", color: emp.problem_shifts > 0 ? "#dc3545" : undefined }}>{emp.problem_shifts}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtNum(emp.effective_hours)}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.shift_pay)}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.cleaning_count}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.cleaning_pay)}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.extra_classes_count ?? emp.extra_classes?.length ?? 0}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.extra_classes_total_kids ?? 0}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.extra_classes_total_pay ?? emp.extra_pay ?? 0)}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px", fontWeight: "bold" }}>{fmtRub(emp.total_pay)}</td>
-                          </tr>
+                          <React.Fragment key={idx}>
+                            <tr
+                              style={{ borderBottom: "1px solid #eee", cursor: "pointer", background: expandedEmpIdx === idx ? "#f0f7ff" : undefined }}
+                              onClick={() => setExpandedEmpIdx(expandedEmpIdx === idx ? null : idx)}
+                            >
+                              <td style={{ padding: "2px 3px" }}>{expandedEmpIdx === idx ? "▼" : "▶"} {emp.name || emp.user_id}</td>
+                              <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtNum(emp.shift_hours)}</td>
+                              <td style={{ textAlign: "right", padding: "2px 3px", color: emp.problem_shifts > 0 ? "#dc3545" : undefined }}>{emp.problem_shifts}</td>
+                              <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtNum(emp.effective_hours)}</td>
+                              <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.shift_pay)}</td>
+                              <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.cleaning_count}</td>
+                              <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.cleaning_pay)}</td>
+                              <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.extra_classes_count ?? emp.extra_classes?.length ?? 0}</td>
+                              <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.extra_classes_total_kids ?? 0}</td>
+                              <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.extra_classes_total_pay ?? emp.extra_pay ?? 0)}</td>
+                              <td style={{ textAlign: "right", padding: "2px 3px", fontWeight: "bold" }}>{fmtRub(emp.total_pay)}</td>
+                            </tr>
+                            {expandedEmpIdx === idx && (
+                              <tr>
+                                <td colSpan={11} style={{ padding: "8px 12px", background: "#f8f9fa", fontSize: "0.85em" }}>
+                                  <div><strong>Смены:</strong> {emp.shift_hours}ч × {emp.rate}₽/ч = {fmtRub(emp.shift_pay)}</div>
+                                  {emp.problem_shifts > 0 && (
+                                    <div style={{ color: "#dc3545" }}>
+                                      <strong>Проблемные:</strong> {emp.problem_shifts} шт, −{emp.problem_deduction_hours}ч → эфф. {fmtNum(emp.effective_hours)}ч
+                                    </div>
+                                  )}
+                                  {emp.cleaning_count > 0 && (
+                                    <div><strong>Уборки:</strong> {emp.cleaning_count} × {emp.cleaning_count > 0 ? fmtRub(emp.cleaning_pay / emp.cleaning_count) : 0} = {fmtRub(emp.cleaning_pay)}</div>
+                                  )}
+                                  {emp.extra_classes && emp.extra_classes.length > 0 && (
+                                    <div>
+                                      <strong>Доп.занятия:</strong>
+                                      {emp.extra_classes.map((ec: any, i: number) => {
+                                        const DOW_RU: Record<string, string> = { mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс" };
+                                        const d = DOW_RU[ec.dow] || ec.dow || "—";
+                                        const kids = ec.kids_count ?? "—";
+                                        return <div key={i} style={{ marginLeft: 12 }}>{d}: {kids} детей → {fmtRub(ec.pay)}</div>;
+                                      })}
+                                    </div>
+                                  )}
+                                  <div style={{ marginTop: 4, fontWeight: "bold" }}>
+                                    Итого: {emp.total_before_rounding !== emp.total_pay
+                                      ? `${fmtRub(emp.total_before_rounding)} → ${fmtRub(emp.total_pay)} (округл.)`
+                                      : fmtRub(emp.total_pay)}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
                         ))}
                       </tbody>
                     </table>

@@ -3,7 +3,7 @@
  */
 
 import { buildIngestPayload } from "../telegram/bot.js";
-import { formatFacts, formatSchedule, formatWeekState } from "../telegram/formatters.js";
+import { formatFacts, formatSchedule, formatWeekState, formatPayBreakdown } from "../telegram/formatters.js";
 
 // --- buildIngestPayload ---
 
@@ -267,5 +267,94 @@ describe("formatWeekState", () => {
 
   test("returns unknown state as-is", () => {
     expect(formatWeekState("UNKNOWN")).toBe("UNKNOWN");
+  });
+});
+
+// --- formatPayBreakdown ---
+
+describe("formatPayBreakdown", () => {
+  test("returns 'Нет данных' for null", () => {
+    expect(formatPayBreakdown(null)).toBe("Нет данных");
+  });
+
+  test("formats basic shift pay", () => {
+    const emp = {
+      user_id: "u1",
+      name: "Иса",
+      shift_hours: 9,
+      problem_shifts: 0,
+      problem_deduction_hours: 0,
+      effective_hours: 9,
+      rate: 250,
+      shift_pay: 2250,
+      cleaning_count: 0,
+      cleaning_pay: 0,
+      extra_classes: [],
+      extra_classes_count: 0,
+      extra_classes_total_pay: 0,
+      total_before_rounding: 2250,
+      total_pay: 2300,
+    };
+    const result = formatPayBreakdown(emp);
+    expect(result).toContain("Иса");
+    expect(result).toContain("9ч × 250₽/ч = 2250₽");
+    expect(result).toContain("2250₽ → 2300₽ (округл.)");
+    expect(result).not.toContain("Проблемные");
+    expect(result).not.toContain("Уборки");
+    expect(result).not.toContain("Доп.занятия");
+  });
+
+  test("formats with problem shifts and cleanings", () => {
+    const emp = {
+      user_id: "u2",
+      name: "Дарина",
+      shift_hours: 12,
+      problem_shifts: 1,
+      problem_deduction_hours: 1,
+      effective_hours: 11,
+      rate: 250,
+      shift_pay: 2750,
+      cleaning_count: 2,
+      cleaning_pay: 1000,
+      extra_classes: [],
+      extra_classes_count: 0,
+      extra_classes_total_pay: 0,
+      total_before_rounding: 3750,
+      total_pay: 3800,
+    };
+    const result = formatPayBreakdown(emp);
+    expect(result).toContain("Проблемные");
+    expect(result).toContain("1 шт, −1ч");
+    expect(result).toContain("Уборки");
+    expect(result).toContain("2 × 500₽ = 1000₽");
+  });
+
+  test("formats with extra classes (above threshold)", () => {
+    const emp = {
+      user_id: "u3",
+      name: "Ксюша",
+      shift_hours: 6,
+      problem_shifts: 0,
+      problem_deduction_hours: 0,
+      effective_hours: 6,
+      rate: 250,
+      shift_pay: 1500,
+      cleaning_count: 0,
+      cleaning_pay: 0,
+      extra_classes: [
+        { dow: "mon", kids_count: 12, pay: 900 },
+        { dow: "wed", kids_count: 5, pay: 500 },
+      ],
+      extra_classes_count: 2,
+      extra_classes_total_pay: 1400,
+      total_before_rounding: 2900,
+      total_pay: 2900,
+    };
+    const result = formatPayBreakdown(emp);
+    expect(result).toContain("Доп.занятия");
+    expect(result).toContain("Пн: 12 детей → 500 + 4×100 = 900₽");
+    expect(result).toContain("Ср: 5 детей → 500₽");
+    expect(result).toContain("2900₽");
+    expect(result).not.toContain("округл.");
   });
 });

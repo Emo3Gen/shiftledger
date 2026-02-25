@@ -203,3 +203,53 @@ export function formatSchedule(schedule) {
 
   return result;
 }
+
+/**
+ * Format a detailed pay breakdown for one employee.
+ * @param {Object} emp - Employee object from buildTimesheet()
+ * @returns {string} - HTML-formatted breakdown text
+ */
+export function formatPayBreakdown(emp) {
+  if (!emp) return "Нет данных";
+  const lines = [];
+
+  lines.push(`<b>💰 ${emp.name || emp.user_id}</b>`);
+  lines.push("");
+
+  // Shifts
+  lines.push(`<b>Смены:</b> ${emp.shift_hours}ч × ${emp.rate}₽/ч = ${emp.shift_pay}₽`);
+
+  // Problem shifts
+  if (emp.problem_shifts > 0) {
+    lines.push(`<b>Проблемные:</b> ${emp.problem_shifts} шт, −${emp.problem_deduction_hours}ч → эфф. ${emp.effective_hours}ч`);
+  }
+
+  // Cleanings
+  if (emp.cleaning_count > 0) {
+    lines.push(`<b>Уборки:</b> ${emp.cleaning_count} × ${emp.cleaning_pay / emp.cleaning_count}₽ = ${emp.cleaning_pay}₽`);
+  }
+
+  // Extra classes
+  if (emp.extra_classes && emp.extra_classes.length > 0) {
+    lines.push(`<b>Доп.занятия:</b>`);
+    for (const ec of emp.extra_classes) {
+      const d = dowRu(ec.dow);
+      if (ec.kids_count != null && ec.kids_count > 8) {
+        const extra = ec.kids_count - 8;
+        lines.push(`  ${d}: ${ec.kids_count} детей → 500 + ${extra}×100 = ${ec.pay}₽`);
+      } else {
+        lines.push(`  ${d}: ${ec.kids_count ?? "—"} детей → ${ec.pay}₽`);
+      }
+    }
+  }
+
+  // Total
+  lines.push("");
+  if (emp.total_before_rounding !== emp.total_pay) {
+    lines.push(`<b>Итого:</b> ${emp.total_before_rounding}₽ → ${emp.total_pay}₽ (округл.)`);
+  } else {
+    lines.push(`<b>Итого:</b> ${emp.total_pay}₽`);
+  }
+
+  return lines.join("\n");
+}

@@ -1433,8 +1433,22 @@ UserDirectory.syncFromDB(employeeService).finally(() => {
         return buildDraftSchedule({ facts: facts ?? [], weekStartISO, slotTypes });
       };
 
+      const botTimesheet = async (chatId) => {
+        const slotTypes = await loadSlotTypes(process.env.DEFAULT_TENANT_ID || "dev");
+        const { data: facts } = await supabase
+          .from("facts")
+          .select("*")
+          .eq("chat_id", chatId)
+          .order("created_at", { ascending: true })
+          .limit(500);
+        const weekStartISO = new Date(new Date().setUTCHours(0, 0, 0, 0)).toISOString().slice(0, 10);
+        const schedule = buildDraftSchedule({ facts: facts ?? [], weekStartISO, slotTypes });
+        const hourlyRates = UserDirectory.getAllHourlyRates();
+        return buildTimesheet({ facts: facts ?? [], weekStartISO, hourlyRates, schedule });
+      };
+
       const mode = process.env.TELEGRAM_MODE || "polling";
-      const bot = createBot(botIngest, botSchedule);
+      const bot = createBot(botIngest, botSchedule, null, botTimesheet);
       if (bot) {
         if (mode === "webhook") {
           logger.info("Telegram bot started in webhook mode (configure WEBHOOK_URL externally)");

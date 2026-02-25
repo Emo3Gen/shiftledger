@@ -7,7 +7,7 @@
 
 import { Bot } from "grammy";
 import logger from "../logger.js";
-import { formatFacts, formatSchedule } from "./formatters.js";
+import { formatFacts, formatSchedule, formatPayBreakdown } from "./formatters.js";
 import { UserDirectory } from "../userDirectory.js";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
@@ -142,8 +142,9 @@ function formatFactReply(fact, userName) {
  * @param {Function} ingestFn - async function(payload) => { facts_preview, ... }
  * @param {Function} scheduleFn - async function(chatId) => schedule object
  * @param {Function} [weekStateFn] - async function(chatId) => week state object
+ * @param {Function} [timesheetFn] - async function(chatId) => timesheet object
  */
-export function createBot(ingestFn, scheduleFn, weekStateFn) {
+export function createBot(ingestFn, scheduleFn, weekStateFn, timesheetFn) {
   if (!TOKEN) {
     logger.warn("TELEGRAM_BOT_TOKEN not set — bot disabled");
     return null;
@@ -207,6 +208,28 @@ export function createBot(ingestFn, scheduleFn, weekStateFn) {
     }
   });
 
+  bot.command("pay", async (ctx) => {
+    try {
+      if (!timesheetFn) {
+        await ctx.reply("Команда /pay пока недоступна");
+        return;
+      }
+      const chatId = String(ctx.chat.id);
+      const userId = String(ctx.from.id);
+      const ts = await timesheetFn(chatId);
+      const emp = ts?.employees?.find((e) => e.user_id === userId);
+      if (!emp) {
+        await ctx.reply("Данных по вашей зарплате пока нет.");
+        return;
+      }
+      const text = formatPayBreakdown(emp);
+      await ctx.reply(text, { parse_mode: "HTML" });
+    } catch (err) {
+      logger.error({ err }, "telegram /pay error");
+      await ctx.reply("❌ Ошибка загрузки зарплаты, попробуйте позже");
+    }
+  });
+
   bot.on("message:text", async (ctx) => {
     try {
       const text = ctx.message.text.trim().toLowerCase();
@@ -240,6 +263,22 @@ export function createBot(ingestFn, scheduleFn, weekStateFn) {
       }
       if (text === "помощь") {
         await ctx.reply(HELP_TEXT, { parse_mode: "HTML" });
+        return;
+      }
+      if (text === "зарплата") {
+        if (timesheetFn) {
+          const chatId = String(ctx.chat.id);
+          const userId = String(ctx.from.id);
+          const ts = await timesheetFn(chatId);
+          const emp = ts?.employees?.find((e) => e.user_id === userId);
+          if (!emp) {
+            await ctx.reply("Данных по вашей зарплате пока нет.");
+          } else {
+            await ctx.reply(formatPayBreakdown(emp), { parse_mode: "HTML" });
+          }
+        } else {
+          await ctx.reply("Команда 'зарплата' пока недоступна");
+        }
         return;
       }
 
