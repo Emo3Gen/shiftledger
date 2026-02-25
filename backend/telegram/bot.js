@@ -7,10 +7,13 @@
 
 import { Bot } from "grammy";
 import logger from "../logger.js";
-import { formatFacts, formatSchedule, formatPayBreakdown } from "./formatters.js";
+import { formatFacts, formatSchedule, formatPayBreakdown, formatPinnedSchedule } from "./formatters.js";
 import { UserDirectory } from "../userDirectory.js";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
+
+// In-memory store: chatId → pinned message_id
+const pinnedMessageIds = new Map();
 
 /**
  * Build the ingest payload from a Telegram context.
@@ -297,6 +300,8 @@ export function createBot(ingestFn, scheduleFn, weekStateFn, timesheetFn) {
           const summary = formatFacts(facts);
           await ctx.reply(`✅ Принято: ${summary}`);
         }
+        // Update pinned schedule after new facts
+        await updatePinnedSchedule(bot, String(ctx.chat.id));
       } else {
         await ctx.reply("📝 Записано, но не распознано. Попробуйте написать:\n• могу пн 10-13\n• не могу чт вечер\n• свободна ср с 14 до 17");
       }
@@ -305,6 +310,39 @@ export function createBot(ingestFn, scheduleFn, weekStateFn, timesheetFn) {
       await ctx.reply("❌ Ошибка обработки, попробуйте позже");
     }
   });
+
+  /**
+   * Update or create the pinned schedule message in a chat.
+   */
+  async function updatePinnedSchedule(botInstance, chatId) {
+    try {
+      const schedule = await scheduleFn(chatId);
+      const text = formatPinnedSchedule(schedule);
+      const existingMsgId = pinnedMessageIds.get(chatId);
+
+      if (existingMsgId) {
+        // Try to edit existing pinned message
+        try {
+          await botInstance.api.editMessageText(chatId, existingMsgId, text, { parse_mode: "HTML" });
+          return;
+        } catch (editErr) {
+          // Message might have been deleted — send new one
+          logger.debug({ editErr }, "failed to edit pinned message, sending new one");
+        }
+      }
+
+      // Send new message and pin it
+      const msg = await botInstance.api.sendMessage(chatId, text, { parse_mode: "HTML" });
+      pinnedMessageIds.set(chatId, msg.message_id);
+      try {
+        await botInstance.api.pinChatMessage(chatId, msg.message_id, { disable_notification: true });
+      } catch (pinErr) {
+        logger.debug({ pinErr }, "failed to pin message (bot may lack permissions)");
+      }
+    } catch (err) {
+      logger.error({ err }, "updatePinnedSchedule error");
+    }
+  }
 
   return bot;
 }

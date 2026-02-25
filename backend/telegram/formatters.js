@@ -253,3 +253,84 @@ export function formatPayBreakdown(emp) {
 
   return lines.join("\n");
 }
+
+/**
+ * Format a pinned schedule message for Telegram.
+ * Compact grid: days × morning/evening, with replacement and cleaning markers.
+ * @param {Object} schedule - Schedule from buildDraftSchedule
+ * @returns {string} - HTML-formatted pinned schedule
+ */
+export function formatPinnedSchedule(schedule) {
+  if (!schedule || !schedule.slots || schedule.slots.length === 0) {
+    return "📅 Расписание пусто.";
+  }
+
+  const lines = [];
+
+  // Header
+  let header = "📅 <b>Расписание</b>";
+  if (schedule.week_start) {
+    header += ` ${formatWeekRange(schedule.week_start)}`;
+  }
+  lines.push(header);
+  lines.push("");
+
+  // Build slot lookup: "dow:slot_name" → slot
+  const slotMap = {};
+  for (const slot of schedule.slots) {
+    slotMap[`${slot.dow}:${slot.slot_name || ""}`] = slot;
+  }
+
+  // Determine slot names (columns)
+  const slotNames = [...new Set(schedule.slots.map((s) => s.slot_name).filter(Boolean))];
+  if (slotNames.length === 0) slotNames.push("");
+
+  // Active days
+  const activeDows = DOW_ORDER.filter((d) => schedule.slots.some((s) => s.dow === d));
+
+  // Build cleaning lookup from schedule
+  const cleaningByDow = {};
+  if (schedule.cleaning_assignments) {
+    for (const [dow, uid] of Object.entries(schedule.cleaning_assignments)) {
+      cleaningByDow[dow] = uid;
+    }
+  }
+
+  for (const dow of activeDows) {
+    const d = DOW_RU[dow] || dow;
+    const parts = [];
+
+    for (const sn of slotNames) {
+      const slot = slotMap[`${dow}:${sn}`];
+      const uid = slot?.user_id || slot?.assigned_user_id;
+      if (!uid) {
+        parts.push("—");
+        continue;
+      }
+      let name = displayName(uid);
+      if (slot?.replaced_user_id) {
+        name = `🔄 ${name}`;
+      }
+      parts.push(name);
+    }
+
+    let line = `<b>${d}</b>  ${parts.join("  |  ")}`;
+
+    // Cleaning marker
+    const cleanUid = cleaningByDow[dow];
+    if (cleanUid) {
+      line += `  🧹${displayName(cleanUid)}`;
+    }
+
+    lines.push(line);
+  }
+
+  // Timestamp
+  lines.push("");
+  const now = new Date();
+  const hh = String(now.getUTCHours()).padStart(2, "0");
+  const mm = String(now.getUTCMinutes()).padStart(2, "0");
+  lines.push(`<i>Обновлено: ${hh}:${mm} UTC</i>`);
+
+  return lines.join("\n");
+}

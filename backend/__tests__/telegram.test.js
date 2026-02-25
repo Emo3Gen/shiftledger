@@ -3,7 +3,7 @@
  */
 
 import { buildIngestPayload } from "../telegram/bot.js";
-import { formatFacts, formatSchedule, formatWeekState, formatPayBreakdown } from "../telegram/formatters.js";
+import { formatFacts, formatSchedule, formatWeekState, formatPayBreakdown, formatPinnedSchedule } from "../telegram/formatters.js";
 
 // --- buildIngestPayload ---
 
@@ -356,5 +356,52 @@ describe("formatPayBreakdown", () => {
     expect(result).toContain("Ср: 5 детей → 500₽");
     expect(result).toContain("2900₽");
     expect(result).not.toContain("округл.");
+  });
+});
+
+// --- formatPinnedSchedule ---
+
+describe("formatPinnedSchedule", () => {
+  test("returns empty message for null/empty schedule", () => {
+    expect(formatPinnedSchedule(null)).toContain("пусто");
+    expect(formatPinnedSchedule({ slots: [] })).toContain("пусто");
+  });
+
+  test("formats schedule with day rows and slot columns", () => {
+    const schedule = {
+      week_start: "2026-02-09",
+      slots: [
+        { dow: "mon", slot_name: "Утро", user_id: "u1" },
+        { dow: "mon", slot_name: "Вечер", user_id: "u2" },
+        { dow: "tue", slot_name: "Утро", user_id: "u3" },
+        { dow: "tue", slot_name: "Вечер", user_id: "u4" },
+      ],
+    };
+    const result = formatPinnedSchedule(schedule);
+    expect(result).toContain("Расписание");
+    expect(result).toContain("Пн");
+    expect(result).toContain("Вт");
+    expect(result).toContain("Обновлено:");
+  });
+
+  test("marks replacements with 🔄", () => {
+    const schedule = {
+      slots: [
+        { dow: "mon", slot_name: "Утро", user_id: "u3", replaced_user_id: "u1" },
+      ],
+    };
+    const result = formatPinnedSchedule(schedule);
+    expect(result).toContain("🔄");
+  });
+
+  test("marks cleanings with 🧹", () => {
+    const schedule = {
+      slots: [
+        { dow: "mon", slot_name: "Утро", user_id: "u1" },
+      ],
+      cleaning_assignments: { mon: "u2" },
+    };
+    const result = formatPinnedSchedule(schedule);
+    expect(result).toContain("🧹");
   });
 });
