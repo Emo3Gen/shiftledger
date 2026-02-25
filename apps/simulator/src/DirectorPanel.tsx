@@ -84,6 +84,11 @@ type EmployeeFormData = {
 
 // ---- Constants ----
 
+// Emoji as variables to avoid JSX/SWC parser issues with surrogate pairs
+const EMOJI_SWAP = "\uD83D\uDD04";
+const EMOJI_WARN = "\uD83D\uDD3A";
+const EMOJI_BROOM = "\uD83E\uDDF9";
+
 const DOW_RU: Record<string, string> = {
   mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс",
 };
@@ -304,8 +309,8 @@ const LiveScheduleGrid: React.FC<{ schedule: Schedule | null; employees: Employe
 
                 return (
                   <td key={sn} style={{ padding: "8px 12px", background: bg }}>
-                    {isReplacement && "\uD83D\uDD04 "}
-                    {isProblem && "\uD83D\uDD3A "}
+                    {isReplacement && `${EMOJI_SWAP} `}
+                    {isProblem && `${EMOJI_WARN} `}
                     {name}
                     {isReplacement && slot?.replaced_user_id && (
                       <span style={{ fontSize: 11, color: "#666" }}> (за {getName(slot.replaced_user_id)})</span>
@@ -315,7 +320,7 @@ const LiveScheduleGrid: React.FC<{ schedule: Schedule | null; employees: Employe
               })}
               <td style={{ padding: "8px 12px" }}>
                 {cleaningByDow[dow] ? (
-                  <span>\uD83E\uDDF9 {getName(cleaningByDow[dow])}</span>
+                  <span>{EMOJI_BROOM} {getName(cleaningByDow[dow])}</span>
                 ) : "\u2014"}
               </td>
             </tr>
