@@ -757,6 +757,39 @@ logger.debug("POST /debug/send route registered");
  *       200:
  *         description: Draft schedule with slots, assignments, gaps
  */
+/**
+ * GET /debug/weeks?chat_id=...
+ * Returns distinct week_start values found in facts for this chat.
+ */
+app.get("/debug/weeks", async (req, res) => {
+  try {
+    const chatId = req.query.chat_id;
+    if (!chatId) return res.status(400).json({ error: "chat_id required" });
+
+    const { data: facts, error } = await supabase
+      .from("facts")
+      .select("fact_payload")
+      .eq("chat_id", chatId)
+      .order("created_at", { ascending: false })
+      .limit(500);
+
+    if (error) throw error;
+
+    const weeks = new Set();
+    for (const f of facts || []) {
+      const ws = f.fact_payload?.week_start;
+      if (ws && typeof ws === "string" && /^\d{4}-\d{2}-\d{2}$/.test(ws)) {
+        weeks.add(ws);
+      }
+    }
+
+    const sorted = [...weeks].sort().reverse(); // newest first
+    res.json({ ok: true, weeks: sorted });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
 app.get("/debug/schedule", validateQuery(ScheduleQuerySchema), async (req, res) => {
   try {
     const { tenant_id, chat_id, week_start } = req.query;

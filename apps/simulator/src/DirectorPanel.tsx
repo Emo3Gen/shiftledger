@@ -114,6 +114,27 @@ const EMPTY_FORM: EmployeeFormData = {
 
 // ---- Helpers ----
 
+function getMonday(): string {
+  const d = new Date();
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  return new Date(d.getFullYear(), d.getMonth(), diff).toISOString().slice(0, 10);
+}
+
+function shiftWeek(iso: string, delta: number): string {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + 7 * delta);
+  return d.toISOString().slice(0, 10);
+}
+
+function fmtWeekRange(iso: string): string {
+  const start = new Date(iso + "T00:00:00");
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  const fmt = (d: Date) => d.toLocaleDateString("ru", { day: "numeric", month: "short" });
+  return `${fmt(start)} \u2013 ${fmt(end)}`;
+}
+
 function fmtRub(n: number | null | undefined): string {
   if (n == null || n === 0) return "0 \u20BD";
   const s = Math.round(n).toString();
@@ -653,6 +674,10 @@ const SettingsPanel: React.FC<{
 };
 
 const labelStyle: React.CSSProperties = { display: "block", fontSize: 12, color: "#666", marginBottom: 2, marginTop: 6 };
+const navBtnStyle: React.CSSProperties = {
+  padding: "6px 14px", background: "#e9ecef", border: "1px solid #ced4da",
+  borderRadius: 6, cursor: "pointer", fontSize: 16, fontWeight: 600, lineHeight: 1,
+};
 const inputStyle: React.CSSProperties = { padding: "4px 8px", border: "1px solid #ccc", borderRadius: 4, fontSize: 13 };
 
 // FeedbackButton
@@ -707,6 +732,8 @@ export const DirectorPanel: React.FC = () => {
   const chatId = "debug_chat";
   const userId = "admin1";
 
+  const [weekStart, setWeekStart] = React.useState<string>(getMonday());
+  const [availableWeeks, setAvailableWeeks] = React.useState<string[]>([]);
   const [schedule, setSchedule] = React.useState<Schedule | null>(null);
   const [timesheet, setTimesheet] = React.useState<Timesheet | null>(null);
   const [weekState, setWeekState] = React.useState<WeekState | null>(null);
@@ -726,14 +753,16 @@ export const DirectorPanel: React.FC = () => {
   const settingSaveTimers = React.useRef<Record<string, NodeJS.Timeout>>({});
   // Debounced save for employees
   const empSaveTimers = React.useRef<Record<string, NodeJS.Timeout>>({});
+  // Track if initial week detection has run
+  const initialWeekDetected = React.useRef(false);
 
-  const loadAll = React.useCallback(async () => {
+  const loadWeekData = React.useCallback(async (ws: string) => {
     const errors: string[] = [];
 
     const [schedRes, wsRes, tsRes, empRes, settRes, evRes] = await Promise.all([
-      fetchJSON(`/debug/schedule?chat_id=${chatId}`).catch((e) => { errors.push(`Расписание: ${e.message}`); return null; }),
-      fetchJSON(`/debug/week_state?chat_id=${chatId}`).catch((e) => { errors.push(`Статус недели: ${e.message}`); return null; }),
-      fetchJSON(`/debug/timesheet?chat_id=${chatId}`).catch((e) => { errors.push(`Зарплаты: ${e.message}`); return null; }),
+      fetchJSON(`/debug/schedule?chat_id=${chatId}&week_start=${ws}`).catch((e) => { errors.push(`Расписание: ${e.message}`); return null; }),
+      fetchJSON(`/debug/week_state?chat_id=${chatId}&week_start=${ws}`).catch((e) => { errors.push(`Статус недели: ${e.message}`); return null; }),
+      fetchJSON(`/debug/timesheet?chat_id=${chatId}&week_start=${ws}`).catch((e) => { errors.push(`Зарплаты: ${e.message}`); return null; }),
       fetchJSON("/api/employees").catch((e) => { errors.push(`Сотрудники: ${e.message}`); return null; }),
       fetchJSON("/api/settings?tenant_id=dev").catch((e) => { errors.push(`Настройки: ${e.message}`); return null; }),
       fetchJSON(`/events?chat_id=${chatId}&limit=30`).catch((e) => { errors.push(`События: ${e.message}`); return null; }),
@@ -750,13 +779,48 @@ export const DirectorPanel: React.FC = () => {
     setLoading(false);
   }, []);
 
-  React.useEffect(() => { loadAll(); }, [loadAll]);
+  // On mount: detect available weeks, auto-select latest if current week is empty
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const weeksRes = await fetchJSON(`/debug/weeks?chat_id=${chatId}`).catch(() => null);
+        const weeks: string[] = weeksRes?.weeks || [];
+        setAvailableWeeks(weeks);
+
+        if (!initialWeekDetected.current && weeks.length > 0) {
+          initialWeekDetected.current = true;
+          const today = getMonday();
+          // If current week has data, use it; otherwise use the latest available
+          const bestWeek = weeks.includes(today) ? today : weeks[0];
+          setWeekStart(bestWeek);
+          await loadWeekData(bestWeek);
+          return;
+        }
+      } catch {
+        // ignore
+      }
+      initialWeekDetected.current = true;
+      await loadWeekData(weekStart);
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reload when weekStart changes (after initial load)
+  const prevWeek = React.useRef(weekStart);
+  React.useEffect(() => {
+    if (prevWeek.current !== weekStart && initialWeekDetected.current) {
+      prevWeek.current = weekStart;
+      setLoading(true);
+      loadWeekData(weekStart);
+    }
+  }, [weekStart, loadWeekData]);
 
   // Auto-refresh every 30s
   React.useEffect(() => {
-    const interval = setInterval(loadAll, 30000);
+    const interval = setInterval(() => loadWeekData(weekStart), 30000);
     return () => clearInterval(interval);
-  }, [loadAll]);
+  }, [weekStart, loadWeekData]);
+
+  const goWeek = (delta: number) => setWeekStart((ws) => shiftWeek(ws, delta));
 
   const handleSettingChange = (key: string, value: any) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
@@ -827,7 +891,7 @@ export const DirectorPanel: React.FC = () => {
     }
 
     setEmpFormOpen(false);
-    await loadAll();
+    await loadWeekData(weekStart);
   };
 
   if (loading) {
@@ -879,6 +943,36 @@ export const DirectorPanel: React.FC = () => {
         </div>
       </div>
 
+      {/* Week navigation */}
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
+        marginBottom: 16, padding: "8px 0",
+      }}>
+        <button onClick={() => goWeek(-1)} style={navBtnStyle} title="Предыдущая неделя">{"\u2190"}</button>
+        <div style={{ textAlign: "center", minWidth: 180 }}>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>{fmtWeekRange(weekStart)}</div>
+          <div style={{ fontSize: 12, color: "#666" }}>
+            {weekStart}
+            {availableWeeks.includes(weekStart) && (
+              <span style={{ color: "#28a745", marginLeft: 6 }}>есть данные</span>
+            )}
+            {!availableWeeks.includes(weekStart) && availableWeeks.length > 0 && (
+              <span style={{ color: "#999", marginLeft: 6 }}>нет данных</span>
+            )}
+          </div>
+        </div>
+        <button onClick={() => goWeek(1)} style={navBtnStyle} title="Следующая неделя">{"\u2192"}</button>
+        {weekStart !== getMonday() && (
+          <button
+            onClick={() => setWeekStart(getMonday())}
+            style={{ ...navBtnStyle, fontSize: 12, padding: "4px 10px" }}
+            title="Текущая неделя"
+          >
+            Сегодня
+          </button>
+        )}
+      </div>
+
       {error && (
         <div style={{ padding: 12, background: "#ffebee", color: "#c62828", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>
           {error}
@@ -887,7 +981,7 @@ export const DirectorPanel: React.FC = () => {
 
       {/* Control buttons */}
       <div style={{ marginBottom: 16 }}>
-        <ControlButtons weekState={weekState} chatId={chatId} userId={userId} onAction={loadAll} />
+        <ControlButtons weekState={weekState} chatId={chatId} userId={userId} onAction={() => loadWeekData(weekStart)} />
       </div>
 
       {/* Section tabs */}
