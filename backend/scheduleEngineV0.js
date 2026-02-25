@@ -17,14 +17,14 @@ const WeekHoursTemplate = {
 };
 
 // Helper: get hours for a slot from template
-function getSlotHours(dow, slotName) {
-  const template = WeekHoursTemplate[dow];
-  if (!template) return null;
+function getSlotHours(dow, slotName, template) {
+  const dayTemplate = (template || WeekHoursTemplate)[dow];
+  if (!dayTemplate) return null;
   if (slotName === "Утро" || slotName === "morning") {
-    return template.morning;
+    return dayTemplate.morning;
   }
   if (slotName === "Вечер" || slotName === "evening") {
-    return template.evening;
+    return dayTemplate.evening;
   }
   return null;
 }
@@ -37,7 +37,10 @@ const DEFAULT_SLOT_TYPES = [
   { name: "Вечер", from: "18:00", to: "21:00" },
 ];
 
-export function buildDraftSchedule({ facts, weekStartISO, slotTypes }) {
+export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings }) {
+  // Allow overriding WeekHoursTemplate from settings
+  const hoursTemplate = settings?.["schedule.week_hours_template"] || WeekHoursTemplate;
+  const seniorReserveEnabled = settings?.["schedule.senior_reserve_enabled"] ?? true;
   // Step 0: Collect SHIFT_REPLACEMENT facts (replacement overrides)
   // When someone offers to replace (e.g. "я смогу выйти в чт утро"),
   // the slot should be reassigned to the replacement user.
@@ -348,7 +351,7 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes }) {
     });
   }
 
-  // Phase 3: Use seniors (Karina) only for remaining empty slots
+  // Phase 3: Use seniors (Karina) only for remaining empty slots (if enabled)
   const remainingSlots = slotsForPhase2.filter((slot) => {
     // Check if this slot was assigned in phase 2
     return !assignments.some(
@@ -357,7 +360,9 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes }) {
   });
 
   for (const slot of remainingSlots) {
-    const seniorCandidates = slot.candidates.filter((u) => seniorUsers.has(u));
+    const seniorCandidates = seniorReserveEnabled
+      ? slot.candidates.filter((u) => seniorUsers.has(u))
+      : [];
     if (seniorCandidates.length > 0) {
       // Use senior as last resort
       seniorCandidates.sort((a, b) => a.localeCompare(b)); // Deterministic
@@ -569,8 +574,8 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes }) {
         user_id = assignment.user_id;
         // Normalize user_id to ensure consistency
         user_id = UserDirectory.normalizeUserId(user_id);
-        // Get hours from WeekHoursTemplate (not from time range)
-        hours = getSlotHours(dow, slotType.name);
+        // Get hours from template (configurable via settings)
+        hours = getSlotHours(dow, slotType.name, hoursTemplate);
         if (hours === null) {
           // If template doesn't have hours, log warning but don't fail
           console.warn(`[SCHEDULE] Missing hours template for ${dow} ${slotType.name}`);

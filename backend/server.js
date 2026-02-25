@@ -13,8 +13,10 @@ import { computeWeekState } from "./weekStateV0.js";
 import { UserDirectory } from "./userDirectory.js";
 import employeesRouter from "./routes/employees.js";
 import slotsRouter from "./routes/slots.js";
+import settingsRouter from "./routes/settings.js";
 import * as employeeService from "./employeeService.js";
 import * as slotService from "./slotService.js";
+import * as settingsService from "./settingsService.js";
 import { requireApiKey } from "./middleware/auth.js";
 import { validateBody, validateQuery, validateParams } from "./middleware/validate.js";
 import logger from "./logger.js";
@@ -800,10 +802,12 @@ app.get("/debug/schedule", validateQuery(ScheduleQuerySchema), async (req, res) 
     const availability_values = Array.from(availability_values_set);
 
     const slotTypes = await loadSlotTypes(tenant_id);
+    const tenantSettings = await settingsService.getAll(tenant_id || "dev");
     const schedule = buildDraftSchedule({
       facts: facts ?? [],
       weekStartISO,
       slotTypes,
+      settings: tenantSettings,
     });
 
     // Extend meta with diagnostics
@@ -883,10 +887,12 @@ app.get("/debug/week_state", validateQuery(ScheduleQuerySchema), async (req, res
 
     const weekState = computeWeekState({ facts: filteredFacts, weekStartISO });
     const slotTypesWS = await loadSlotTypes(req.query.tenant_id);
+    const tenantSettingsWS = await settingsService.getAll(req.query.tenant_id || "dev");
     const draftSchedule = buildDraftSchedule({
       facts: filteredFacts,
       weekStartISO,
       slotTypes: slotTypesWS,
+      settings: tenantSettingsWS,
     });
 
     // Compute hasProblem: gaps in schedule or empty slots
@@ -974,10 +980,12 @@ app.post("/debug/build-schedule", validateBody(BuildScheduleSchema), async (req,
 
     // Build draft schedule using ScheduleEngine
     const slotTypesBS = await loadSlotTypes(req.body.tenant_id);
+    const tenantSettingsBS = await settingsService.getAll(req.body.tenant_id || "dev");
     const draftSchedule = buildDraftSchedule({
       facts: filteredFacts,
       weekStartISO,
       slotTypes: slotTypesBS,
+      settings: tenantSettingsBS,
     });
 
     // Create a system event for this build operation
@@ -1117,6 +1125,7 @@ app.post("/debug/build-schedule", validateBody(BuildScheduleSchema), async (req,
           facts: updatedFilteredFacts,
           weekStartISO,
           slotTypes: slotTypesBS,
+          settings: tenantSettingsBS,
         });
         logger.info({ facts_count: updatedFilteredFacts.length }, "BUILD_SCHEDULE recalculated schedule");
       }
@@ -1252,10 +1261,12 @@ app.post("/api/week/:weekStartISO/confirm-user", validateParams(ConfirmUserParam
 
     // Пересчитываем график
     const slotTypesCU = await loadSlotTypes(req.body.tenant_id);
+    const tenantSettingsCU = await settingsService.getAll(req.body.tenant_id || "dev");
     const updatedSchedule = buildDraftSchedule({
       facts: filteredFacts,
       weekStartISO,
       slotTypes: slotTypesCU,
+      settings: tenantSettingsCU,
     });
 
     res.json({
@@ -1344,10 +1355,12 @@ app.get("/debug/timesheet", validateQuery(ScheduleQuerySchema), async (req, res)
 
     // Build schedule first (needed for planned hours)
     const slotTypesTS = await loadSlotTypes(req.query.tenant_id);
+    const tenantSettingsTS = await settingsService.getAll(req.query.tenant_id || "dev");
     const schedule = buildDraftSchedule({
       facts: filteredFacts,
       weekStartISO,
       slotTypes: slotTypesTS,
+      settings: tenantSettingsTS,
     });
 
     // Hourly rates from UserDirectory
@@ -1359,6 +1372,7 @@ app.get("/debug/timesheet", validateQuery(ScheduleQuerySchema), async (req, res)
       weekStartISO,
       hourlyRates,
       schedule,
+      settings: tenantSettingsTS,
     });
 
     res.json({
@@ -1382,6 +1396,10 @@ logger.debug("/api/employees routes registered");
 // --- Slot Template CRUD routes ---
 app.use("/api/slots", slotsRouter);
 logger.debug("/api/slots routes registered");
+
+// --- Settings CRUD routes ---
+app.use("/api/settings", settingsRouter);
+logger.debug("/api/settings routes registered");
 
 const port = process.env.PORT || 3000;
 function dumpRoutes(app) {
@@ -1422,7 +1440,9 @@ UserDirectory.syncFromDB(employeeService).finally(() => {
         });
       };
       const botSchedule = async (chatId) => {
-        const slotTypes = await loadSlotTypes(process.env.DEFAULT_TENANT_ID || "dev");
+        const tenantId = process.env.DEFAULT_TENANT_ID || "dev";
+        const slotTypes = await loadSlotTypes(tenantId);
+        const botSettings = await settingsService.getAll(tenantId);
         const { data: facts } = await supabase
           .from("facts")
           .select("*")
@@ -1430,11 +1450,13 @@ UserDirectory.syncFromDB(employeeService).finally(() => {
           .order("created_at", { ascending: true })
           .limit(500);
         const weekStartISO = new Date(new Date().setUTCHours(0, 0, 0, 0)).toISOString().slice(0, 10);
-        return buildDraftSchedule({ facts: facts ?? [], weekStartISO, slotTypes });
+        return buildDraftSchedule({ facts: facts ?? [], weekStartISO, slotTypes, settings: botSettings });
       };
 
       const botTimesheet = async (chatId) => {
-        const slotTypes = await loadSlotTypes(process.env.DEFAULT_TENANT_ID || "dev");
+        const tenantId = process.env.DEFAULT_TENANT_ID || "dev";
+        const slotTypes = await loadSlotTypes(tenantId);
+        const botSettings = await settingsService.getAll(tenantId);
         const { data: facts } = await supabase
           .from("facts")
           .select("*")
@@ -1442,9 +1464,9 @@ UserDirectory.syncFromDB(employeeService).finally(() => {
           .order("created_at", { ascending: true })
           .limit(500);
         const weekStartISO = new Date(new Date().setUTCHours(0, 0, 0, 0)).toISOString().slice(0, 10);
-        const schedule = buildDraftSchedule({ facts: facts ?? [], weekStartISO, slotTypes });
+        const schedule = buildDraftSchedule({ facts: facts ?? [], weekStartISO, slotTypes, settings: botSettings });
         const hourlyRates = UserDirectory.getAllHourlyRates();
-        return buildTimesheet({ facts: facts ?? [], weekStartISO, hourlyRates, schedule });
+        return buildTimesheet({ facts: facts ?? [], weekStartISO, hourlyRates, schedule, settings: botSettings });
       };
 
       const mode = process.env.TELEGRAM_MODE || "polling";

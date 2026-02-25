@@ -28,9 +28,17 @@ const EXTRA_CLASS_PER_KID_RATE = 100; // ₽ per kid above threshold
  * @param {Array}  params.facts - Array of persisted facts
  * @param {string} params.weekStartISO - ISO date string for Monday (YYYY-MM-DD)
  * @param {Object} params.hourlyRates - Map of user_id -> hourly rate
+ * @param {Object} [params.settings] - Tenant settings (from settingsService.getAll). Optional, falls back to hardcoded defaults.
  * @returns {Object} - { week_start, employees: [], totals: {} }
  */
-export function buildTimesheet({ schedule, facts, weekStartISO, hourlyRates }) {
+export function buildTimesheet({ schedule, facts, weekStartISO, hourlyRates, settings }) {
+  // Resolve configurable rates from settings (fallback to hardcoded)
+  const CLEANING_RATE = settings?.["pay.cleaning_rate"] ?? DEFAULT_CLEANING_RATE;
+  const EC_BASE_RATE = settings?.["pay.extra_class_base"] ?? EXTRA_CLASS_BASE_RATE;
+  const EC_THRESHOLD = settings?.["pay.extra_class_threshold"] ?? EXTRA_CLASS_KIDS_THRESHOLD;
+  const EC_PER_KID = settings?.["pay.extra_class_per_kid"] ?? EXTRA_CLASS_PER_KID_RATE;
+  const PROBLEM_DEDUCTION = settings?.["pay.problem_deduction_hours"] ?? 1;
+  const ROUNDING_STEP = settings?.["pay.rounding_step"] ?? 100;
   const userData = new Map();
 
   function getOrCreate(userId) {
@@ -150,11 +158,11 @@ export function buildTimesheet({ schedule, facts, weekStartISO, hourlyRates }) {
 
     // Calculate pay based on kids_count
     let pay;
-    if (kidsCount === null || kidsCount === undefined || kidsCount <= EXTRA_CLASS_KIDS_THRESHOLD) {
-      pay = EXTRA_CLASS_BASE_RATE;
+    if (kidsCount === null || kidsCount === undefined || kidsCount <= EC_THRESHOLD) {
+      pay = EC_BASE_RATE;
     } else {
-      const extraKids = kidsCount - EXTRA_CLASS_KIDS_THRESHOLD;
-      pay = EXTRA_CLASS_BASE_RATE + (extraKids * EXTRA_CLASS_PER_KID_RATE);
+      const extraKids = kidsCount - EC_THRESHOLD;
+      pay = EC_BASE_RATE + (extraKids * EC_PER_KID);
     }
 
     getOrCreate(uid).extra_classes_list.push({
@@ -171,18 +179,20 @@ export function buildTimesheet({ schedule, facts, weekStartISO, hourlyRates }) {
     const name = UserDirectory.getDisplayName(user_id);
     const rate = hourlyRates?.[user_id] || UserDirectory.getRatePerHour(user_id) || 0;
 
-    const problem_deduction_hours = data.problem_shifts * 1;
+    const problem_deduction_hours = data.problem_shifts * PROBLEM_DEDUCTION;
     const effective_hours = Math.max(0, data.shift_hours - problem_deduction_hours);
     const shift_pay = effective_hours * rate;
 
-    const cleaning_pay = data.cleaning_count * DEFAULT_CLEANING_RATE;
+    const cleaning_pay = data.cleaning_count * CLEANING_RATE;
 
     const extra_classes_count = data.extra_classes_list.length;
     const extra_classes_total_pay = data.extra_classes_list.reduce((s, e) => s + e.pay, 0);
     const extra_classes_total_kids = data.extra_classes_list.reduce((s, e) => s + (e.kids_count || 0), 0);
 
     const total_before_rounding = shift_pay + cleaning_pay + extra_classes_total_pay;
-    const total_pay = Math.ceil(total_before_rounding / 100) * 100;
+    const total_pay = ROUNDING_STEP > 0
+      ? Math.ceil(total_before_rounding / ROUNDING_STEP) * ROUNDING_STEP
+      : total_before_rounding;
 
     employees.push({
       user_id,
