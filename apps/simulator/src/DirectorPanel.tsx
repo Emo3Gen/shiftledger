@@ -729,9 +729,9 @@ const FeedbackButton: React.FC = () => {
 // ---- Main DirectorPanel ----
 
 export const DirectorPanel: React.FC = () => {
-  const chatId = "debug_chat";
   const userId = "admin1";
 
+  const [chatId, setChatId] = React.useState<string>("debug_chat");
   const [weekStart, setWeekStart] = React.useState<string>(getMonday());
   const [availableWeeks, setAvailableWeeks] = React.useState<string[]>([]);
   const [schedule, setSchedule] = React.useState<Schedule | null>(null);
@@ -756,16 +756,17 @@ export const DirectorPanel: React.FC = () => {
   // Track if initial week detection has run
   const initialWeekDetected = React.useRef(false);
 
-  const loadWeekData = React.useCallback(async (ws: string) => {
+  const loadWeekData = React.useCallback(async (ws: string, chatIdOverride?: string) => {
+    const cid = chatIdOverride || chatId;
     const errors: string[] = [];
 
     const [schedRes, wsRes, tsRes, empRes, settRes, evRes] = await Promise.all([
-      fetchJSON(`/debug/schedule?chat_id=${chatId}&week_start=${ws}`).catch((e) => { errors.push(`Расписание: ${e.message}`); return null; }),
-      fetchJSON(`/debug/week_state?chat_id=${chatId}&week_start=${ws}`).catch((e) => { errors.push(`Статус недели: ${e.message}`); return null; }),
-      fetchJSON(`/debug/timesheet?chat_id=${chatId}&week_start=${ws}`).catch((e) => { errors.push(`Зарплаты: ${e.message}`); return null; }),
+      fetchJSON(`/debug/schedule?chat_id=${cid}&week_start=${ws}`).catch((e) => { errors.push(`Расписание: ${e.message}`); return null; }),
+      fetchJSON(`/debug/week_state?chat_id=${cid}&week_start=${ws}`).catch((e) => { errors.push(`Статус недели: ${e.message}`); return null; }),
+      fetchJSON(`/debug/timesheet?chat_id=${cid}&week_start=${ws}`).catch((e) => { errors.push(`Зарплаты: ${e.message}`); return null; }),
       fetchJSON("/api/employees").catch((e) => { errors.push(`Сотрудники: ${e.message}`); return null; }),
       fetchJSON("/api/settings?tenant_id=dev").catch((e) => { errors.push(`Настройки: ${e.message}`); return null; }),
-      fetchJSON(`/events?chat_id=${chatId}&limit=30`).catch((e) => { errors.push(`События: ${e.message}`); return null; }),
+      fetchJSON(`/events?chat_id=${cid}&limit=30`).catch((e) => { errors.push(`События: ${e.message}`); return null; }),
     ]);
 
     if (schedRes) setSchedule(schedRes);
@@ -779,28 +780,41 @@ export const DirectorPanel: React.FC = () => {
     setLoading(false);
   }, []);
 
-  // On mount: detect available weeks, auto-select latest if current week is empty
+  // On mount: discover chat_id from dialogs, detect available weeks, auto-select latest
   React.useEffect(() => {
     (async () => {
+      // Step 1: find the active chat_id
+      let activeChatId = "debug_chat";
       try {
-        const weeksRes = await fetchJSON(`/debug/weeks?chat_id=${chatId}`).catch(() => null);
+        const dialogsRes = await fetchJSON("/debug/dialogs?tenant_id=emu").catch(() => null);
+        const dialogs: Array<{ chat_id: string }> = dialogsRes?.dialogs || [];
+        if (dialogs.length > 0) {
+          activeChatId = dialogs[0].chat_id;
+        }
+      } catch {
+        // fallback to debug_chat
+      }
+      setChatId(activeChatId);
+
+      // Step 2: find available weeks for this chat
+      try {
+        const weeksRes = await fetchJSON(`/debug/weeks?chat_id=${activeChatId}`).catch(() => null);
         const weeks: string[] = weeksRes?.weeks || [];
         setAvailableWeeks(weeks);
 
         if (!initialWeekDetected.current && weeks.length > 0) {
           initialWeekDetected.current = true;
           const today = getMonday();
-          // If current week has data, use it; otherwise use the latest available
           const bestWeek = weeks.includes(today) ? today : weeks[0];
           setWeekStart(bestWeek);
-          await loadWeekData(bestWeek);
+          await loadWeekData(bestWeek, activeChatId);
           return;
         }
       } catch {
         // ignore
       }
       initialWeekDetected.current = true;
-      await loadWeekData(weekStart);
+      await loadWeekData(weekStart, activeChatId);
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
