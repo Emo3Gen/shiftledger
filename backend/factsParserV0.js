@@ -833,7 +833,7 @@ function extractRuDow(text) {
   // Try full names first (longer match), then abbreviations
   const sorted = Object.keys(RU_DOW_MAP).sort((a, b) => b.length - a.length);
   for (const key of sorted) {
-    const re = new RegExp(`(?:^|\\s|,)${key}(?:\\s|,|$)`, "i");
+    const re = new RegExp(`(?:^|\\s|,)${key}(?:\\s|,|[?!.]|$)`, "i");
     if (re.test(text)) {
       const dow = RU_DOW_MAP[key];
       return { dow, dowIndex: DOW_MAP[dow] };
@@ -952,6 +952,48 @@ export function parseEventToFacts(event) {
   const commandResults = parseCommandFormat(text, receivedAt);
   if (commandResults && commandResults.length > 0) {
     return commandResults;
+  }
+
+  // Rule 0a0: CLEANING_HELP_REQUEST (поиск замены на уборку)
+  // "кто уберётся за меня в среду?" / "не могу убраться в чт"
+  const cleanHelpRe = /(?:кто\s+(?:убер[её]тся|уберется|сможет\s+убраться|может\s+убраться)|не\s+(?:могу|смогу)\s+убраться)/i;
+  if (cleanHelpRe.test(lower)) {
+    const dowInfo = extractRuDow(lower);
+    if (dowInfo) {
+      const date = sameWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+      results.push({
+        fact_type: "CLEANING_HELP_REQUEST",
+        fact_payload: {
+          date,
+          dow: dowInfo.dow,
+          notes: text,
+        },
+        confidence: 0.8,
+      });
+      return results;
+    }
+  }
+
+  // Rule 0a1: CLEANING_SWAP offer (без имени — "я уберусь в среду", "могу убраться в чт")
+  // Speaker volunteers to clean (no "за [Name]" pattern)
+  const cleanOfferRe = /(?:(?:я\s+)?убер[уё]сь|могу\s+убраться|я\s+уберусь)\s/i;
+  if (cleanOfferRe.test(lower) && !lower.includes(" за ")) {
+    const dowInfo = extractRuDow(lower);
+    if (dowInfo) {
+      const date = sameWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+      results.push({
+        fact_type: "CLEANING_SWAP",
+        fact_payload: {
+          date,
+          dow: dowInfo.dow,
+          replacement_user_id: null, // will be set from event.user_id by caller
+          original_user_id: null,
+          notes: text,
+        },
+        confidence: 0.7,
+      });
+      return results;
+    }
   }
 
   // Rule 0a: CLEANING_SWAP (замена уборки)

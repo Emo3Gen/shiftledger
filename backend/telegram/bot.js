@@ -115,6 +115,8 @@ function formatFactReply(fact, userName) {
       }
       return `✅ Доп.занятие ${dow}: ${kidsCount ?? "—"} детей. Оплата: ${BASE_RATE}₽`;
     }
+    case "CLEANING_HELP_REQUEST":
+      return `⚠️ ${userName} ищет замену на уборку ${dow}. Кто сможет?`;
     case "CLEANING_DONE":
       return `✅ Уборка ${dow}: ${userName} — записано.`;
     case "CLEANING_SWAP": {

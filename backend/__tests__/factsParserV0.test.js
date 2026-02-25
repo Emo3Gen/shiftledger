@@ -637,6 +637,52 @@ describe("factsParserV0", () => {
     });
   });
 
+  describe("NL: CLEANING_HELP_REQUEST detection", () => {
+    test("кто уберётся за меня в среду? → CLEANING_HELP_REQUEST with dow=wed", () => {
+      const facts = parseEventToFacts({ text: "кто уберётся за меня в среду?", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("CLEANING_HELP_REQUEST");
+      expect(facts[0].fact_payload.dow).toBe("wed");
+    });
+
+    test("не могу убраться в чт → CLEANING_HELP_REQUEST with dow=thu", () => {
+      const facts = parseEventToFacts({ text: "не могу убраться в чт", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("CLEANING_HELP_REQUEST");
+      expect(facts[0].fact_payload.dow).toBe("thu");
+    });
+
+    test("девочки, кто уберётся за меня в среду? → CLEANING_HELP_REQUEST", () => {
+      const facts = parseEventToFacts({ text: "девочки, кто уберётся за меня в среду?", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("CLEANING_HELP_REQUEST");
+      expect(facts[0].fact_payload.dow).toBe("wed");
+    });
+
+    test("кто сможет убраться в пятницу? → CLEANING_HELP_REQUEST", () => {
+      const facts = parseEventToFacts({ text: "кто сможет убраться в пятницу?", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("CLEANING_HELP_REQUEST");
+      expect(facts[0].fact_payload.dow).toBe("fri");
+    });
+  });
+
+  describe("NL: CLEANING_SWAP offer (no name)", () => {
+    test("я уберусь в среду → CLEANING_SWAP (volunteer)", () => {
+      const facts = parseEventToFacts({ text: "я уберусь в среду", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("CLEANING_SWAP");
+      expect(facts[0].fact_payload.dow).toBe("wed");
+    });
+
+    test("могу убраться в четверг → CLEANING_SWAP (volunteer)", () => {
+      const facts = parseEventToFacts({ text: "могу убраться в четверг", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("CLEANING_SWAP");
+      expect(facts[0].fact_payload.dow).toBe("thu");
+    });
+  });
+
   describe("NL: CLEANING_SWAP detection", () => {
     test("я уберусь за Дарину в чт → CLEANING_SWAP with original=u2", () => {
       const facts = parseEventToFacts({ text: "я уберусь за Дарину в чт", received_at: RECEIVED_AT });
