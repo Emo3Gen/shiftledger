@@ -8,6 +8,7 @@
 import { Bot } from "grammy";
 import logger from "../logger.js";
 import { formatFacts, formatSchedule } from "./formatters.js";
+import { UserDirectory } from "../userDirectory.js";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 
@@ -102,6 +103,33 @@ function formatFactReply(fact, userName) {
       return `✅ Принято: ${userName} не может ${shift}`;
     case "SHIFT_REPLACEMENT":
       return `🔄 Замена: ${shift} — ${userName} выходит на замену. График обновлён.`;
+    case "EXTRA_CLASS": {
+      const kidsCount = p.kids_count;
+      const BASE_RATE = 500;
+      const THRESHOLD = 8;
+      const PER_KID = 100;
+      if (kidsCount != null && kidsCount > THRESHOLD) {
+        const extraKids = kidsCount - THRESHOLD;
+        const total = BASE_RATE + extraKids * PER_KID;
+        return `✅ Доп.занятие ${dow}: ${kidsCount} детей (порог ${THRESHOLD}). Оплата: ${BASE_RATE} + ${extraKids}×${PER_KID} = ${total}₽`;
+      }
+      return `✅ Доп.занятие ${dow}: ${kidsCount ?? "—"} детей. Оплата: ${BASE_RATE}₽`;
+    }
+    case "CLEANING_DONE":
+      return `✅ Уборка ${dow}: ${userName} — записано.`;
+    case "CLEANING_SWAP": {
+      const replacement = p.replacement_user_id;
+      const original = p.original_user_id;
+      if (replacement) {
+        const replName = UserDirectory.getDisplayName(replacement);
+        return `✅ Уборка ${dow}: ${replName} вместо ${userName}`;
+      }
+      if (original) {
+        const origName = UserDirectory.getDisplayName(original);
+        return `✅ Уборка ${dow}: ${userName} вместо ${origName}`;
+      }
+      return `✅ Уборка ${dow}: замена записана.`;
+    }
     default:
       return null; // Use generic formatter
   }

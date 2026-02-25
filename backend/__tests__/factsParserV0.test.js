@@ -729,6 +729,56 @@ describe("factsParserV0", () => {
       expect(facts[0].fact_payload.dow).toBe("fri");
       expect(facts[0].fact_payload.kids_count).toBe(10);
     });
+
+    test("на допе было 5 человек ср → EXTRA_CLASS with kids_count=5, dow=wed", () => {
+      const facts = parseEventToFacts({ text: "на допе было 5 человек ср", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("EXTRA_CLASS");
+      expect(facts[0].fact_payload.dow).toBe("wed");
+      expect(facts[0].fact_payload.kids_count).toBe(5);
+    });
+
+    test("сегодня на занятии 10 детей → EXTRA_CLASS with kids_count=10, uses current dow", () => {
+      // RECEIVED_AT is Monday, so current dow = mon
+      const facts = parseEventToFacts({ text: "сегодня на занятии 10 детей", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("EXTRA_CLASS");
+      expect(facts[0].fact_payload.dow).toBe("mon");
+      expect(facts[0].fact_payload.kids_count).toBe(10);
+    });
+
+    test("мк пятница 20 детей → EXTRA_CLASS with kids_count=20, dow=fri", () => {
+      const facts = parseEventToFacts({ text: "мк пятница 20 детей", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("EXTRA_CLASS");
+      expect(facts[0].fact_payload.dow).toBe("fri");
+      expect(facts[0].fact_payload.kids_count).toBe(20);
+    });
+
+    test("провела доп в пн → EXTRA_CLASS without kids_count (null)", () => {
+      const facts = parseEventToFacts({ text: "провела доп в пн", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("EXTRA_CLASS");
+      expect(facts[0].fact_payload.dow).toBe("mon");
+      expect(facts[0].fact_payload.kids_count).toBeNull();
+    });
+
+    test("провела доп, было 6 человек → EXTRA_CLASS with kids_count=6, uses current dow", () => {
+      // No day mentioned → fallback to current dow (Monday)
+      const facts = parseEventToFacts({ text: "провела доп, было 6 человек", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("EXTRA_CLASS");
+      expect(facts[0].fact_payload.dow).toBe("mon");
+      expect(facts[0].fact_payload.kids_count).toBe(6);
+    });
+
+    test("допзанятие среда 8 детей → EXTRA_CLASS with kids_count=8, dow=wed", () => {
+      const facts = parseEventToFacts({ text: "допзанятие среда 8 детей", received_at: RECEIVED_AT });
+      expect(facts).toHaveLength(1);
+      expect(facts[0].fact_type).toBe("EXTRA_CLASS");
+      expect(facts[0].fact_payload.dow).toBe("wed");
+      expect(facts[0].fact_payload.kids_count).toBe(8);
+    });
   });
 
   describe("DSL: EXTRA_CLASS with kids_count", () => {

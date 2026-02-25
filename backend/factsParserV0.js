@@ -817,6 +817,18 @@ const NAMED_TIMES = {
 /**
  * Extract Russian dow from text. Returns { dow, dowIndex } or null.
  */
+/**
+ * Get current day-of-week from receivedAt as { dow, dowIndex }.
+ */
+function getCurrentDow(receivedAt) {
+  const date = new Date(receivedAt);
+  let day = date.getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  if (day === 0) day = 7;
+  const dowIndex = day - 1; // 0=Mon, ..., 6=Sun
+  const dowNames = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+  return { dow: dowNames[dowIndex], dowIndex };
+}
+
 function extractRuDow(text) {
   // Try full names first (longer match), then abbreviations
   const sorted = Object.keys(RU_DOW_MAP).sort((a, b) => b.length - a.length);
@@ -1054,12 +1066,16 @@ export function parseEventToFacts(event) {
     "допурок",
     "мастер-класс",
     "мастер класс",
+    "на допе",
+    "на занятии",
   ];
-  // Also match short forms: "допы пн 5 детей", "доп пн 10"
-  const extraShortRe = /(?:^|\s)доп[ыа]?\s/i;
+  // Also match short forms: "допы пн 5 детей", "доп пн 10", "мк пн 5 детей"
+  const extraShortRe = /(?:^|\s)(?:доп[ыа]?|мк)\s/i;
   if (extraClassPhrases.some((p) => lower.includes(p)) || extraShortRe.test(lower)) {
     const dowInfo = extractRuDow(lower);
-    if (dowInfo) {
+    // If no day mentioned, use current day from receivedAt
+    const effectiveDow = dowInfo || getCurrentDow(receivedAt);
+    if (effectiveDow) {
       // Try to extract kids_count from text
       const kidsMatch = lower.match(/(\d{1,3})\s*(?:дет[еиёй]|ребён|реб[ёе]нк|человек|чел|д\b)/i);
       const plainNumberMatch = lower.match(/(?:доп[ыа]?\s+(?:\S+\s+)?|мастер[- ]класс\s+(?:\S+\s+)?)(\d{1,3})(?:\s|$)/i);
@@ -1071,14 +1087,14 @@ export function parseEventToFacts(event) {
         kidsCount = parseInt(plainNumberMatch[1], 10);
       }
 
-      const date = sameWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+      const date = sameWeekdayBerlin(receivedAt, effectiveDow.dowIndex);
 
       // Also try to extract time range (optional)
       const time = extractTime(lower);
 
       const payload = {
         date,
-        dow: dowInfo.dow,
+        dow: effectiveDow.dow,
         kids_count: kidsCount,
         notes: text,
       };
