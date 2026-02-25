@@ -141,13 +141,31 @@ function formatFactReply(fact, userName) {
 }
 
 /**
+ * Resolve internal employee ID from Telegram user ID.
+ * Returns { employeeId, employeeName } or null if unknown.
+ */
+async function resolveEmployee(telegramUserId, empService) {
+  if (!empService) return null;
+  try {
+    const emp = await empService.getByTelegramUserId(String(telegramUserId));
+    if (emp) {
+      return { employeeId: emp.id, employeeName: emp.name };
+    }
+  } catch (err) {
+    logger.debug({ err }, "resolveEmployee error");
+  }
+  return null;
+}
+
+/**
  * Create and configure the bot instance.
  * @param {Function} ingestFn - async function(payload) => { facts_preview, ... }
  * @param {Function} scheduleFn - async function(chatId) => schedule object
  * @param {Function} [weekStateFn] - async function(chatId) => week state object
  * @param {Function} [timesheetFn] - async function(chatId) => timesheet object
+ * @param {Object} [employeeService] - employee service for Telegram mapping
  */
-export function createBot(ingestFn, scheduleFn, weekStateFn, timesheetFn) {
+export function createBot(ingestFn, scheduleFn, weekStateFn, timesheetFn, employeeService) {
   if (!TOKEN) {
     logger.warn("TELEGRAM_BOT_TOKEN not set — bot disabled");
     return null;
@@ -218,7 +236,8 @@ export function createBot(ingestFn, scheduleFn, weekStateFn, timesheetFn) {
         return;
       }
       const chatId = String(ctx.chat.id);
-      const userId = String(ctx.from.id);
+      const resolved = await resolveEmployee(ctx.from.id, employeeService);
+      const userId = resolved?.employeeId || String(ctx.from.id);
       const ts = await timesheetFn(chatId);
       const emp = ts?.employees?.find((e) => e.user_id === userId);
       if (!emp) {
@@ -230,6 +249,46 @@ export function createBot(ingestFn, scheduleFn, weekStateFn, timesheetFn) {
     } catch (err) {
       logger.error({ err }, "telegram /pay error");
       await ctx.reply("❌ Ошибка загрузки зарплаты, попробуйте позже");
+    }
+  });
+
+  // Admin command: /link @username u1 OR /link 123456789 u2
+  bot.command("link", async (ctx) => {
+    try {
+      if (!employeeService) {
+        await ctx.reply("Команда /link пока недоступна");
+        return;
+      }
+
+      const args = (ctx.message.text || "").replace(/^\/link\s*/, "").trim().split(/\s+/);
+      if (args.length < 2) {
+        await ctx.reply("Использование: /link <telegram_id или @username> <employee_id>\nПример: /link @isa_user u1\nПример: /link 123456789 u2");
+        return;
+      }
+
+      const [telegramIdentifier, employeeId] = args;
+      const telegramUserId = telegramIdentifier.startsWith("@") ? null : telegramIdentifier;
+      const telegramUsername = telegramIdentifier.startsWith("@") ? telegramIdentifier.replace("@", "") : null;
+
+      if (!telegramUserId && !telegramUsername) {
+        await ctx.reply("Укажите Telegram ID (число) или @username");
+        return;
+      }
+
+      // Verify employee exists
+      const emp = await employeeService.getById(employeeId);
+      if (!emp) {
+        await ctx.reply(`Сотрудник ${employeeId} не найден`);
+        return;
+      }
+
+      await employeeService.linkTelegram(employeeId, telegramUserId || "pending", telegramUsername);
+      const name = emp.name || employeeId;
+      const linkedTo = telegramUserId ? `ID ${telegramUserId}` : `@${telegramUsername}`;
+      await ctx.reply(`✅ ${name} привязан к Telegram ${linkedTo}`);
+    } catch (err) {
+      logger.error({ err }, "telegram /link error");
+      await ctx.reply("❌ Ошибка привязки, попробуйте позже");
     }
   });
 
@@ -271,7 +330,8 @@ export function createBot(ingestFn, scheduleFn, weekStateFn, timesheetFn) {
       if (text === "зарплата") {
         if (timesheetFn) {
           const chatId = String(ctx.chat.id);
-          const userId = String(ctx.from.id);
+          const resolvedPay = await resolveEmployee(ctx.from.id, employeeService);
+          const userId = resolvedPay?.employeeId || String(ctx.from.id);
           const ts = await timesheetFn(chatId);
           const emp = ts?.employees?.find((e) => e.user_id === userId);
           if (!emp) {
@@ -285,14 +345,24 @@ export function createBot(ingestFn, scheduleFn, weekStateFn, timesheetFn) {
         return;
       }
 
-      // Normal message processing
+      // Normal message processing — resolve employee from Telegram ID
+      const resolved = await resolveEmployee(ctx.from.id, employeeService);
       const payload = buildIngestPayload(ctx);
+      if (resolved) {
+        // Override user_id with internal employee ID
+        payload.user_id = resolved.employeeId;
+      }
       const result = await ingestFn(payload);
 
       const facts = result.facts_preview || result.facts || [];
+      if (facts.length === 0 && !resolved) {
+        // Unknown user with no parseable message
+        await ctx.reply("Привет! Я не знаю тебя в системе. Попроси администратора привязать твой Telegram — /link");
+        return;
+      }
       if (facts.length > 0) {
         // Try specific reply for known fact types
-        const userName = ctx.from.first_name || "Сотрудник";
+        const userName = resolved?.employeeName || ctx.from.first_name || "Сотрудник";
         const specificReply = formatFactReply(facts[0], userName);
         if (specificReply) {
           await ctx.reply(specificReply);

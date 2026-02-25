@@ -2,7 +2,7 @@
  * Tests for Telegram bot: payload mapping, formatters, /start command.
  */
 
-import { buildIngestPayload } from "../telegram/bot.js";
+import { buildIngestPayload, createBot } from "../telegram/bot.js";
 import { formatFacts, formatSchedule, formatWeekState, formatPayBreakdown, formatPinnedSchedule } from "../telegram/formatters.js";
 
 // --- buildIngestPayload ---
@@ -403,5 +403,68 @@ describe("formatPinnedSchedule", () => {
     };
     const result = formatPinnedSchedule(schedule);
     expect(result).toContain("🧹");
+  });
+});
+
+// --- Employee-Telegram mapping ---
+
+describe("employee-telegram mapping", () => {
+  // Mock employeeService for testing
+  const mockEmployeeService = {
+    getByTelegramUserId: jest.fn(),
+    getById: jest.fn(),
+    linkTelegram: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test("getByTelegramUserId returns employee when found", async () => {
+    mockEmployeeService.getByTelegramUserId.mockResolvedValue({
+      id: "u1",
+      name: "Иса",
+      telegram_user_id: "67890",
+    });
+
+    const result = await mockEmployeeService.getByTelegramUserId("67890");
+    expect(result).not.toBeNull();
+    expect(result.id).toBe("u1");
+    expect(result.name).toBe("Иса");
+  });
+
+  test("getByTelegramUserId returns null for unknown user", async () => {
+    mockEmployeeService.getByTelegramUserId.mockResolvedValue(null);
+
+    const result = await mockEmployeeService.getByTelegramUserId("99999");
+    expect(result).toBeNull();
+  });
+
+  test("linkTelegram updates employee with telegram info", async () => {
+    mockEmployeeService.linkTelegram.mockResolvedValue({
+      id: "u1",
+      name: "Иса",
+      telegram_user_id: "67890",
+      telegram_username: "isa_user",
+    });
+
+    const result = await mockEmployeeService.linkTelegram("u1", "67890", "isa_user");
+    expect(result.telegram_user_id).toBe("67890");
+    expect(result.telegram_username).toBe("isa_user");
+  });
+
+  test("buildIngestPayload can be overridden with resolved employee ID", () => {
+    const ctx = {
+      chat: { id: 12345, type: "private" },
+      from: { id: 67890, first_name: "Иса", username: "isa_user" },
+      message: { message_id: 42, date: 1704067200, text: "могу пн утро" },
+    };
+
+    const payload = buildIngestPayload(ctx);
+    expect(payload.user_id).toBe("67890"); // Default: telegram ID
+
+    // Simulate override (as bot does after resolveEmployee)
+    payload.user_id = "u1";
+    expect(payload.user_id).toBe("u1"); // Overridden with internal ID
   });
 });

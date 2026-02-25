@@ -1470,7 +1470,7 @@ UserDirectory.syncFromDB(employeeService).finally(() => {
       };
 
       const mode = process.env.TELEGRAM_MODE || "polling";
-      const bot = createBot(botIngest, botSchedule, null, botTimesheet);
+      const bot = createBot(botIngest, botSchedule, null, botTimesheet, employeeService);
       if (bot) {
         if (mode === "webhook") {
           logger.info("Telegram bot started in webhook mode (configure WEBHOOK_URL externally)");

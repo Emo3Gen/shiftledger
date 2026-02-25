@@ -119,6 +119,57 @@ export async function update(id, fields) {
 }
 
 /**
+ * Find employee by Telegram user ID.
+ * @param {string} telegramUserId - Telegram numeric user ID
+ * @returns {Object|null} - Employee or null
+ */
+export async function getByTelegramUserId(telegramUserId) {
+  if (!telegramUserId) return null;
+  try {
+    const { data, error } = await supabase
+      .from("employees")
+      .select("*")
+      .eq("telegram_user_id", String(telegramUserId))
+      .eq("is_active", true)
+      .single();
+
+    if (error && error.code === "PGRST116") return null; // Not found
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    logger.warn({ err, telegramUserId }, "employeeService getByTelegramUserId error");
+    return null;
+  }
+}
+
+/**
+ * Link a Telegram user to an employee.
+ * @param {string} employeeId - Internal employee ID (e.g. "u1")
+ * @param {string} telegramUserId - Telegram numeric user ID
+ * @param {string} [telegramUsername] - Telegram @username
+ * @returns {Object} - Updated employee
+ */
+export async function linkTelegram(employeeId, telegramUserId, telegramUsername) {
+  const updateData = {
+    telegram_user_id: String(telegramUserId),
+    updated_at: new Date().toISOString(),
+  };
+  if (telegramUsername) {
+    updateData.telegram_username = telegramUsername.replace(/^@/, "");
+  }
+
+  const { data, error } = await supabase
+    .from("employees")
+    .update(updateData)
+    .eq("id", employeeId)
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
  * Soft-delete (deactivate) an employee.
  */
 export async function deactivate(id) {
