@@ -1,6 +1,5 @@
 node_modules
 apps/simulator/node_modules
-apps/simulator/src
 .env
 .env.*
 *.log
