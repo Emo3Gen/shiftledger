@@ -21,8 +21,12 @@ export function requireApiKey(req, res, next) {
   // Dev mode — no auth
   if (!API_KEY) return next();
 
-  // Skip health check
-  if (req.path === "/health" || req.path === "/__ping") return next();
+  // Skip health, webhook, and frontend routes — only protect API/debug/ingest
+  if (req.path === "/health" || req.path === "/__ping" || req.path === "/telegram-webhook") return next();
+  const isApiRoute = req.path.startsWith("/api/") || req.path.startsWith("/debug/")
+    || req.path.startsWith("/ingest") || req.path.startsWith("/events") || req.path.startsWith("/facts")
+    || req.path.startsWith("/parse");
+  if (!isApiRoute) return next();
 
   // Extract token from Authorization header or query param
   const authHeader = req.headers.authorization || "";

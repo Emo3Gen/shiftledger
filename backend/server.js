@@ -69,10 +69,7 @@ app.use(generalLimiter);
 // чтобы req.body был заполнен.
 app.use(express.json());
 
-// API key auth (skips /health and /__ping; dev mode if API_KEY not set)
-app.use(requireApiKey);
-
-// Serve frontend static files (production build)
+// Serve frontend static files (production build) — no auth required
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const distDir = resolve(__dirname, "../apps/simulator/dist");
 if (existsSync(distDir)) {
@@ -86,6 +83,9 @@ if (existsSync(distDir)) {
   app.use(express.static(distDir));
   logger.info("Serving static files from %s", distDir);
 }
+
+// API key auth — after static files, skips /health, /__ping, /telegram-webhook
+app.use(requireApiKey);
 
 // Helper: load slot templates for a tenant, convert to engine format
 async function loadSlotTypes(tenantId) {
@@ -2880,13 +2880,14 @@ app.post("/api/payments/send-list", async (req, res) => {
 
 logger.debug("Payments routes registered");
 
-// SPA fallback: serve index.html for unmatched routes (must be after all API routes)
+// SPA fallback: serve index.html for unmatched routes (no auth, must be after all API routes)
 if (existsSync(distDir)) {
-  app.get("/{*path}", (req, res) => {
+  app.get("/{*path}", (req, res, next) => {
     // Don't serve index.html for API/debug/data routes — let them 404 naturally
     if (req.path.startsWith("/api/") || req.path.startsWith("/debug/") || req.path.startsWith("/events") || req.path.startsWith("/facts") || req.path.startsWith("/ingest")) {
       return res.status(404).json({ error: "Not found" });
     }
+    // Skip API key check for SPA routes
     res.sendFile(resolve(distDir, "index.html"));
   });
 }
