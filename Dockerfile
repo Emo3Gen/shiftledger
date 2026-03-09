@@ -18,12 +18,17 @@ RUN apk add --no-cache \
     giflib-dev librsvg-dev pixman-dev pangomm-dev \
     libjpeg-turbo-dev freetype-dev
 
-# Install deps from root package.json
+# Install root deps (canvas, grammy, pino, swagger, etc.)
 COPY package*.json ./
-COPY backend/package.json ./backend/
+RUN npm ci --omit=dev
+
+# Install backend deps (@supabase/supabase-js, etc.)
+WORKDIR /app/backend
+COPY backend/package*.json ./
 RUN npm ci --omit=dev
 
 # Copy backend source
+WORKDIR /app
 COPY backend/ ./backend/
 
 # Copy built frontend from stage 1
