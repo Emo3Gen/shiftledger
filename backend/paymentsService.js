@@ -7,6 +7,7 @@
 
 import logger from "./logger.js";
 
+const SILENT_MODE = process.env.SILENT_MODE === "true";
 const EMOGEN_API_URL = process.env.EMOGEN_API_URL || "http://127.0.0.1:3001";
 const EMOGEN_API_PASSWORD = process.env.EMOGEN_API_PASSWORD || "prodeti2026";
 const emogenAuthHeader = "Basic " + Buffer.from(":" + EMOGEN_API_PASSWORD).toString("base64");
@@ -234,6 +235,11 @@ export async function sendPaymentsList(bot, chatId, dateStr, threadId) {
   const text = formatPaymentsList(recordsData, pricesData, dateStr);
 
   // 4. Send to Telegram
+  if (SILENT_MODE) {
+    logger.info({ chatId, date: dateStr, silent: true }, "Payments list suppressed (SILENT_MODE)");
+    return { ok: true, message_id: null, date: dateStr, records: recordsData?.records?.length || 0, silent: true };
+  }
+
   const opts = { parse_mode: "HTML" };
   if (threadId) opts.message_thread_id = Number(threadId);
 

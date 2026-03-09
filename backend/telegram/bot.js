@@ -13,6 +13,7 @@ import { generateScheduleImage } from "../services/scheduleImage.js";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 const IS_DEV = process.env.APP_ENV === "dev" || process.env.TEST_MODE === "true";
+const SILENT_MODE = process.env.SILENT_MODE === "true";
 
 // In-memory store: chatId → pinned message_id
 const pinnedMessageIds = new Map();
@@ -533,6 +534,10 @@ export function createBot(ingestFn, scheduleFn, weekStateFn, timesheetFn, employ
    * @param {number} [threadId] - message_thread_id for forum topics
    */
   async function updatePinnedSchedule(botInstance, chatId, threadId) {
+    if (SILENT_MODE) {
+      logger.info({ chatId, threadId, silent: true }, "updatePinnedSchedule suppressed (SILENT_MODE)");
+      return;
+    }
     try {
       const schedule = await scheduleFn(chatId);
       const text = formatPinnedSchedule(schedule);

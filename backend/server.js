@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 
+const SILENT_MODE = process.env.SILENT_MODE === "true";
 const envName = process.env.APP_ENV || "dev";
 dotenv.config({ path: `.env.${envName}` });
 dotenv.config({ path: ".env" }); // also load base .env (for shared vars)
@@ -2558,6 +2559,11 @@ app.post("/api/schedule/publish", async (req, res) => {
       slotTypes,
       settings: tenantSettings,
     });
+
+    if (SILENT_MODE) {
+      logger.info({ chat_id, week_start: weekStartISO, silent: true }, "Schedule publish suppressed (SILENT_MODE)");
+      return res.json({ ok: true, week_start: weekStartISO, message_id: null, pinned: false, silent: true });
+    }
 
     const pngBuffer = generateScheduleImage(schedule);
     const { InputFile } = await import("grammy");
