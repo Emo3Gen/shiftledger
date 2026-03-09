@@ -46,6 +46,16 @@ export const ScheduleQuerySchema = z.object({
     .optional(),
 });
 
+// --- GET /debug/timesheet-period ---
+export const TimesheetPeriodQuerySchema = z.object({
+  tenant_id: z.string().min(1).optional(),
+  chat_id: z.string().min(1),
+  period_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD"),
+  period_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD"),
+  role: z.string().max(20).optional(),
+  user_id: z.string().max(100).optional(),
+});
+
 // --- POST /debug/build-schedule ---
 export const BuildScheduleSchema = z.object({
   chat_id: z.string().min(1).max(200),

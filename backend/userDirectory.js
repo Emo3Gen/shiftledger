@@ -5,14 +5,29 @@
  */
 
 export const UserDirectory = {
+  // Reference to employeeService, set during syncFromDB
+  _employeeService: null,
+
   /**
    * Sync employees from DB into in-memory UserDirectory.
-   * Called on server startup. If DB is unavailable, keeps hardcoded defaults.
+   * Called on server startup. Supabase is the single source of truth.
+   * Hardcoded seed data is only used if Supabase table is empty (first run).
    */
   async syncFromDB(employeeService) {
+    this._employeeService = employeeService;
     try {
       const employees = await employeeService.getAll();
-      if (!employees || employees.length === 0) return;
+      if (!employees || employees.length === 0) {
+        // Supabase table is empty — no seeding from here, seed via migration
+        return;
+      }
+
+      // Clear employee entries (keep system users) and reload from DB
+      for (const key of [...this.users.keys()]) {
+        if (key.startsWith("u") || ["isa", "daria", "ksu", "karina"].includes(key)) {
+          this.users.delete(key);
+        }
+      }
 
       for (const emp of employees) {
         const entry = {
@@ -22,30 +37,45 @@ export const UserDirectory = {
           ratePerHour: Number(emp.rate_per_hour) || 0,
           role: emp.role || "staff",
           minHours: Number(emp.min_hours_per_week) || 0,
+          autoSchedule: emp.auto_schedule !== false,
+          branch: emp.branch || "Архангельск",
+          skillLevel: emp.skill_level || "beginner",
         };
         this.users.set(emp.id, entry);
       }
-      // logged at server startup level
     } catch (err) {
-      // fallback silently — hardcoded defaults remain
+      // fallback silently — hardcoded defaults remain for offline dev
     }
   },
 
-  // Internal ID -> User info
+  /**
+   * Re-sync a single employee from DB after update.
+   */
+  async resyncEmployee(employee) {
+    if (!employee) return;
+    const entry = {
+      id: employee.id,
+      slug: employee.id,
+      displayName: employee.name,
+      ratePerHour: Number(employee.rate_per_hour) || 0,
+      role: employee.role || "staff",
+      minHours: Number(employee.min_hours_per_week) || 0,
+      autoSchedule: employee.auto_schedule !== false,
+      branch: employee.branch || "Архангельск",
+    };
+    this.users.set(employee.id, entry);
+  },
+
+  // Internal ID -> User info (fallback defaults for offline/first-run)
   users: new Map([
-    ["u1", { id: "u1", slug: "isa", displayName: "Иса", ratePerHour: 280, role: "junior", minHours: 22 }],
-    ["u2", { id: "u2", slug: "daria", displayName: "Дарина", ratePerHour: 280, role: "junior", minHours: 20 }],
-    ["u3", { id: "u3", slug: "ksu", displayName: "Ксюша", ratePerHour: 280, role: "junior", minHours: 0 }],
-    ["u4", { id: "u4", slug: "karina", displayName: "Карина", ratePerHour: 280, role: "junior", minHours: 20 }],
-    // Legacy/test users
-    ["isa", { id: "u1", slug: "isa", displayName: "Иса", ratePerHour: 280, role: "junior", minHours: 22 }],
-    ["daria", { id: "u2", slug: "daria", displayName: "Дарина", ratePerHour: 280, role: "junior", minHours: 20 }],
-    ["ksu", { id: "u3", slug: "ksu", displayName: "Ксюша", ratePerHour: 280, role: "junior", minHours: 0 }],
-    ["karina", { id: "u4", slug: "karina", displayName: "Карина", ratePerHour: 280, role: "junior", minHours: 20 }],
+    ["u1", { id: "u1", slug: "isa", displayName: "Иса", ratePerHour: 280, role: "junior", minHours: 22, autoSchedule: true, branch: "Архангельск" }],
+    ["u2", { id: "u2", slug: "daria", displayName: "Дарина", ratePerHour: 280, role: "junior", minHours: 20, autoSchedule: true, branch: "Архангельск" }],
+    ["u3", { id: "u3", slug: "ksu", displayName: "Ксюша", ratePerHour: 280, role: "junior", minHours: 0, autoSchedule: true, branch: "Архангельск" }],
+    ["u4", { id: "u4", slug: "karina", displayName: "Карина", ratePerHour: 280, role: "junior", minHours: 20, autoSchedule: true, branch: "Архангельск" }],
     // System users
-    ["senior1", { id: "senior1", slug: "senior1", displayName: "Старший 1", ratePerHour: 350, role: "senior", minHours: 0 }],
-    ["owner1", { id: "owner1", slug: "owner1", displayName: "Владелец", ratePerHour: 0, role: "owner", minHours: 0 }],
-    ["admin1", { id: "admin1", slug: "admin1", displayName: "Админ", ratePerHour: 0, role: "admin", minHours: 0 }],
+    ["senior1", { id: "senior1", slug: "senior1", displayName: "Старший 1", ratePerHour: 350, role: "senior", minHours: 0, autoSchedule: true, branch: "Архангельск" }],
+    ["owner1", { id: "owner1", slug: "owner1", displayName: "Владелец", ratePerHour: 0, role: "owner", minHours: 0, autoSchedule: true, branch: "Архангельск" }],
+    ["admin1", { id: "admin1", slug: "admin1", displayName: "Админ", ratePerHour: 0, role: "admin", minHours: 0, autoSchedule: true, branch: "Архангельск" }],
   ]),
   
   /**
@@ -172,6 +202,32 @@ export const UserDirectory = {
   },
   
   /**
+   * Find user by display name (case-insensitive, supports Russian case forms).
+   * Matches against displayName and common Russian declensions.
+   * @param {string} name - display name to search for (e.g. "Дарину", "ксюша")
+   * @returns {string|null} - canonical user_id or null
+   */
+  findByDisplayName(name) {
+    if (!name) return null;
+    const lower = name.toLowerCase().trim();
+    const seen = new Set();
+    for (const [, user] of this.users.entries()) {
+      if (seen.has(user.id)) continue;
+      seen.add(user.id);
+      const dn = (user.displayName || "").toLowerCase();
+      if (!dn) continue;
+      // Exact match
+      if (dn === lower) return user.id;
+      // Russian accusative/genitive: remove last char and compare stem
+      // e.g. "Дарину" → stem "дарин", displayName "Дарина" → stem "дарин"
+      const stem = dn.length > 2 ? dn.slice(0, -1) : dn;
+      const inputStem = lower.length > 2 ? lower.slice(0, -1) : lower;
+      if (stem === inputStem && stem.length >= 2) return user.id;
+    }
+    return null;
+  },
+
+  /**
    * Получить список всех senior пользователей (по каноническим ID)
    * @returns {Array<string>} - массив user_id
    */
@@ -186,5 +242,51 @@ export const UserDirectory = {
       }
     }
     return seniorIds;
+  },
+
+  /**
+   * Проверить, участвует ли пользователь в автосборке графика
+   * @param {string} identifier - slug или id пользователя
+   * @returns {boolean}
+   */
+  isAutoSchedule(identifier) {
+    const user = this.getUser(identifier);
+    return user?.autoSchedule !== false;
+  },
+
+  /**
+   * Получить филиал пользователя
+   * @param {string} identifier - slug или id пользователя
+   * @returns {string}
+   */
+  getBranch(identifier) {
+    const user = this.getUser(identifier);
+    return user?.branch || "Архангельск";
+  },
+
+  /**
+   * Получить уровень квалификации пользователя
+   * @param {string} identifier - slug или id пользователя
+   * @returns {string} "beginner" | "experienced" | "guru"
+   */
+  getSkillLevel(identifier) {
+    const user = this.getUser(identifier);
+    return user?.skillLevel || "beginner";
+  },
+
+  /**
+   * Получить всех уникальных пользователей (по каноническим ID)
+   * @returns {Array<{id: string, displayName: string, slug: string}>}
+   */
+  getAllUsers() {
+    const seen = new Set();
+    const result = [];
+    for (const [, user] of this.users.entries()) {
+      const canonicalId = user.id.startsWith("u") ? user.id : null;
+      if (!canonicalId || seen.has(canonicalId)) continue;
+      seen.add(canonicalId);
+      result.push({ id: canonicalId, displayName: user.displayName, slug: user.slug });
+    }
+    return result;
   },
 };

@@ -48,6 +48,8 @@ export function buildTimesheet({ schedule, facts, weekStartISO, hourlyRates, set
         problem_shifts: 0,
         cleaning_count: 0,
         extra_classes_list: [], // { dow, kids_count, pay }
+        extra_work_list: [],    // { id, work_name, price, date, status, comment }
+        extra_pay_list: [],     // { id, amount, date, comment }
       });
     }
     return userData.get(userId);
@@ -125,13 +127,28 @@ export function buildTimesheet({ schedule, facts, weekStartISO, hourlyRates, set
   }
 
   // Attribute cleanings per day
+  // Load cleaning_schedule from settings (which days/slots have scheduled cleaning)
+  const cleaningSchedule = settings?.["cleaning_schedule"] || {
+    mon: { morning: false, evening: true },
+    tue: { morning: false, evening: true },
+    wed: { morning: false, evening: true },
+    thu: { morning: false, evening: true },
+    fri: { morning: false, evening: true },
+    sat: { morning: false, evening: true },
+    sun: { morning: false, evening: false },
+  };
+
   const DOW_ALL = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
   for (const dow of DOW_ALL) {
+    const isScheduled = cleaningSchedule[dow]?.evening !== false;
     let cleaningUser = null;
 
     if (cleaningDoneByDow.has(dow)) {
-      // Explicit report — who actually cleaned
+      // Explicit report — who actually cleaned (count even if unscheduled)
       cleaningUser = cleaningDoneByDow.get(dow);
+    } else if (!isScheduled && !cleaningSwapByDow.has(dow)) {
+      // Cleaning not scheduled for this day and no swap facts — skip
+      continue;
     } else if (cleaningSwapByDow.has(dow)) {
       // Swap override
       const swap = cleaningSwapByDow.get(dow);
@@ -172,10 +189,50 @@ export function buildTimesheet({ schedule, facts, weekStartISO, hourlyRates, set
     });
   }
 
-  // Step 5: Build employees array
+  // Step 4b: Extra work requests (approved only count toward pay)
+  for (const fact of facts || []) {
+    if (fact.fact_type !== "EXTRA_WORK_REQUEST") continue;
+    const uid = UserDirectory.normalizeUserId(fact.user_id);
+    if (!uid) continue;
+
+    const p = fact.fact_payload || {};
+    getOrCreate(uid).extra_work_list.push({
+      id: fact.id,
+      work_name: p.work_name || p.work_type_id || "—",
+      price: p.price || 0,
+      date: p.date || null,
+      status: p.status || "pending",
+      comment: p.comment || null,
+    });
+  }
+
+  // Step 4c: Extra pay (director bonuses)
+  for (const fact of facts || []) {
+    if (fact.fact_type !== "EXTRA_PAY") continue;
+    const uid = UserDirectory.normalizeUserId(fact.user_id);
+    if (!uid) continue;
+
+    const p = fact.fact_payload || {};
+    getOrCreate(uid).extra_pay_list.push({
+      id: fact.id,
+      amount: p.amount || 0,
+      date: p.date || null,
+      comment: p.comment || null,
+    });
+  }
+
+  // Step 5: Inter-branch bonus (fixed ₽ per shift, or legacy hours*rate)
+  const INTER_BRANCH_BONUS = settings?.["pay.inter_branch_bonus"] ?? null; // fixed ₽ per shift
+  const INTER_BRANCH_EXTRA_HOURS = settings?.["pay.inter_branch_extra_hours"] ?? 0; // legacy: extra hours per shift
+  const DEFAULT_BRANCH = settings?.["schedule.default_branch"] || "Архангельск";
+
+  // Step 6: Build employees array
   const employees = [];
 
   for (const [user_id, data] of userData) {
+    // Skip non-employee users (owner, admin, system)
+    if (/^(owner|admin|system)/i.test(user_id)) continue;
+
     const name = UserDirectory.getDisplayName(user_id);
     const rate = hourlyRates?.[user_id] || UserDirectory.getRatePerHour(user_id) || 0;
 
@@ -189,7 +246,33 @@ export function buildTimesheet({ schedule, facts, weekStartISO, hourlyRates, set
     const extra_classes_total_pay = data.extra_classes_list.reduce((s, e) => s + e.pay, 0);
     const extra_classes_total_kids = data.extra_classes_list.reduce((s, e) => s + (e.kids_count || 0), 0);
 
-    const total_before_rounding = shift_pay + cleaning_pay + extra_classes_total_pay;
+    // Inter-branch bonus: if employee's branch differs from default branch
+    let inter_branch_hours = 0;
+    let inter_branch_pay = 0;
+    const userBranch = UserDirectory.getBranch(user_id);
+    if (userBranch !== DEFAULT_BRANCH) {
+      const userShiftCount = (schedule?.assignments || []).filter(
+        a => UserDirectory.normalizeUserId(a.user_id) === user_id
+      ).length;
+      if (INTER_BRANCH_BONUS != null && INTER_BRANCH_BONUS > 0) {
+        // New: fixed ₽ per shift
+        inter_branch_pay = userShiftCount * INTER_BRANCH_BONUS;
+      } else if (INTER_BRANCH_EXTRA_HOURS > 0) {
+        // Legacy: extra hours × rate
+        inter_branch_hours = userShiftCount * INTER_BRANCH_EXTRA_HOURS;
+        inter_branch_pay = inter_branch_hours * rate;
+      }
+    }
+
+    // Extra work: only approved count toward pay
+    const extra_work_approved_pay = data.extra_work_list
+      .filter((w) => w.status === "approved")
+      .reduce((s, w) => s + w.price, 0);
+
+    // Extra pay: all director bonuses count
+    const extra_pay_total = data.extra_pay_list.reduce((s, p) => s + p.amount, 0);
+
+    const total_before_rounding = shift_pay + cleaning_pay + extra_classes_total_pay + inter_branch_pay + extra_work_approved_pay + extra_pay_total;
     const total_pay = ROUNDING_STEP > 0
       ? Math.ceil(total_before_rounding / ROUNDING_STEP) * ROUNDING_STEP
       : total_before_rounding;
@@ -209,6 +292,12 @@ export function buildTimesheet({ schedule, facts, weekStartISO, hourlyRates, set
       extra_classes_count,
       extra_classes_total_kids,
       extra_classes_total_pay,
+      extra_work: data.extra_work_list,
+      extra_work_approved_pay,
+      extra_pay: data.extra_pay_list,
+      extra_pay_total,
+      inter_branch_hours,
+      inter_branch_pay,
       total_before_rounding,
       total_pay,
     });

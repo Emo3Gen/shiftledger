@@ -10,13 +10,7 @@ export default {
     }
 
     const url = new URL(request.url);
-
-    // 🔑 КЛЮЧЕВОЕ МЕСТО
-    // Worker принимает /api/*
-    // Backend работает без /api
-    const pathname = url.pathname.replace(/^\/api/, "") || "/";
-
-    const targetUrl = backend + pathname;
+    const targetUrl = backend + url.pathname + url.search;
 
     return fetch(targetUrl, request);
   },

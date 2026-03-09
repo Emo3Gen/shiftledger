@@ -1,6 +1,8 @@
 // v0 deterministic parser for chat events -> structured facts.
 // No LLM, only regex / rule-based parsing.
 
+import { UserDirectory } from "./userDirectory.js";
+
 // Helper: get local date in Europe/Berlin as YYYY-MM-DD
 function getBerlinDateFromIso(isoString) {
   const date = new Date(isoString);
@@ -495,6 +497,47 @@ function parseCommandFormat(text, receivedAt) {
     return results;
   }
 
+  // UNASSIGN [YYYY-MM-DD?] <dow> <from>-<to>
+  // Example: "UNASSIGN 2026-03-09 sat 18-21" or "UNASSIGN sat 18-21"
+  const unassignMatch1 = upper.match(/^UNASSIGN\s+(\d{4}-\d{2}-\d{2})\s+(\w+)\s+(\d{1,2})-(\d{1,2})$/);
+  const unassignMatch2 = upper.match(/^UNASSIGN\s+(\w+)\s+(\d{1,2})-(\d{1,2})$/);
+  const unassignMatch = unassignMatch1 || unassignMatch2;
+  if (unassignMatch) {
+    let weekStart, dow, fromHour, toHour;
+    if (unassignMatch1) {
+      weekStart = unassignMatch1[1];
+      dow = unassignMatch1[2].toLowerCase();
+      fromHour = unassignMatch1[3].padStart(2, "0");
+      toHour = unassignMatch1[4].padStart(2, "0");
+    } else {
+      weekStart = null;
+      dow = unassignMatch2[1].toLowerCase();
+      fromHour = unassignMatch2[2].padStart(2, "0");
+      toHour = unassignMatch2[3].padStart(2, "0");
+    }
+    if (DOW_MAP[dow] !== undefined) {
+      let date;
+      if (weekStart) {
+        date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
+      } else {
+        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+      }
+      results.push({
+        fact_type: "SHIFT_UNASSIGNMENT",
+        fact_payload: {
+          week_start: weekStart,
+          date,
+          dow,
+          from: `${fromHour}:00`,
+          to: `${toHour}:00`,
+          notes: text,
+        },
+        confidence: 1.0,
+      });
+    }
+    return results;
+  }
+
   // APPROVE_OVERTIME [YYYY-MM-DD?] <dow> <from>-<to>
   const approveOvertimeMatch1 = upper.match(/^APPROVE_OVERTIME\s+(\d{4}-\d{2}-\d{2})\s+(\w+)\s+(\d{1,2})-(\d{1,2})$/);
   const approveOvertimeMatch2 = upper.match(/^APPROVE_OVERTIME\s+(\w+)\s+(\d{1,2})-(\d{1,2})$/);
@@ -807,12 +850,21 @@ const RU_DOW_MAP = {
 const NAMED_TIMES = {
   утро: { from: "10:00", to: "13:00" },
   утром: { from: "10:00", to: "13:00" },
+  утр: { from: "10:00", to: "13:00" },    // typo
   вечер: { from: "18:00", to: "21:00" },
   вечером: { from: "18:00", to: "21:00" },
+  вече: { from: "18:00", to: "21:00" },   // typo
+  вечерн: { from: "18:00", to: "21:00" }, // typo
   день: { from: "13:00", to: "18:00" },
   днём: { from: "13:00", to: "18:00" },
   днем: { from: "13:00", to: "18:00" },
 };
+
+// Both slots fallback when no time specified
+const BOTH_SLOTS = [
+  { from: "10:00", to: "13:00" },
+  { from: "18:00", to: "21:00" },
+];
 
 /**
  * Extract Russian dow from text. Returns { dow, dowIndex } or null.
@@ -843,6 +895,50 @@ function extractRuDow(text) {
 }
 
 /**
+ * Extract ALL Russian day-of-week mentions from text.
+ * Returns array of { dow, dowIndex } sorted by dow order (mon..sun).
+ * Also expands ranges like "пн-ср" → [пн, вт, ср].
+ */
+function extractAllRuDows(text) {
+  const results = [];
+  const seen = new Set();
+
+  // First, check for day ranges: "пн-ср", "пн–пт"
+  const DOW_ABBREVS = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
+  const rangeRe = /(пн|вт|ср|чт|пт|сб|вс)\s*[-–—]\s*(пн|вт|ср|чт|пт|сб|вс)/i;
+  const rangeMatch = text.match(rangeRe);
+  if (rangeMatch) {
+    const startIdx = DOW_ABBREVS.indexOf(rangeMatch[1].toLowerCase());
+    const endIdx = DOW_ABBREVS.indexOf(rangeMatch[2].toLowerCase());
+    if (startIdx !== -1 && endIdx !== -1 && startIdx <= endIdx) {
+      for (let i = startIdx; i <= endIdx; i++) {
+        const abbr = DOW_ABBREVS[i];
+        const dow = RU_DOW_MAP[abbr];
+        if (!seen.has(dow)) {
+          seen.add(dow);
+          results.push({ dow, dowIndex: DOW_MAP[dow] });
+        }
+      }
+    }
+  }
+
+  // Then check for individual day mentions
+  const sorted = Object.keys(RU_DOW_MAP).sort((a, b) => b.length - a.length);
+  for (const key of sorted) {
+    const re = new RegExp(`(?:^|[\\s,])${key}(?:[\\s,?!.]|$)`, "i");
+    if (re.test(text)) {
+      const dow = RU_DOW_MAP[key];
+      if (!seen.has(dow)) {
+        seen.add(dow);
+        results.push({ dow, dowIndex: DOW_MAP[dow] });
+      }
+    }
+  }
+
+  return results.sort((a, b) => a.dowIndex - b.dowIndex);
+}
+
+/**
  * Extract time range from text. Returns { from, to } or null.
  * Supports: "10-13", "10:00-13:00", "с 10 до 13", "утро", "вечер", "день"
  */
@@ -870,18 +966,180 @@ function extractTime(text) {
 }
 
 /**
+ * Parse multi-line schedule format:
+ *   "пн - утро\nвт - —\nчт - вечер\nсб - вечер"
+ *   "пн - вечер\nвт - утро\nчт - утро, вечер\nвс - не могу"
+ *
+ * Each line: <day> <separator> <content>
+ * Separator: "-", "–", "—", ":"
+ * Content:
+ *   "утро" → morning slot
+ *   "вечер" → evening slot
+ *   "утро, вечер" or "утро/вечер" → both slots
+ *   "—", "-", "нет", "не могу", empty → SHIFT_UNAVAILABILITY
+ */
+function parseMultiLineSchedule(text, receivedAt) {
+  const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+  // Need at least 2 lines with day-separator-content pattern to qualify
+  const DOW_ABBREVS = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
+  const lineRe = /^(пн|вт|ср|чт|пт|сб|вс|понедельник|вторник|среда|среду|четверг|пятница|пятницу|суббота|субботу|воскресенье)\s*[-–—:]\s*(.*)$/i;
+
+  const parsed = [];
+  for (const line of lines) {
+    const m = line.match(lineRe);
+    if (m) {
+      parsed.push({ dayToken: m[1].toLowerCase(), content: m[2].trim().toLowerCase() });
+    }
+  }
+
+  // Need at least 2 matching lines to consider this multi-line format
+  if (parsed.length < 2) return [];
+
+  const results = [];
+  for (const { dayToken, content } of parsed) {
+    const dow = RU_DOW_MAP[dayToken];
+    if (!dow) continue;
+    const dowIndex = DOW_MAP[dow];
+    const date = nextWeekdayBerlin(receivedAt, dowIndex);
+
+    // Determine if unavailable
+    const isUnavail = !content || content === "—" || content === "-" || content === "–"
+      || content === "нет" || /не\s*могу/.test(content);
+
+    if (isUnavail) {
+      for (const slot of BOTH_SLOTS) {
+        results.push({
+          fact_type: "SHIFT_UNAVAILABILITY",
+          fact_payload: { date, dow, from: slot.from, to: slot.to, availability: "cannot", notes: text },
+          confidence: 0.85,
+        });
+      }
+      continue;
+    }
+
+    // Check for time slots in content
+    const hasMorning = /утр/.test(content);
+    const hasEvening = /вечер/.test(content);
+
+    if (hasMorning && hasEvening) {
+      // Both slots
+      for (const slot of BOTH_SLOTS) {
+        results.push({
+          fact_type: "SHIFT_AVAILABILITY",
+          fact_payload: { date, dow, from: slot.from, to: slot.to, availability: "can", notes: text },
+          confidence: 0.85,
+        });
+      }
+    } else if (hasMorning) {
+      results.push({
+        fact_type: "SHIFT_AVAILABILITY",
+        fact_payload: { date, dow, from: "10:00", to: "13:00", availability: "can", notes: text },
+        confidence: 0.85,
+      });
+    } else if (hasEvening) {
+      results.push({
+        fact_type: "SHIFT_AVAILABILITY",
+        fact_payload: { date, dow, from: "18:00", to: "21:00", availability: "can", notes: text },
+        confidence: 0.85,
+      });
+    } else {
+      // Try extracting numeric time range from content
+      const time = extractTime(content);
+      if (time) {
+        results.push({
+          fact_type: "SHIFT_AVAILABILITY",
+          fact_payload: { date, dow, from: time.from, to: time.to, availability: "can", notes: text },
+          confidence: 0.85,
+        });
+      } else {
+        // Unknown content but day is present — assume both slots available
+        for (const slot of BOTH_SLOTS) {
+          results.push({
+            fact_type: "SHIFT_AVAILABILITY",
+            fact_payload: { date, dow, from: slot.from, to: slot.to, availability: "can", notes: text },
+            confidence: 0.6,
+          });
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Parse "все дни кроме пн" / "могу каждый день кроме пн" / "каждый день кроме среды"
+ * Returns SHIFT_AVAILABILITY for included days (both slots) and SHIFT_UNAVAILABILITY for excluded.
+ */
+function parseAllDaysExcept(text, receivedAt) {
+  const lower = text.toLowerCase();
+  // Pattern: optional "могу"/"свободна" + "все дни"/"каждый день"/"всю неделю" + optional "кроме <days>"
+  const allDaysRe = /(?:мог[уа]|свободн[аы]?)?\s*(?:все\s+дни|каждый\s+день|всю\s+неделю)/i;
+  if (!allDaysRe.test(lower)) return [];
+
+  const ALL_DOWS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+  const excludedDows = new Set();
+
+  // Extract "кроме ..." part
+  const exceptRe = /кроме\s+(.+)/i;
+  const exceptMatch = lower.match(exceptRe);
+  if (exceptMatch) {
+    const exceptText = exceptMatch[1];
+    const excludedDays = extractAllRuDows(exceptText);
+    for (const d of excludedDays) excludedDows.add(d.dow);
+  }
+
+  const results = [];
+  for (let i = 0; i < ALL_DOWS.length; i++) {
+    const dow = ALL_DOWS[i];
+    const date = nextWeekdayBerlin(receivedAt, i);
+    if (excludedDows.has(dow)) {
+      for (const slot of BOTH_SLOTS) {
+        results.push({
+          fact_type: "SHIFT_UNAVAILABILITY",
+          fact_payload: { date, dow, from: slot.from, to: slot.to, availability: "cannot", notes: text },
+          confidence: 0.8,
+        });
+      }
+    } else {
+      for (const slot of BOTH_SLOTS) {
+        results.push({
+          fact_type: "SHIFT_AVAILABILITY",
+          fact_payload: { date, dow, from: slot.from, to: slot.to, availability: "can", notes: text },
+          confidence: 0.8,
+        });
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
  * Try to parse Russian NL availability/unavailability.
  * Returns array of facts or empty array.
+ *
+ * Supported patterns:
+ *   "могу пн утро"                     → 1 fact (mon morning)
+ *   "могу в пн"                        → 2 facts (mon morning + evening)
+ *   "могу пн утро, вт утро, чт утро"   → 3 facts
+ *   "могу пн, вт, ср утро"             → 3 facts (time from last segment)
+ *   "могу пн вт ср"                    → 6 facts (3 days × 2 slots)
+ *   "могу пн-ср утро"                  → 3 facts (range expansion)
+ *   "не могу сб вече"                  → 1 fact (typo tolerance)
  */
 function parseRussianNL(text, receivedAt) {
   const lower = text.toLowerCase();
 
+  // Skip swap keywords — let the swap parser handle those
+  const swapKw = ["поменяй", "поменяться", "обмен", "замени меня", "сменяться"];
+  if (swapKw.some((k) => lower.includes(k))) return [];
+
   // Detect negative before positive (не могу before могу)
-  // Use explicit delimiters — \b doesn't work with Cyrillic in JS
   const S = "(?:^|[\\s,])"; // start-or-separator
   const E = "(?:[\\s,]|$)"; // end-or-separator
-  const negativePatterns = [/не\s+могу/, /не\s+смогу/, new RegExp(S + "занята?" + E), new RegExp(S + "нет" + E)];
-  const positivePatterns = [new RegExp(S + "могу" + E), new RegExp(S + "свободн"), new RegExp(S + "ок" + E), new RegExp(S + "да," )];
+  const negativePatterns = [/не\s+могу/, /не\s+смогу/, /не\s+буду/, new RegExp(S + "занята?" + E), new RegExp(S + "нет" + E)];
+  const positivePatterns = [new RegExp(S + "могу" + E), new RegExp(S + "свободн"), new RegExp(S + "ок" + E), new RegExp(S + "да,")];
 
   let isNegative = false;
   let isPositive = false;
@@ -895,49 +1153,415 @@ function parseRussianNL(text, receivedAt) {
     }
   }
 
-  const dowInfo = extractRuDow(lower);
-  if (!dowInfo) return [];
-
-  const time = extractTime(lower);
-  if (!time) return [];
-
-  // Full form with explicit marker → high confidence
-  if (isNegative || isPositive) {
-    const date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
-    return [{
-      fact_type: isNegative ? "SHIFT_UNAVAILABILITY" : "SHIFT_AVAILABILITY",
-      fact_payload: {
-        date,
-        dow: dowInfo.dow,
-        from: time.from,
-        to: time.to,
-        availability: isNegative ? "cannot" : "can",
-        notes: text,
-      },
-      confidence: 0.85,
-    }];
+  // Check for leading minus/dash as negation: "- пн 10-13"
+  if (!isNegative && !isPositive) {
+    if (/^\s*[-–—]\s/.test(text)) isNegative = true;
   }
 
-  // Short form: day + time only, no keyword → default to availability, lower confidence
-  // Skip if swap keywords present — let the swap parser handle those
-  const swapKw = ["поменяй", "поменяться", "обмен", "замени меня", "сменяться"];
-  if (swapKw.some((k) => lower.includes(k))) return [];
+  const factType = isNegative ? "SHIFT_UNAVAILABILITY" : "SHIFT_AVAILABILITY";
+  const availability = isNegative ? "cannot" : "can";
+  const confidence = (isNegative || isPositive) ? 0.85 : 0.6;
+  const noTimeConfidence = (isNegative || isPositive) ? 0.75 : 0.5;
 
-  // Check for leading minus/dash as negation: "- пн 10-13"
-  const isShortNegative = /^\s*[-–—]\s/.test(text);
-  const date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
-  return [{
-    fact_type: isShortNegative ? "SHIFT_UNAVAILABILITY" : "SHIFT_AVAILABILITY",
-    fact_payload: {
-      date,
-      dow: dowInfo.dow,
-      from: time.from,
-      to: time.to,
-      availability: isShortNegative ? "cannot" : "can",
-      notes: text,
-    },
-    confidence: 0.6,
-  }];
+  // Split by comma/semicolon/и to handle "пн утро, вт утро, чт утро"
+  const segments = lower.split(/[,;]|\sи\s/);
+  const results = [];
+
+  // Extract global time from full text (fallback when segment has no time)
+  const globalTime = extractTime(lower);
+
+  for (const seg of segments) {
+    const trimmed = seg.trim();
+    if (!trimmed) continue;
+
+    // Extract all days from this segment (handles "пн вт ср" and "пн-ср")
+    const days = extractAllRuDows(trimmed);
+    if (days.length === 0) continue;
+
+    // Extract time from this segment specifically
+    const segTime = extractTime(trimmed);
+
+    for (const dayInfo of days) {
+      const time = segTime || globalTime;
+      const date = nextWeekdayBerlin(receivedAt, dayInfo.dowIndex);
+
+      if (time) {
+        results.push({
+          fact_type: factType,
+          fact_payload: {
+            date,
+            dow: dayInfo.dow,
+            from: time.from,
+            to: time.to,
+            availability,
+            notes: text,
+          },
+          confidence,
+        });
+      } else {
+        // No time specified → generate facts for BOTH slots
+        for (const slot of BOTH_SLOTS) {
+          results.push({
+            fact_type: factType,
+            fact_payload: {
+              date,
+              dow: dayInfo.dow,
+              from: slot.from,
+              to: slot.to,
+              availability,
+              notes: text,
+            },
+            confidence: noTimeConfidence,
+          });
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+// --- Fuzzy keyword matching layer (fallback for NL) ---
+
+/**
+ * Simple Russian stemming — strip common suffixes to normalize words.
+ */
+function stem(word) {
+  return word.replace(/(ала|ась|ось|ать|ить|ыть|ула|ели|ила|ули|ую|ой|ей|ом|ем|ки|ку|ке|ов|ев|ла|ал|ли|ый|ая|ое|ые|ий)$/i, '');
+}
+
+/**
+ * Keyword dictionary for fuzzy intent detection.
+ * Each entry maps a semantic category to arrays of word stems/prefixes.
+ */
+const INTENT_KEYWORDS = {
+  AVAILABLE: {
+    positive: ['мог', 'смог', 'готов', 'свобод', 'выход', 'выйд', 'дежур', 'работ'],
+    negative: ['не мог', 'не смог', 'не готов', 'не выйд', 'не получ', 'занят', 'болен', 'болею', 'заболел', 'отпуск', 'не буд'],
+  },
+  CLEANING: {
+    done: ['убр', 'убор', 'убира', 'уберу', 'помыл', 'помою', 'вымыл', 'чист', 'убрал'],
+    cant: ['не убр', 'не могу убр', 'не уберу'],
+  },
+  EXTRA_WORK: {
+    action: ['сдел', 'провел', 'провод', 'выполн', 'заверш', 'снял', 'сняла', 'подготов', 'оформ', 'разобр'],
+  },
+  DAYS: {
+    'mon': ['пн', 'понед', 'понедельн'],
+    'tue': ['вт', 'вторн'],
+    'wed': ['ср', 'сред'],
+    'thu': ['чт', 'четв'],
+    'fri': ['пт', 'пятн', 'пятниц'],
+    'sat': ['сб', 'субб', 'суббот'],
+    'sun': ['вс', 'воскр', 'воскресен'],
+  },
+  TIME: {
+    morning: ['утр', 'утро', 'утром', 'утрен'],
+    day: ['день', 'дневн', 'днём', 'днем'],
+    evening: ['веч', 'вечер', 'вечером', 'вечерн', 'ночь', 'ночн'],
+  },
+};
+
+/**
+ * Extract day-of-week codes from text using fuzzy prefix matching.
+ * Returns array of dow codes like ['mon', 'thu'].
+ */
+function fuzzyExtractDays(lower) {
+  const found = [];
+  const seen = new Set();
+  for (const [dow, prefixes] of Object.entries(INTENT_KEYWORDS.DAYS)) {
+    for (const prefix of prefixes) {
+      if (lower.includes(prefix) && !seen.has(dow)) {
+        seen.add(dow);
+        found.push(dow);
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * Extract time slot from text using fuzzy keyword matching.
+ * Returns { from, to } or null.
+ */
+function fuzzyExtractTimeSlot(lower) {
+  for (const prefix of INTENT_KEYWORDS.TIME.morning) {
+    if (lower.includes(prefix)) return { from: '10:00', to: '13:00' };
+  }
+  for (const prefix of INTENT_KEYWORDS.TIME.day) {
+    if (lower.includes(prefix)) return { from: '13:00', to: '18:00' };
+  }
+  for (const prefix of INTENT_KEYWORDS.TIME.evening) {
+    if (lower.includes(prefix)) return { from: '18:00', to: '21:00' };
+  }
+  return null;
+}
+
+/**
+ * Check if text matches any negative availability keyword (multi-word phrases first).
+ */
+function fuzzyIsNegative(lower) {
+  for (const phrase of INTENT_KEYWORDS.AVAILABLE.negative) {
+    if (lower.includes(phrase)) return true;
+  }
+  return false;
+}
+
+/**
+ * Check if text matches any positive availability keyword.
+ */
+function fuzzyIsPositive(lower) {
+  for (const kw of INTENT_KEYWORDS.AVAILABLE.positive) {
+    if (lower.includes(kw)) return true;
+  }
+  return false;
+}
+
+/**
+ * Check if text matches cleaning-done keywords.
+ */
+function fuzzyIsCleaning(lower) {
+  for (const kw of INTENT_KEYWORDS.CLEANING.done) {
+    if (lower.includes(kw)) return true;
+  }
+  return false;
+}
+
+/**
+ * Check if text contains an action verb for extra work.
+ */
+function fuzzyHasAction(lower) {
+  for (const kw of INTENT_KEYWORDS.EXTRA_WORK.action) {
+    if (lower.includes(kw)) return true;
+  }
+  return false;
+}
+
+/**
+ * Fuzzy match extra work catalog items using stem-based matching.
+ * For each catalog item: stem its name words and alias words, then check
+ * if the stemmed text contains both an action verb AND the item stems.
+ */
+function fuzzyMatchExtraWorkCatalog(lower) {
+  if (_extraWorkCatalog.length === 0) return null;
+
+  const textWords = lower.split(/\s+/).filter(Boolean);
+  const textStems = textWords.map(w => stem(w));
+  const textStemsJoined = textStems.join(' ');
+
+  for (const item of _extraWorkCatalog) {
+    // Check aliases first (more specific)
+    const aliases = CATALOG_ALIASES[item.id] || [];
+    for (const alias of aliases) {
+      const aliasWords = alias.toLowerCase().split(/\s+/).filter(Boolean);
+      const aliasStems = aliasWords.map(w => stem(w));
+      // Check if all alias stems appear in the text stems
+      const allFound = aliasStems.every(as =>
+        textStems.some(ts => ts.startsWith(as) || as.startsWith(ts))
+      );
+      if (allFound) return item;
+    }
+
+    // Check item name stems
+    const nameWords = item.name.toLowerCase().split(/\s+/).filter(Boolean);
+    const nameStems = nameWords.map(w => stem(w));
+    const allNameFound = nameStems.every(ns =>
+      textStems.some(ts => ts.startsWith(ns) || ns.startsWith(ts))
+    );
+    if (allNameFound) return item;
+  }
+  return null;
+}
+
+/**
+ * Fuzzy keyword-based intent detection.
+ * Called as FALLBACK when existing rules produce no facts.
+ * Returns array of facts with confidence 0.6.
+ */
+function fuzzyMatchIntent(text, receivedAt) {
+  const lower = text.toLowerCase().replace(/[.,!?;:()]/g, ' ');
+  const results = [];
+
+  // Extract days and time
+  const foundDays = fuzzyExtractDays(lower);
+  const foundTime = fuzzyExtractTimeSlot(lower);
+
+  // 1. Check for cleaning done
+  if (fuzzyIsCleaning(lower) && !fuzzyIsNegative(lower)) {
+    if (foundDays.length > 0) {
+      for (const dow of foundDays) {
+        results.push({
+          fact_type: 'CLEANING_DONE',
+          fact_payload: {
+            date: sameWeekdayBerlin(receivedAt, DOW_MAP[dow]),
+            dow,
+            notes: text,
+          },
+          confidence: 0.6,
+        });
+      }
+      return results;
+    }
+  }
+
+  // 2. Check for extra work (catalog items)
+  const matchedWork = fuzzyMatchExtraWorkCatalog(lower);
+  if (matchedWork) {
+    // If there's an action word or just a catalog item mention
+    if (fuzzyHasAction(lower) || matchedWork) {
+      results.push({
+        fact_type: 'EXTRA_WORK_REQUEST',
+        fact_payload: {
+          work_type_id: matchedWork.id,
+          work_name: matchedWork.name,
+          price: matchedWork.price,
+          date: getBerlinDateFromIso(receivedAt),
+          status: 'pending',
+          notes: text,
+        },
+        confidence: 0.6,
+      });
+      return results;
+    }
+  }
+
+  // 3. Check for availability / unavailability
+  const isNeg = fuzzyIsNegative(lower);
+  const isPos = fuzzyIsPositive(lower);
+
+  if ((isNeg || isPos) && foundDays.length > 0) {
+    const factType = isNeg ? 'SHIFT_UNAVAILABILITY' : 'SHIFT_AVAILABILITY';
+    const availability = isNeg ? 'cannot' : 'can';
+
+    for (const dow of foundDays) {
+      const date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+      if (foundTime) {
+        results.push({
+          fact_type: factType,
+          fact_payload: {
+            date,
+            dow,
+            from: foundTime.from,
+            to: foundTime.to,
+            availability,
+            notes: text,
+          },
+          confidence: 0.6,
+        });
+      } else {
+        // No time → both slots
+        for (const slot of BOTH_SLOTS) {
+          results.push({
+            fact_type: factType,
+            fact_payload: {
+              date,
+              dow,
+              from: slot.from,
+              to: slot.to,
+              availability,
+              notes: text,
+            },
+            confidence: 0.5,
+          });
+        }
+      }
+    }
+    return results;
+  }
+
+  return results;
+}
+
+// --- Extra work catalog for NL matching ---
+let _extraWorkCatalog = [];
+
+/**
+ * Set the extra work catalog for NL matching.
+ * Call this at server startup after loading settings.
+ * @param {Array<{id: string, name: string, price: number, keywords?: string[]}>} catalog
+ */
+export function setExtraWorkCatalog(catalog) {
+  _extraWorkCatalog = catalog || [];
+}
+
+// Built-in aliases for common catalog items (id → array of synonyms/abbreviations)
+const CATALOG_ALIASES = {
+  gen_cleaning: ["генеральная уборка", "генеральную уборку", "ген уборка", "ген уборку", "ген. уборка", "ген. уборку", "генеральная", "генеральную"],
+  reel: ["рилс", "рил", "reels", "рилс с монтажом"],
+  shelf_sort: ["разбор шкафов", "разобрала шкафы", "шкафы разобрала", "разобрала шкаф", "разбор"],
+  inventory: ["инвентаризация", "инвентаризацию", "инвентарь", "провела инвентаризацию"],
+};
+
+/**
+ * Simple Levenshtein distance for short strings (for typo tolerance).
+ */
+function levenshtein(a, b) {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      const cost = b[i - 1] === a[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost,
+      );
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+/**
+ * Try to match text against extra work catalog items.
+ * Uses: exact match → alias match → fuzzy alias match (Levenshtein ≤ 2).
+ * Returns { id, name, price } or null.
+ */
+function matchExtraWork(text) {
+  const lower = text.toLowerCase();
+
+  for (const item of _extraWorkCatalog) {
+    const nameLower = item.name.toLowerCase();
+
+    // 1. Exact full name match
+    if (lower.includes(nameLower)) return item;
+
+    // 2. Built-in aliases
+    const aliases = CATALOG_ALIASES[item.id] || [];
+    for (const alias of aliases) {
+      if (lower.includes(alias)) return item;
+    }
+
+    // 3. Keywords from catalog config
+    if (item.keywords) {
+      for (const kw of item.keywords) {
+        if (lower.includes(kw.toLowerCase())) return item;
+      }
+    }
+
+    // 4. Fuzzy alias match (Levenshtein ≤ 2) for typo tolerance ("гне уборку" → "ген уборку")
+    const words = lower.split(/\s+/);
+    for (const alias of aliases) {
+      const aliasWords = alias.split(/\s+/);
+      if (aliasWords.length <= words.length) {
+        // Sliding window: try to match alias words sequence within text words
+        for (let start = 0; start <= words.length - aliasWords.length; start++) {
+          let totalDist = 0;
+          let allClose = true;
+          for (let k = 0; k < aliasWords.length; k++) {
+            const dist = levenshtein(words[start + k], aliasWords[k]);
+            totalDist += dist;
+            if (dist > 2) { allClose = false; break; }
+          }
+          if (allClose && totalDist <= 2) return item;
+        }
+      }
+    }
+  }
+  return null;
 }
 
 export function parseEventToFacts(event) {
@@ -954,22 +1578,50 @@ export function parseEventToFacts(event) {
     return commandResults;
   }
 
+  // Rule 0-clar: CLARIFICATION_RESPONSE (short answers to system clarification questions)
+  // "1" → cleaning, "2" → shift, "уборка"/"уберусь" → cleaning, "дежурство"/"смена" → shift
+  const clarStripped = lower.replace(/[.!?,\s]/g, "");
+  const clarNumMap = { "1": "cleaning", "2": "shift" };
+  if (clarNumMap[clarStripped]) {
+    return [{
+      fact_type: "CLARIFICATION_RESPONSE",
+      fact_payload: { type: clarNumMap[clarStripped], notes: text },
+      confidence: 0.9,
+    }];
+  }
+  if (lower.trim().length < 20) {
+    const clarWordMap = {
+      "уборка": "cleaning", "уберусь": "cleaning",
+      "дежурство": "shift", "смена": "shift",
+    };
+    const clarWord = lower.replace(/[.!?,]/g, "").trim();
+    if (clarWordMap[clarWord]) {
+      return [{
+        fact_type: "CLARIFICATION_RESPONSE",
+        fact_payload: { type: clarWordMap[clarWord], notes: text },
+        confidence: 0.9,
+      }];
+    }
+  }
+
   // Rule 0a0: CLEANING_HELP_REQUEST (поиск замены на уборку)
-  // "кто уберётся за меня в среду?" / "не могу убраться в чт"
+  // "кто уберётся за меня в среду?" / "не могу убраться в чт" / "не могу убраться пн-ср"
   const cleanHelpRe = /(?:кто\s+(?:убер[её]тся|уберется|сможет\s+убраться|может\s+убраться)|не\s+(?:могу|смогу)\s+убраться)/i;
   if (cleanHelpRe.test(lower)) {
-    const dowInfo = extractRuDow(lower);
-    if (dowInfo) {
-      const date = sameWeekdayBerlin(receivedAt, dowInfo.dowIndex);
-      results.push({
-        fact_type: "CLEANING_HELP_REQUEST",
-        fact_payload: {
-          date,
-          dow: dowInfo.dow,
-          notes: text,
-        },
-        confidence: 0.8,
-      });
+    const allDows = extractAllRuDows(lower);
+    if (allDows.length > 0) {
+      for (const dowInfo of allDows) {
+        const date = sameWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+        results.push({
+          fact_type: "CLEANING_HELP_REQUEST",
+          fact_payload: {
+            date,
+            dow: dowInfo.dow,
+            notes: text,
+          },
+          confidence: 0.8,
+        });
+      }
       return results;
     }
   }
@@ -996,75 +1648,102 @@ export function parseEventToFacts(event) {
     }
   }
 
-  // Rule 0a: CLEANING_SWAP (замена уборки)
-  // "я уберусь за Дарину в чт" / "уберусь за Ксюшу в пн"
-  const cleanSwapNameMap = {
-    "ису": "u1", "иса": "u1", "исы": "u1",
-    "дарину": "u2", "дарина": "u2", "дарины": "u2",
-    "ксюшу": "u3", "ксюша": "u3", "ксюши": "u3",
-    "карину": "u4", "карина": "u4", "карины": "u4",
-  };
-  const cleanSwapRe = /(?:уберусь\s+за|уборк[уе]\s+за\s+меня\s+сделает|подменю\s+на\s+уборке|уборк[уе]\s+за\s+\S+\s+сделает)\s*/i;
-  if (cleanSwapRe.test(lower) || (lower.includes("уборк") && lower.includes(" за "))) {
-    const dowInfo = extractRuDow(lower);
-    if (dowInfo) {
-      let originalUserId = null;
-      let replacementUserId = null;
-      // "я уберусь за [Name]" → speaker is replacement, Name is original
-      if (/уберусь\s+за/i.test(lower)) {
-        for (const [name, uid] of Object.entries(cleanSwapNameMap)) {
-          if (lower.includes(name)) { originalUserId = uid; break; }
-        }
-        // replacement_user_id will be set from event.user_id by the caller
-      }
-      // "уборку за меня сделает [Name]" / "уборку в среду за меня сделает [Name]" → speaker is original, Name is replacement
-      else if (/уборк[уе].*за\s+меня\s+сделает/i.test(lower)) {
-        for (const [name, uid] of Object.entries(cleanSwapNameMap)) {
-          if (lower.includes(name)) { replacementUserId = uid; break; }
-        }
-        // original_user_id will be set from event.user_id by the caller
-      }
-      // "подменю на уборке [Name?]" → speaker is replacement
-      else if (/подменю\s+на\s+уборке/i.test(lower)) {
-        for (const [name, uid] of Object.entries(cleanSwapNameMap)) {
-          if (lower.includes(name)) { originalUserId = uid; break; }
-        }
-      }
-      // Generic: "уборку за [Name] сделает [Name2]"
-      else {
-        const names = [];
-        for (const [name, uid] of Object.entries(cleanSwapNameMap)) {
-          if (lower.includes(name) && !names.some(n => n.uid === uid)) {
-            names.push({ name, uid });
+  // Rule 0a: CLEANING_SWAP (замена уборки) — order-independent extraction
+  // Supports any word order: "убралась за ксюшу пт", "убралась пт за ксюшу",
+  // "убралась в пт за ксюшу", "пт убралась за ксюшу", "уберусь за дарину в чт"
+  //
+  // Strategy: extract ALL key elements independently from the entire text:
+  //   1. cleaning_intent: does text contain stem "убр"/"убор"/"уберу"?
+  //   2. swap_intent: does text contain preposition "за" followed by or near a person name?
+  //   3. target_user: find employee name in any grammatical case anywhere in text
+  //   4. day: find day of week anywhere in text
+  {
+    const cleaningIntentRe = /(?:убр|убор|уберу)/i;
+    const hasCleaningIntent = cleaningIntentRe.test(lower);
+
+    if (hasCleaningIntent) {
+      // Generate name forms for all employees for flexible matching
+      const generateNameForms = (name) => {
+        const ln = name.toLowerCase();
+        const base = ln.replace(/[аяоеуи]$/, '');
+        return new Set([ln, base + 'у', base + 'е', base + 'ой', base + 'ей', base + 'ы', base + 'и', base + 'а', base]);
+      };
+
+      // Try to find an employee name anywhere in text
+      let targetUserId = null;
+      const allUsers = UserDirectory.getAllUsers();
+      const textWords = lower.replace(/[,?!.]/g, ' ').split(/\s+/).filter(Boolean);
+      for (const user of allUsers) {
+        const forms = generateNameForms(user.displayName);
+        for (const word of textWords) {
+          if (forms.has(word)) {
+            targetUserId = user.id;
+            break;
           }
         }
-        if (names.length >= 2) {
-          originalUserId = names[0].uid;
-          replacementUserId = names[1].uid;
-        } else if (names.length === 1) {
-          originalUserId = names[0].uid;
+        if (targetUserId) break;
+        // Also try findByDisplayName as fallback for non-standard forms
+        for (const word of textWords) {
+          if (word.length >= 2) {
+            const uid = UserDirectory.findByDisplayName(word);
+            if (uid) { targetUserId = uid; break; }
+          }
         }
+        if (targetUserId) break;
       }
 
-      if (originalUserId || replacementUserId) {
-        const date = sameWeekdayBerlin(receivedAt, dowInfo.dowIndex);
-        results.push({
-          fact_type: "CLEANING_SWAP",
-          fact_payload: {
-            date,
-            dow: dowInfo.dow,
-            original_user_id: originalUserId,
-            replacement_user_id: replacementUserId,
-            notes: text,
-          },
-          confidence: 0.7,
-        });
-        return results;
+      // Check for swap intent: "за" preposition near a person name
+      const hasSwapIntent = lower.includes(" за ") || lower.includes("\tза ");
+
+      // Extract day of week from text (anywhere)
+      const dowInfo = extractRuDow(lower) || getCurrentDow(receivedAt);
+
+      if (hasSwapIntent && targetUserId && dowInfo) {
+        // Determine roles based on verb form:
+        let originalUserId = null;
+        let replacementUserId = null;
+        // Past tense "убралась за" → speaker cleaned for target (speaker=replacement, target=original)
+        if (/убрал(?:ась|ся|ись)/i.test(lower)) {
+          originalUserId = targetUserId;
+        }
+        // Future tense "уберусь за" → speaker will clean for target
+        else if (/уберу(?:сь)?/i.test(lower)) {
+          originalUserId = targetUserId;
+        }
+        // "уборку за меня сделает [Name]" → speaker is original, target is replacement
+        else if (/уборк[уе].*за\s+меня\s+сделает/i.test(lower)) {
+          replacementUserId = targetUserId;
+        }
+        // "подменю на уборке" → speaker is replacement
+        else if (/подменю\s+на\s+уборке/i.test(lower)) {
+          originalUserId = targetUserId;
+        }
+        // Default: target is original
+        else {
+          originalUserId = targetUserId;
+        }
+
+        if (originalUserId || replacementUserId) {
+          const date = sameWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+          results.push({
+            fact_type: "CLEANING_SWAP",
+            fact_payload: {
+              date,
+              dow: dowInfo.dow,
+              original_user_id: originalUserId,
+              replacement_user_id: replacementUserId,
+              notes: text,
+            },
+            confidence: 0.7,
+          });
+          return results;
+        }
       }
     }
   }
 
   // Rule 1: CLEANING_DONE (уборка выполнена)
+  // Supports multi-day: "уборка пн и вт" → two facts
   const cleaningPhrases = [
     "уборку сделала",
     "сделала уборку",
@@ -1079,7 +1758,24 @@ export function parseEventToFacts(event) {
   // Also match "уборка <dow>" pattern (short form)
   const cleaningShortRe = /^уборк[аи]\s/i;
   if (cleaningPhrases.some((p) => lower.includes(p)) || cleaningShortRe.test(lower)) {
-    const dowInfo = extractRuDow(lower);
+    const allDows = extractAllRuDows(lower);
+    if (allDows.length > 1) {
+      // Multi-day: "уборка пн и вт" → separate fact per day
+      for (const dowInfo of allDows) {
+        results.push({
+          fact_type: "CLEANING_DONE",
+          fact_payload: {
+            date: sameWeekdayBerlin(receivedAt, dowInfo.dowIndex),
+            dow: dowInfo.dow,
+            notes: text,
+          },
+          confidence: 0.8,
+        });
+      }
+      return results;
+    }
+    // Single day or no day
+    const dowInfo = allDows[0] || null;
     const payload = {
       date: getBerlinDateFromIso(receivedAt),
       notes: text,
@@ -1154,6 +1850,31 @@ export function parseEventToFacts(event) {
     }
   }
 
+  // Rule 1b2: EXTRA_WORK_REQUEST (доп работа from catalog)
+  // "сделала генеральную уборку" / "сняла рилс" / "провела инвентаризацию"
+  if (_extraWorkCatalog.length > 0) {
+    const extraWorkPhrases = ["сделал", "провел", "провёл", "выполнил", "снял", "закончил", "разобрал"];
+    const hasActionWord = extraWorkPhrases.some(p => lower.includes(p));
+    if (hasActionWord) {
+      const matched = matchExtraWork(lower);
+      if (matched) {
+        results.push({
+          fact_type: "EXTRA_WORK_REQUEST",
+          fact_payload: {
+            work_type_id: matched.id,
+            work_name: matched.name,
+            price: matched.price,
+            date: getBerlinDateFromIso(receivedAt),
+            status: "pending",
+            notes: text,
+          },
+          confidence: 0.75,
+        });
+        return results;
+      }
+    }
+  }
+
   // Rule 1c: PROBLEM_SHIFT (проблема / ⚠ — admin marks a problem shift)
   // "проблема пн утро Иса опоздала" or "⚠ чт вечер Дарина"
   const problemPhrases = ["проблема", "⚠"];
@@ -1164,9 +1885,13 @@ export function parseEventToFacts(event) {
       // Try to extract employee name from text
       const nameMap = {
         "иса": "u1", "иса,": "u1",
-        "дарина": "u2", "дарина,": "u2",
-        "ксюша": "u3", "ксюша,": "u3",
-        "карина": "u4", "карина,": "u4",
+        "дарина": "u2", "дарина,": "u2", "дарину": "u2",
+        "ксюша": "u3", "ксюша,": "u3", "ксюшу": "u3",
+        "карина": "u4", "карина,": "u4", "карину": "u4",
+        "алёна": "u5", "алёна,": "u5", "алёну": "u5", "алена": "u5",
+        "катя": "u6", "катя,": "u6", "катю": "u6",
+        "рита": "u7", "рита,": "u7", "риту": "u7",
+        "соня": "u8", "соня,": "u8", "соню": "u8",
       };
       let targetUserId = null;
       let reason = null;
@@ -1249,6 +1974,15 @@ export function parseEventToFacts(event) {
     }
   }
 
+  // Rule 3b: Multi-line schedule format
+  // "пн - утро\nвт - —\nчт - вечер" or "пн - утро, вечер"
+  const multiLineResults = parseMultiLineSchedule(text, receivedAt);
+  if (multiLineResults.length > 0) return multiLineResults;
+
+  // Rule 3c: "все дни кроме пн" / "могу каждый день кроме пн"
+  const allDaysResults = parseAllDaysExcept(text, receivedAt);
+  if (allDaysResults.length > 0) return allDaysResults;
+
   // Rule 4: Russian NL availability / unavailability
   const nlResults = parseRussianNL(text, receivedAt);
   if (nlResults.length > 0) return nlResults;
@@ -1297,6 +2031,13 @@ export function parseEventToFacts(event) {
       }
     }
   }
+
+  // Return if any rules matched
+  if (results.length > 0) return results;
+
+  // Rule 6 (FALLBACK): Fuzzy keyword matching — catches messages that existing rules miss
+  const fuzzyResults = fuzzyMatchIntent(text, receivedAt);
+  if (fuzzyResults.length > 0) return fuzzyResults;
 
   return results;
 }

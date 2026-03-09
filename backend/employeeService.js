@@ -21,9 +21,22 @@ function userToEmployee(id, user) {
     min_hours_per_week: user.minHours || 0,
     max_hours_per_week: 40,
     is_active: true,
+    auto_schedule: user.autoSchedule !== false,
+    branch: user.branch || "Архангельск",
     meta: {},
     created_at: null,
     updated_at: null,
+  };
+}
+
+/**
+ * Expose skill_level from meta as a top-level field.
+ */
+function enrichEmployee(row) {
+  if (!row) return row;
+  return {
+    ...row,
+    skill_level: row.meta?.skill_level || "beginner",
   };
 }
 
@@ -39,7 +52,7 @@ export async function getAll() {
       .order("id");
 
     if (error) throw error;
-    return data;
+    return data.map(enrichEmployee);
   } catch (err) {
     logger.warn({ err }, "employeeService getAll fallback to UserDirectory");
     // Fallback: return from UserDirectory (only canonical entries u1-u4)
@@ -67,7 +80,7 @@ export async function getById(id) {
       .single();
 
     if (error) throw error;
-    return data;
+    return enrichEmployee(data);
   } catch (err) {
     logger.warn({ err }, "employeeService getById fallback");
     const user = UserDirectory.getUser(id);
@@ -80,6 +93,8 @@ export async function getById(id) {
  * Create a new employee.
  */
 export async function create(employee) {
+  const meta = { ...(employee.meta || {}) };
+  if (employee.skill_level) meta.skill_level = employee.skill_level;
   const row = {
     id: employee.id,
     name: employee.name,
@@ -88,7 +103,9 @@ export async function create(employee) {
     min_hours_per_week: employee.min_hours_per_week || 0,
     max_hours_per_week: employee.max_hours_per_week || 40,
     is_active: true,
-    meta: employee.meta || {},
+    auto_schedule: employee.auto_schedule ?? true,
+    branch: employee.branch ?? "Архангельск",
+    meta,
   };
   if (employee.telegram_user_id) row.telegram_user_id = employee.telegram_user_id;
   if (employee.telegram_username) row.telegram_username = employee.telegram_username;
@@ -101,16 +118,34 @@ export async function create(employee) {
     .single();
 
   if (error) throw error;
-  return data;
+
+  // Sync new employee into in-memory UserDirectory
+  UserDirectory.resyncEmployee(data);
+
+  return enrichEmployee(data);
 }
 
 /**
  * Update an employee.
+ * Saves to Supabase (source of truth), then syncs in-memory cache.
  */
 export async function update(id, fields) {
   const updateData = { ...fields, updated_at: new Date().toISOString() };
   // Don't allow changing id
   delete updateData.id;
+
+  // Store skill_level in meta JSONB (no column migration needed)
+  if (updateData.skill_level !== undefined) {
+    // First read current meta to merge
+    const { data: current } = await supabase
+      .from("employees")
+      .select("meta")
+      .eq("id", id)
+      .single();
+    const currentMeta = current?.meta || {};
+    updateData.meta = { ...currentMeta, ...(updateData.meta || {}), skill_level: updateData.skill_level };
+    delete updateData.skill_level;
+  }
 
   const { data, error } = await supabase
     .from("employees")
@@ -120,7 +155,11 @@ export async function update(id, fields) {
     .single();
 
   if (error) throw error;
-  return data;
+
+  // Sync updated employee into in-memory UserDirectory
+  UserDirectory.resyncEmployee(data);
+
+  return enrichEmployee(data);
 }
 
 /**
@@ -171,6 +210,10 @@ export async function linkTelegram(employeeId, telegramUserId, telegramUsername)
     .single();
 
   if (error) throw error;
+
+  // Sync into in-memory cache
+  UserDirectory.resyncEmployee(data);
+
   return data;
 }
 
@@ -186,5 +229,9 @@ export async function deactivate(id) {
     .single();
 
   if (error) throw error;
+
+  // Remove deactivated employee from in-memory cache
+  UserDirectory.users.delete(id);
+
   return data;
 }

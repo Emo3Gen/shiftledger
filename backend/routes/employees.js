@@ -26,6 +26,9 @@ const CreateEmployeeSchema = z.object({
   telegram_user_id: z.string().max(50).optional(),
   telegram_username: z.string().max(100).optional(),
   phone: z.string().max(20).optional(),
+  auto_schedule: z.boolean().default(true).optional(),
+  branch: z.string().max(100).default("Архангельск").optional(),
+  skill_level: z.enum(["beginner", "experienced", "guru"]).default("beginner").optional(),
   meta: z.record(z.unknown()).optional(),
 });
 
@@ -36,10 +39,13 @@ const UpdateEmployeeSchema = z.object({
   min_hours_per_week: z.number().min(0).optional(),
   max_hours_per_week: z.number().min(0).optional(),
   is_active: z.boolean().optional(),
-  telegram_user_id: z.string().max(50).optional(),
-  telegram_username: z.string().max(100).optional(),
-  phone: z.string().max(20).optional(),
-  meta: z.record(z.unknown()).optional(),
+  telegram_user_id: z.string().max(50).nullable().optional(),
+  telegram_username: z.string().max(100).nullable().optional(),
+  phone: z.string().max(20).nullable().optional(),
+  auto_schedule: z.boolean().optional(),
+  branch: z.string().max(100).nullable().optional(),
+  skill_level: z.enum(["beginner", "experienced", "guru"]).nullable().optional(),
+  meta: z.record(z.unknown()).nullable().optional(),
 });
 
 // --- Routes ---

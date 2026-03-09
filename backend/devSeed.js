@@ -2,34 +2,51 @@
  * Dev Seed — auto-loads Scenario B (full week with replacements, cleaning, extra classes)
  * into a fixed chat_id so DirectorPanel always has data on startup.
  *
- * Only runs in dev mode (NODE_ENV !== 'production').
+ * Uses structured commands (not NL) to ensure week_start is set correctly
+ * and facts are properly filtered by the timesheet endpoint.
  */
 
 import logger from "./logger.js";
 
 const SEED_CHAT_ID = "dev_seed_chat";
 const SEED_TENANT_ID = "emu";
-const SEED_WEEK = "2026-02-09";
+
+// Compute current Monday dynamically so seed data always matches "Сегодня"
+function getCurrentMonday() {
+  const d = new Date();
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  return new Date(d.getFullYear(), d.getMonth(), diff).toISOString().slice(0, 10);
+}
+const SEED_WEEK = getCurrentMonday();
 
 /**
  * Run dev seed by calling ingestInternal directly (no HTTP round-trip).
  * @param {Function} ingestInternal - The ingest function from server.js
- * @param {Function} buildScheduleFn - Calls /debug/build-schedule logic
+ * @param {Function} buildScheduleFn - Calls /debug/build-schedule logic (persists SHIFT_ASSIGNMENT facts)
+ * @param {Object} [options] - { force: boolean } - force re-seed even if data exists
  */
-export async function runDevSeed(ingestInternal, buildScheduleFn) {
+export async function runDevSeed(ingestInternal, buildScheduleFn, options = {}) {
   if (process.env.NODE_ENV === "production") return;
+
+  const { supabase } = await import("./supabaseClient.js");
 
   // Check if seed data already exists
   try {
-    const { supabase } = await import("./supabaseClient.js");
     const { data } = await supabase
       .from("facts")
       .select("id")
       .eq("chat_id", SEED_CHAT_ID)
       .limit(1);
     if (data && data.length > 0) {
-      logger.info("Dev seed: data already exists for %s, skipping", SEED_CHAT_ID);
-      return;
+      if (!options.force) {
+        logger.info("Dev seed: data already exists for %s, skipping", SEED_CHAT_ID);
+        return;
+      }
+      // Force mode: clean old data first
+      logger.info("Dev seed: force mode — deleting old data for %s", SEED_CHAT_ID);
+      await supabase.from("facts").delete().eq("chat_id", SEED_CHAT_ID);
+      await supabase.from("events").delete().eq("chat_id", SEED_CHAT_ID);
     }
   } catch {
     // If DB check fails, proceed with seeding anyway
@@ -53,63 +70,55 @@ export async function runDevSeed(ingestInternal, buildScheduleFn) {
     }
   };
 
+  const W = SEED_WEEK; // shorthand
+
   try {
     // Step 1: Open week
-    await send("admin1", `OPEN_WEEK ${SEED_WEEK}`, "admin");
+    await send("admin1", `OPEN_WEEK ${W}`, "admin");
 
-    // Step 2: Availability — 4 employees
+    // Step 2: Availability — 4 employees (structured AVAIL commands with explicit week_start)
     // Иса (u1) — morning shifts
-    await send("u1", `AVAIL ${SEED_WEEK} mon 10-13`);
-    await send("u1", `AVAIL ${SEED_WEEK} tue 10-13`);
-    await send("u1", `AVAIL ${SEED_WEEK} thu 10-13`);
-    await send("u1", `AVAIL ${SEED_WEEK} fri 10-13`);
-    await send("u1", `AVAIL ${SEED_WEEK} sat 10-13`);
+    await send("u1", `AVAIL ${W} mon 10-13`);
+    await send("u1", `AVAIL ${W} tue 10-13`);
+    await send("u1", `AVAIL ${W} thu 10-13`);
+    await send("u1", `AVAIL ${W} fri 10-13`);
+    await send("u1", `AVAIL ${W} sat 10-13`);
 
     // Дарина (u2) — evening + extra
-    await send("u2", `AVAIL ${SEED_WEEK} mon 18-21`);
-    await send("u2", `AVAIL ${SEED_WEEK} tue 18-21`);
-    await send("u2", `AVAIL ${SEED_WEEK} wed 10-13`);
-    await send("u2", `AVAIL ${SEED_WEEK} thu 10-13`);
-    await send("u2", `AVAIL ${SEED_WEEK} sat 10-13`);
-    await send("u2", `AVAIL ${SEED_WEEK} sun 18-21`);
+    await send("u2", `AVAIL ${W} mon 18-21`);
+    await send("u2", `AVAIL ${W} tue 18-21`);
+    await send("u2", `AVAIL ${W} wed 10-13`);
+    await send("u2", `AVAIL ${W} thu 10-13`);
+    await send("u2", `AVAIL ${W} sat 10-13`);
+    await send("u2", `AVAIL ${W} sun 18-21`);
 
     // Ксюша (u3) — evening (for replacements)
-    await send("u3", `AVAIL ${SEED_WEEK} wed 18-21`);
-    await send("u3", `AVAIL ${SEED_WEEK} thu 18-21`);
-    await send("u3", `AVAIL ${SEED_WEEK} fri 18-21`);
-    await send("u3", `AVAIL ${SEED_WEEK} sun 10-13`);
+    await send("u3", `AVAIL ${W} wed 18-21`);
+    await send("u3", `AVAIL ${W} thu 18-21`);
+    await send("u3", `AVAIL ${W} fri 18-21`);
+    await send("u3", `AVAIL ${W} sun 10-13`);
 
     // Карина (u4) — evening
-    await send("u4", `AVAIL ${SEED_WEEK} sat 18-21`);
-    await send("u4", `AVAIL ${SEED_WEEK} fri 18-21`);
+    await send("u4", `AVAIL ${W} sat 18-21`);
+    await send("u4", `AVAIL ${W} fri 18-21`);
 
-    // Step 3: Build schedule
-    await buildScheduleFn(SEED_CHAT_ID, SEED_WEEK);
+    // Step 3: Build schedule (persists SHIFT_ASSIGNMENT facts)
+    await buildScheduleFn(SEED_CHAT_ID, W);
 
     // Step 4: Propose (transition to ACTIVE)
-    await send("admin1", `PROPOSE ${SEED_WEEK}`, "admin");
+    await send("admin1", `PROPOSE ${W}`, "admin");
 
-    // Step 5: Replacements
-    await send("u1", "девочки, не могу в четверг утро, кто сможет?");
-    await send("u3", "я смогу выйти в чт утро");
-    await send("u2", "не смогу в понедельник вечер, подмените пожалуйста");
-    await send("u4", "могу в пн вечер, подменю");
-    await send("u3", "в среду утро не получится, кто может?");
-    await send("u1", "я выйду в ср утро");
-    await send("u4", "пт вечер не смогу, кто свободен?");
-    await send("u2", "я смогу в пт вечер");
+    // Step 5: Cleaning (structured commands with explicit week_start)
+    await send("u2", `CLEANING ${W} tue`);
+    await send("u4", `CLEANING ${W} wed`);
+    await send("u1", `CLEANING ${W} thu`);
 
-    // Step 6: Cleaning
-    await send("u2", "убралась во вторник");
-    await send("u4", "убралась в среду");
-    await send("u1", "убрался в четверг");
+    // Step 6: Extra classes (structured commands with explicit week_start + kids count)
+    await send("u1", `EXTRA_CLASS ${W} mon 12`);
+    await send("u2", `EXTRA_CLASS ${W} wed 5`);
+    await send("u4", `EXTRA_CLASS ${W} fri 10`);
 
-    // Step 7: Extra classes
-    await send("u1", "доп занятие пн 12 детей");
-    await send("u2", "допы ср 5 детей");
-    await send("u4", "провела доп пт 10 детей");
-
-    logger.info("Dev seed: loaded Scenario B for week %s (%d messages)", SEED_WEEK, 30);
+    logger.info("Dev seed: loaded Scenario B for week %s", W);
   } catch (e) {
     logger.error({ err: e }, "Dev seed: failed");
   }

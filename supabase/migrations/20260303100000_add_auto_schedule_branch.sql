@@ -1,0 +1,3 @@
+ALTER TABLE employees
+  ADD COLUMN IF NOT EXISTS auto_schedule BOOLEAN DEFAULT true,
+  ADD COLUMN IF NOT EXISTS branch TEXT DEFAULT 'Архангельск';

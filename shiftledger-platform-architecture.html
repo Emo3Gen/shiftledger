@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shiftledger Bot Platform — Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  :root {
+    --bg: #0a0b0f;
+    --surface: #12141a;
+    --surface2: #1a1d25;
+    --border: #2a2d38;
+    --text: #e2e4ea;
+    --text-dim: #6b7084;
+    --accent: #3b82f6;
+    --accent-dim: #1e3a5f;
+    --green: #22c55e;
+    --orange: #f59e0b;
+    --pink: #ec4899;
+    --purple: #a855f7;
+    --cyan: #06b6d4;
+  }
+
+  body {
+    font-family: 'Outfit', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  .header {
+    text-align: center;
+    padding: 48px 24px 16px;
+    position: relative;
+  }
+  .header::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 50%; transform: translateX(-50%);
+    width: 600px; height: 300px;
+    background: radial-gradient(ellipse, rgba(59,130,246,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .header h1 {
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .header .sub {
+    color: var(--text-dim);
+    margin-top: 8px;
+    font-size: 15px;
+    font-weight: 300;
+  }
+
+  /* Tabs */
+  .tabs {
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+    padding: 16px 24px;
+    flex-wrap: wrap;
+  }
+  .tab {
+    padding: 10px 20px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: 'Outfit', sans-serif;
+    background: var(--surface);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    transition: all 0.2s;
+  }
+  .tab:hover { color: var(--text); border-color: #3a3d47; }
+  .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .content { max-width: 1000px; margin: 0 auto; padding: 12px 24px 60px; }
+  .panel { display: none; animation: fadeIn 0.3s ease; }
+  .panel.active { display: block; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* Cards */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    margin-bottom: 16px;
+  }
+  .card h3 {
+    font-size: 17px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card h3 .icon { font-size: 20px; }
+  .card p, .card li { font-size: 14px; color: var(--text-dim); line-height: 1.7; }
+  .card ul { list-style: none; padding: 0; }
+  .card li::before { content: '→ '; color: var(--accent); font-weight: 600; }
+
+  /* Code blocks */
+  pre {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    color: #c9d1d9;
+    margin: 12px 0;
+  }
+  .kw { color: var(--pink); }
+  .str { color: var(--green); }
+  .comment { color: var(--text-dim); font-style: italic; }
+  .type { color: var(--cyan); }
+  .fn { color: #dcdcaa; }
+
+  /* Architecture diagram */
+  .arch-diagram {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    align-items: center;
+    padding: 20px 0;
+  }
+  .arch-layer {
+    width: 100%;
+    border-radius: 14px;
+    padding: 20px;
+    position: relative;
+  }
+  .arch-layer h4 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 12px;
+    font-weight: 600;
+  }
+  .layer-channels { background: linear-gradient(135deg, #1a2744 0%, #12141a 100%); border: 1px solid #2563eb33; }
+  .layer-platform { background: linear-gradient(135deg, #1f1a2e 0%, #12141a 100%); border: 1px solid #a855f733; }
+  .layer-tenant { background: linear-gradient(135deg, #1a2e1f 0%, #12141a 100%); border: 1px solid #22c55e33; }
+  .layer-infra { background: linear-gradient(135deg, #2e2a1a 0%, #12141a 100%); border: 1px solid #f59e0b33; }
+
+  .layer-channels h4 { color: var(--accent); }
+  .layer-platform h4 { color: var(--purple); }
+  .layer-tenant h4 { color: var(--green); }
+  .layer-infra h4 { color: var(--orange); }
+
+  .modules-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .module-box {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    flex: 1;
+    min-width: 120px;
+  }
+  .module-box .label { color: var(--text-dim); font-size: 10px; display: block; margin-bottom: 4px; }
+
+  .arrow-down {
+    text-align: center;
+    padding: 6px 0;
+    color: var(--text-dim);
+    font-size: 18px;
+  }
+
+  /* Comparison table */
+  .compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin: 12px 0;
+  }
+  .compare-table th, .compare-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+  }
+  .compare-table th {
+    color: var(--text-dim);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .compare-table td:first-child { font-weight: 600; color: var(--text); }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge-shared { background: var(--accent-dim); color: var(--accent); }
+  .badge-tenant { background: rgba(34,197,94,0.15); color: var(--green); }
+  .badge-config { background: rgba(245,158,11,0.15); color: var(--orange); }
+
+  .step-list { counter-reset: step; }
+  .step-list .step {
+    counter-increment: step;
+    padding: 16px 16px 16px 56px;
+    position: relative;
+    border-left: 2px solid var(--border);
+    margin-left: 20px;
+  }
+  .step-list .step::before {
+    content: counter(step);
+    position: absolute;
+    left: -14px;
+    top: 16px;
+    width: 26px;
+    height: 26px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .step h4 { font-size: 15px; margin-bottom: 4px; }
+  .step p { font-size: 13px; color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Shiftledger Bot Platform</h1>
+  <div class="sub">Мульти-тенантная платформа умных ботов для любого бизнеса</div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="show('concept')">Концепция</div>
+  <div class="tab" onclick="show('architecture')">Архитектура</div>
+  <div class="tab" onclick="show('separation')">Что общее / что тенант</div>
+  <div class="tab" onclick="show('codebase')">Структура кода</div>
+  <div class="tab" onclick="show('migration')">Миграция NEXA</div>
+</div>
+
+<div class="content">
+
+  <!-- CONCEPT -->
+  <div class="panel active" id="concept">
+    <div class="card">
+      <h3><span class="icon">💡</span> Ключевая идея</h3>
+      <p>Один движок — много бизнесов. Каждый клиент (тенант) получает своего бота, который выглядит и работает как уникальный продукт, но под капотом — единая платформа.</p>
+    </div>
+
+    <div class="card">
+      <h3><span class="icon">🔄</span> Как это работает</h3>
+      <p>Представь WordPress: один движок, тысячи сайтов с разными темами и плагинами. Так же и здесь:</p>
+      <ul>
+        <li><strong>Платформа</strong> — FSM engine, LLM client, webhook router, quality system, analytics</li>
+        <li><strong>Тенант-конфиг</strong> — system prompt, правила бизнеса, интенты, few-shot примеры, стиль общения</li>
+        <li><strong>Плагины</strong> — адаптеры каналов (VK, Telegram, WhatsApp), интеграции с CRM (DIKIDI, Shiftledger)</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3><span class="icon">📋</span> Текущие теnanты</h3>
+      <table class="compare-table">
+        <tr><th>Тенант</th><th>Бизнес</th><th>Канал</th><th>Интенты</th><th>Статус</th></tr>
+        <tr><td>NEXA</td><td>Танцы и йога</td><td>Telegram</td><td>~12</td><td><span class="badge badge-shared">В разработке</span></td></tr>
+        <tr><td>Про Дети</td><td>Детский центр</td><td>VK</td><td>20</td><td><span class="badge badge-tenant">Данные готовы</span></td></tr>
+        <tr><td>???</td><td>Следующий клиент</td><td>Любой</td><td>*</td><td><span class="badge badge-config">Будущее</span></td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3><span class="icon">🎯</span> Бизнес-результат</h3>
+      <p>Подключение нового клиента = создание конфига + загрузка данных. Не написание нового бота. Время от подписания договора до работающего бота: <strong>дни, не недели</strong>.</p>
+    </div>
+  </div>
+
+  <!-- ARCHITECTURE -->
+  <div class="panel" id="architecture">
+    <div class="arch-diagram">
+      <div class="arch-layer layer-channels">
+        <h4>📡 Каналы (адаптеры)</h4>
+        <div class="modules-row">
+          <div class="module-box"><span class="label">Telegram</span>TelegramAdapter</div>
+          <div class="module-box"><span class="label">VKontakte</span>VkAdapter</div>
+          <div class="module-box"><span class="label">WhatsApp</span>WhatsAppAdapter</div>
+          <div class="module-box"><span class="label">Instagram</span>InstagramAdapter</div>
+        </div>
+        <p style="margin-top:10px;font-size:12px;color:var(--text-dim)">Каждый адаптер: принять webhook → нормализовать в UnifiedMessage → отправить ответ</p>
+      </div>
+
+      <div class="arrow-down">▼</div>
+
+      <div class="arch-layer layer-platform">
+        <h4>⚙️ Platform Engine (общий код)</h4>
+        <div class="modules-row">
+          <div class="module-box"><span class="label">Роутер</span>TenantRouter</div>
+          <div class="module-box"><span class="label">Классификатор</span>IntentClassifier</div>
+          <div class="module-box"><span class="label">FSM</span>StateMachine</div>
+          <div class="module-box"><span class="label">Генератор</span>ResponseGenerator</div>
+        </div>
+        <div class="modules-row" style="margin-top:8px">
+          <div class="module-box"><span class="label">LLM</span>LLMClient + BudgetControl</div>
+          <div class="module-box"><span class="label">Quality</span>ThreeJudgeSystem</div>
+          <div class="module-box"><span class="label">Analytics</span>MetricsCollector</div>
+        </div>
+        <p style="margin-top:10px;font-size:12px;color:var(--text-dim)">Не знает ничего о конкретном бизнесе. Работает с абстракциями: intent, entity, rule, response.</p>
+      </div>
+
+      <div class="arrow-down">▼</div>
+
+      <div class="arch-layer layer-tenant">
+        <h4>🏪 Tenant Configs (у каждого свой)</h4>
+        <div class="modules-row">
+          <div class="module-box"><span class="label">Промпт</span>system_prompt.md</div>
+          <div class="module-box"><span class="label">Интенты</span>fsm_config.json</div>
+          <div class="module-box"><span class="label">Правила</span>rules.txt</div>
+          <div class="module-box"><span class="label">Примеры</span>few_shot.json</div>
+        </div>
+        <div class="modules-row" style="margin-top:8px">
+          <div class="module-box"><span class="label">Стиль</span>style_guide.md</div>
+          <div class="module-box"><span class="label">Шаблоны</span>templates.json</div>
+          <div class="module-box"><span class="label">Плагины</span>integrations.json</div>
+        </div>
+        <p style="margin-top:10px;font-size:12px;color:var(--text-dim)">Всё специфичное для бизнеса — в конфигурации, не в коде.</p>
+      </div>
+
+      <div class="arrow-down">▼</div>
+
+      <div class="arch-layer layer-infra">
+        <h4>🗄️ Инфраструктура</h4>
+        <div class="modules-row">
+          <div class="module-box"><span class="label">БД</span>PostgreSQL + Prisma<br><span style="font-size:10px;color:var(--text-dim)">tenant_id в каждой таблице</span></div>
+          <div class="module-box"><span class="label">LLM</span>OpenAI API<br><span style="font-size:10px;color:var(--text-dim)">бюджет per tenant</span></div>
+          <div class="module-box"><span class="label">Deploy</span>Render<br><span style="font-size:10px;color:var(--text-dim)">один сервис, N тенантов</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SEPARATION -->
+  <div class="panel" id="separation">
+    <div class="card">
+      <h3><span class="icon">🟣</span> Platform (общий код) — обновляешь один раз, работает у всех</h3>
+      <table class="compare-table">
+        <tr><th>Модуль</th><th>Что делает</th><th>Тип</th></tr>
+        <tr><td>IntentClassifier</td><td>LLM-классификация по таксономии тенанта</td><td><span class="badge badge-shared">Platform</span></td></tr>
+        <tr><td>FSM Engine</td><td>Состояния, переходы, сбор данных</td><td><span class="badge badge-shared">Platform</span></td></tr>
+        <tr><td>ResponseGenerator</td><td>Генерация ответа из facts + system_prompt</td><td><span class="badge badge-shared">Platform</span></td></tr>
+        <tr><td>LLMClient</td><td>OpenAI API + кэш + retry + fallback</td><td><span class="badge badge-shared">Platform</span></td></tr>
+        <tr><td>BudgetControl</td><td>Трекинг расходов per tenant</td><td><span class="badge badge-shared">Platform</span></td></tr>
+        <tr><td>QualitySystem</td><td>Three-judge: Playbook, Style, Coach</td><td><span class="badge badge-shared">Platform</span></td></tr>
+        <tr><td>WebhookRouter</td><td>Маршрутизация по tenant_id</td><td><span class="badge badge-shared">Platform</span></td></tr>
+        <tr><td>TelegramAdapter</td><td>Telegram Bot API</td><td><span class="badge badge-shared">Platform</span></td></tr>
+        <tr><td>VkAdapter</td><td>VK Community API</td><td><span class="badge badge-shared">Platform</span></td></tr>
+        <tr><td>AdminEscalation</td><td>Передача вопроса человеку</td><td><span class="badge badge-shared">Platform</span></td></tr>
+        <tr><td>Analytics</td><td>Метрики, дашборд, логи</td><td><span class="badge badge-shared">Platform</span></td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3><span class="icon">🟢</span> Tenant Config — загружается для каждого клиента</h3>
+      <table class="compare-table">
+        <tr><th>Файл</th><th>Что содержит</th><th>Тип</th></tr>
+        <tr><td>system_prompt.md</td><td>Личность бота, тон, правила бизнеса, примеры</td><td><span class="badge badge-tenant">Tenant</span></td></tr>
+        <tr><td>fsm_config.json</td><td>Интенты, обработчики, auto-responses, эскалации</td><td><span class="badge badge-tenant">Tenant</span></td></tr>
+        <tr><td>rules.txt</td><td>Правила бизнеса (для контекста LLM)</td><td><span class="badge badge-tenant">Tenant</span></td></tr>
+        <tr><td>few_shot_examples.json</td><td>Эталонные QA-пары из реальных диалогов</td><td><span class="badge badge-tenant">Tenant</span></td></tr>
+        <tr><td>style_guide.md</td><td>Тон, эмодзи, приветствия, длина ответов</td><td><span class="badge badge-tenant">Tenant</span></td></tr>
+        <tr><td>templates.json</td><td>Шаблоны для auto-response интентов</td><td><span class="badge badge-tenant">Tenant</span></td></tr>
+        <tr><td>integrations.json</td><td>Какие каналы, какая CRM, API-ключи</td><td><span class="badge badge-config">Config</span></td></tr>
+        <tr><td>entity_schema.json</td><td>Какие сущности извлекать (возраст, группа...)</td><td><span class="badge badge-tenant">Tenant</span></td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3><span class="icon">🔑</span> Главный принцип</h3>
+      <p>Если <strong>написал код</strong> — это platform, работает у всех. Если <strong>написал текст/JSON</strong> — это tenant config, специфичен для бизнеса. Код никогда не знает, что он работает для танцевальной студии или детского центра. Он работает с абстракциями: intent, entity, rule, response.</p>
+    </div>
+  </div>
+
+  <!-- CODEBASE -->
+  <div class="panel" id="codebase">
+    <div class="card">
+      <h3><span class="icon">📁</span> Monorepo-структура</h3>
+      <pre>
+<span class="comment">~/Nexa/                           # Переименовать в ~/shiftledger-bot-platform/</span>
+├── CLAUDE.md
+├── package.json
+├── prisma/
+│   └── schema.prisma              <span class="comment"># tenant_id в каждой модели</span>
+│
+├── src/
+│   ├── <span class="kw">platform/</span>                  <span class="comment"># ═══ ОБЩИЙ КОД (все доработки тут) ═══</span>
+│   │   ├── engine/
+│   │   │   ├── engine.service.ts   <span class="comment"># process(tenantId, message) → response</span>
+│   │   │   ├── classifier/
+│   │   │   │   ├── classifier.service.ts
+│   │   │   │   └── classifier.rules.ts
+│   │   │   ├── fsm/
+│   │   │   │   ├── fsm.service.ts
+│   │   │   │   └── handler.registry.ts
+│   │   │   └── generator/
+│   │   │       ├── generator.service.ts
+│   │   │       ├── template.service.ts
+│   │   │       └── llm-generator.service.ts
+│   │   │
+│   │   ├── adapters/
+│   │   │   ├── adapter.interface.ts
+│   │   │   ├── telegram/
+│   │   │   │   └── telegram.adapter.ts
+│   │   │   └── vk/
+│   │   │       └── vk.adapter.ts
+│   │   │
+│   │   ├── llm/
+│   │   │   ├── llm.service.ts
+│   │   │   └── budget.service.ts
+│   │   │
+│   │   ├── quality/
+│   │   │   ├── playbook-guardian.ts
+│   │   │   ├── style-judge.ts
+│   │   │   └── llm-coach.ts
+│   │   │
+│   │   ├── tenant/
+│   │   │   ├── <span class="fn">tenant.service.ts</span>    <span class="comment"># load config by tenantId</span>
+│   │   │   └── <span class="fn">tenant.resolver.ts</span>   <span class="comment"># webhook URL → tenantId</span>
+│   │   │
+│   │   └── admin/
+│   │       └── escalation.service.ts
+│   │
+│   ├── <span class="kw">tenants/</span>                   <span class="comment"># ═══ КОНФИГИ КЛИЕНТОВ ═══</span>
+│   │   ├── nexa/
+│   │   │   ├── tenant.json         <span class="comment"># { id, name, channels, llm_model... }</span>
+│   │   │   ├── system_prompt.md
+│   │   │   ├── fsm_config.json
+│   │   │   ├── rules.txt
+│   │   │   ├── few_shot.json
+│   │   │   └── style_guide.md
+│   │   │
+│   │   └── pro_deti/
+│   │       ├── tenant.json
+│   │       ├── system_prompt.md
+│   │       ├── fsm_config.json
+│   │       ├── rules.txt
+│   │       ├── few_shot.json
+│   │       └── style_guide.md
+│   │
+│   └── <span class="kw">shared/</span>                    <span class="comment"># ═══ ОБЩИЕ ТИПЫ И УТИЛИТЫ ═══</span>
+│       ├── types/
+│       │   ├── unified-message.ts
+│       │   ├── bot-response.ts
+│       │   ├── intent.ts
+│       │   └── tenant-config.ts
+│       └── utils/
+│           ├── logger.ts
+│           └── emoji.ts
+│
+└── test/
+    ├── platform/                   <span class="comment"># Тесты платформы</span>
+    └── tenants/                    <span class="comment"># Тесты per tenant</span>
+        ├── nexa.e2e-spec.ts
+        └── pro-deti.e2e-spec.ts</pre>
+    </div>
+
+    <div class="card">
+      <h3><span class="icon">🔧</span> Ключевой код — TenantService</h3>
+      <pre>
+<span class="comment">// src/platform/tenant/tenant.service.ts</span>
+<span class="comment">// Это сердце мульти-тенантности</span>
+
+<span class="kw">class</span> <span class="type">TenantService</span> {
+  <span class="kw">private</span> configs = <span class="kw">new</span> Map&lt;<span class="type">string</span>, <span class="type">TenantConfig</span>&gt;();
+
+  <span class="comment">// Загрузка при старте</span>
+  <span class="kw">async</span> <span class="fn">loadAll</span>() {
+    <span class="kw">const</span> dirs = fs.readdirSync(<span class="str">'src/tenants'</span>);
+    <span class="kw">for</span> (<span class="kw">const</span> dir <span class="kw">of</span> dirs) {
+      <span class="kw">const</span> config = <span class="kw">await</span> <span class="kw">this</span>.<span class="fn">loadTenantConfig</span>(dir);
+      <span class="kw">this</span>.configs.set(config.id, config);
+    }
+  }
+
+  <span class="comment">// Маршрутизация webhook → tenant</span>
+  <span class="fn">resolveByWebhook</span>(path: <span class="type">string</span>): <span class="type">TenantConfig</span> {
+    <span class="comment">// /webhook/nexa/telegram → tenantId = "nexa"</span>
+    <span class="comment">// /webhook/pro_deti/vk   → tenantId = "pro_deti"</span>
+    <span class="kw">const</span> tenantId = path.split(<span class="str">'/'</span>)[2];
+    <span class="kw">return this</span>.configs.get(tenantId);
+  }
+
+  <span class="comment">// Получение конфига</span>
+  <span class="fn">getConfig</span>(tenantId: <span class="type">string</span>): <span class="type">TenantConfig</span> {
+    <span class="kw">return this</span>.configs.get(tenantId);
+  }
+}</pre>
+    </div>
+
+    <div class="card">
+      <h3><span class="icon">🔧</span> Engine — не знает о бизнесе</h3>
+      <pre>
+<span class="comment">// src/platform/engine/engine.service.ts</span>
+
+<span class="kw">async</span> <span class="fn">process</span>(tenantId: <span class="type">string</span>, message: <span class="type">UnifiedMessage</span>): <span class="type">Promise</span>&lt;<span class="type">BotResponse</span>&gt; {
+  <span class="kw">const</span> config = <span class="kw">this</span>.tenantService.<span class="fn">getConfig</span>(tenantId);
+
+  <span class="comment">// 1. Классификация — промпт из конфига тенанта</span>
+  <span class="kw">const</span> intent = <span class="kw">await this</span>.classifier.<span class="fn">classify</span>(
+    message.text,
+    config.intentClassifierPrompt,  <span class="comment">// тенант-специфичный</span>
+    config.intents                   <span class="comment">// список интентов тенанта</span>
+  );
+
+  <span class="comment">// 2. FSM — конфиг из тенанта</span>
+  <span class="kw">const</span> action = <span class="kw">this</span>.fsm.<span class="fn">transition</span>(
+    conversation.state,
+    intent,
+    config.fsmConfig                 <span class="comment">// переходы и хендлеры тенанта</span>
+  );
+
+  <span class="comment">// 3. Генерация — system prompt из тенанта</span>
+  <span class="kw">if</span> (action.type === <span class="str">'auto_response'</span>) {
+    <span class="kw">return</span> config.templates[intent];  <span class="comment">// шаблон тенанта</span>
+  }
+
+  <span class="kw">return this</span>.generator.<span class="fn">generate</span>(
+    config.systemPrompt,             <span class="comment">// промпт тенанта</span>
+    config.rules,                    <span class="comment">// правила бизнеса тенанта</span>
+    config.fewShotExamples[intent],  <span class="comment">// примеры тенанта</span>
+    message, context
+  );
+}</pre>
+    </div>
+  </div>
+
+  <!-- MIGRATION -->
+  <div class="panel" id="migration">
+    <div class="card">
+      <h3><span class="icon">🛤️</span> Как перейти от NEXA к платформе</h3>
+      <p>Ты продолжаешь работать над NEXA — но каждая доработка сразу делается «платформенно».</p>
+    </div>
+
+    <div class="step-list">
+      <div class="step">
+        <h4>Вынеси NEXA-специфичное в конфиг</h4>
+        <p>Создай папку <code>src/tenants/nexa/</code>. Перенеси туда: system prompt, knowledge base, FSM config, few-shot примеры. Код в <code>src/platform/</code> начинает читать конфиг вместо хардкода. NEXA продолжает работать как раньше.</p>
+      </div>
+      <div class="step">
+        <h4>Добавь TenantService</h4>
+        <p>Простой сервис: загружает конфиг по tenantId, резолвит webhook → tenant. Один тенант (nexa) — всё работает. Но архитектура уже готова для второго.</p>
+      </div>
+      <div class="step">
+        <h4>Добавь tenant_id в Prisma</h4>
+        <p>В модели Customer, Conversation, Message — добавь <code>tenantId String</code>. Миграция для существующих данных: <code>UPDATE SET tenantId = 'nexa'</code>. Все запросы через <code>where: { tenantId }</code>.</p>
+      </div>
+      <div class="step">
+        <h4>Добавь VK adapter</h4>
+        <p>Telegram adapter уже есть. Напиши VK adapter по тому же интерфейсу. Оба реализуют <code>ChannelAdapter</code>. Это platform-код, доступен всем тенантам.</p>
+      </div>
+      <div class="step">
+        <h4>Создай тенант «Про Дети»</h4>
+        <p>Скопируй <code>src/tenants/nexa/</code> → <code>src/tenants/pro_deti/</code>. Замени конфиги на подготовленные (system_prompt, fsm_config, few_shot — уже готовы!). Зарегистрируй webhook: <code>/webhook/pro_deti/vk</code>. Всё.</p>
+      </div>
+      <div class="step">
+        <h4>Profit</h4>
+        <p>Любая доработка в <code>src/platform/</code> — улучшает обоих ботов. Новый клиент = новая папка в <code>src/tenants/</code>. Подключение занимает часы, не недели.</p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 20px; border-color: var(--green);">
+      <h3><span class="icon">✅</span> Что НЕ нужно делать</h3>
+      <ul>
+        <li>Не нужно переписывать NEXA — эволюционный рефакторинг</li>
+        <li>Не нужно microservices — один NestJS-сервис с tenant routing</li>
+        <li>Не нужно отдельные БД per tenant — одна БД с tenant_id</li>
+        <li>Не нужно отдельные деплои — один Render сервис</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function show(id) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+</body>
+</html>

@@ -5,15 +5,49 @@
  * Forwards messages to the internal ingest flow and replies with results.
  */
 
-import { Bot } from "grammy";
+import { Bot, InputFile } from "grammy";
 import logger from "../logger.js";
 import { formatFacts, formatSchedule, formatPayBreakdown, formatPinnedSchedule } from "./formatters.js";
 import { UserDirectory } from "../userDirectory.js";
+import { generateScheduleImage } from "../services/scheduleImage.js";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
+const IS_DEV = process.env.APP_ENV === "dev" || process.env.TEST_MODE === "true";
 
 // In-memory store: chatId → pinned message_id
 const pinnedMessageIds = new Map();
+
+// In-memory store for /as role switching (dev mode only): telegram_user_id → { employeeId, employeeName }
+const devRoleOverrides = new Map();
+
+// Name → employee_id mapping for /as command
+const NAME_TO_ID = {
+  "иса": "u1", "isa": "u1",
+  "дарина": "u2", "darina": "u2", "daria": "u2",
+  "ксюша": "u3", "ksusha": "u3", "ksu": "u3",
+  "карина": "u4", "karina": "u4",
+  "алёна": "u5", "алена": "u5", "alena": "u5",
+  "катя": "u6", "katya": "u6",
+  "рита": "u7", "rita": "u7",
+  "соня": "u8", "sonya": "u8",
+};
+
+// employee_id → display name
+const ID_TO_NAME = {
+  u1: "Иса", u2: "Дарина", u3: "Ксюша", u4: "Карина",
+  u5: "Алёна", u6: "Катя", u7: "Рита", u8: "Соня",
+};
+
+/**
+ * Build reply options that preserve message_thread_id for forum topics.
+ */
+function replyOptions(ctx, extra = {}) {
+  const opts = { ...extra };
+  if (ctx.message?.message_thread_id) {
+    opts.message_thread_id = ctx.message.message_thread_id;
+  }
+  return opts;
+}
 
 /**
  * Build the ingest payload from a Telegram context.
@@ -31,6 +65,8 @@ export function buildIngestPayload(ctx) {
       role: "staff",
       telegram: {
         chat_type: ctx.chat.type,
+        message_thread_id: ctx.message?.message_thread_id,
+        is_forum: ctx.chat?.is_forum,
         first_name: ctx.from.first_name,
         username: ctx.from.username,
       },
@@ -55,7 +91,9 @@ const WELCOME_TEXT = `Привет! Я бот ShiftLedger для управле�
 Команды:
 /schedule или "расписание" — график на неделю
 /status или "статус" — статус недели
-/help или "помощь" — справка`;
+/pay или "зарплата" — моя зарплата
+/help или "помощь" — справка
+/as Имя — играть за сотрудника (тест)`;
 
 const HELP_TEXT = `<b>Как пользоваться</b>
 
@@ -80,6 +118,64 @@ const HELP_TEXT = `<b>Как пользоваться</b>
 /help или "помощь" — эта справка`;
 
 const DOW_RU = { mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс" };
+
+/**
+ * Format multiple facts into a compact confirmation reply.
+ * "✅ Иса: Пн утро, Чт вечер, Сб вечер"
+ */
+function formatMultiFactReply(facts, userName) {
+  // For a single fact, use the specific formatter
+  if (facts.length === 1) {
+    const specific = formatFactReply(facts[0], userName);
+    if (specific) return specific;
+  }
+
+  // Group availability/unavailability facts by day
+  const availFacts = facts.filter(f => f.fact_type === "SHIFT_AVAILABILITY" || f.fact_type === "SHIFT_UNAVAILABILITY");
+
+  if (availFacts.length === 0) {
+    // Not availability facts — use single fact formatter or generic
+    const specific = formatFactReply(facts[0], userName);
+    if (specific) return specific;
+    return `✅ Принято: ${formatFacts(facts)}`;
+  }
+
+  // Build compact display: group by day, show slot
+  const daySlots = new Map(); // dow → { available: [slots], unavailable: [slots] }
+  const DOW_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+  for (const f of availFacts) {
+    const p = f.fact_payload || {};
+    const dow = p.dow;
+    if (!dow) continue;
+    if (!daySlots.has(dow)) daySlots.set(dow, { available: [], unavailable: [] });
+    const entry = daySlots.get(dow);
+    const slotName = p.from === "10:00" ? "утро" : p.from === "18:00" ? "вечер" : `${p.from}-${p.to}`;
+    if (f.fact_type === "SHIFT_AVAILABILITY") {
+      entry.available.push(slotName);
+    } else {
+      entry.unavailable.push(slotName);
+    }
+  }
+
+  // Sort by day order
+  const sortedDays = [...daySlots.entries()].sort((a, b) => DOW_ORDER.indexOf(a[0]) - DOW_ORDER.indexOf(b[0]));
+
+  const parts = [];
+  for (const [dow, slots] of sortedDays) {
+    const dayLabel = DOW_RU[dow] || dow;
+    if (slots.available.length > 0) {
+      parts.push(`${dayLabel} ${slots.available.join(", ")} ✅`);
+    }
+    if (slots.unavailable.length > 0) {
+      parts.push(`${dayLabel} ✖`);
+    }
+  }
+
+  if (parts.length === 0) return `✅ Принято`;
+
+  return `✅ ${userName}:\n${parts.join("\n")}`;
+}
 
 const STATE_RU = {
   COLLECTING: "Сбор доступности",
@@ -173,30 +269,57 @@ export function createBot(ingestFn, scheduleFn, weekStateFn, timesheetFn, employ
 
   const bot = new Bot(TOKEN);
 
+  // Debug: log ALL incoming updates
+  bot.use(async (ctx, next) => {
+    logger.info({
+      update_id: ctx.update.update_id,
+      chat_id: ctx.chat?.id,
+      chat_type: ctx.chat?.type,
+      thread_id: ctx.message?.message_thread_id,
+      is_topic: ctx.message?.is_topic_message,
+      is_forum: ctx.chat?.is_forum,
+      from_id: ctx.from?.id,
+      from_name: ctx.from?.first_name,
+      text: ctx.message?.text?.substring(0, 100),
+      has_message: !!ctx.message,
+    }, "telegram incoming update");
+    await next();
+  });
+
   bot.command("start", async (ctx) => {
-    await ctx.reply(WELCOME_TEXT, { parse_mode: "HTML" });
+    await ctx.reply(WELCOME_TEXT, replyOptions(ctx, { parse_mode: "HTML" }));
   });
 
   bot.command("help", async (ctx) => {
-    await ctx.reply(HELP_TEXT, { parse_mode: "HTML" });
+    await ctx.reply(HELP_TEXT, replyOptions(ctx, { parse_mode: "HTML" }));
   });
 
   bot.command("schedule", async (ctx) => {
     try {
       const chatId = String(ctx.chat.id);
       const schedule = await scheduleFn(chatId);
-      const text = formatSchedule(schedule);
-      await ctx.reply(text, { parse_mode: "HTML" });
+      const pngBuffer = generateScheduleImage(schedule);
+      await ctx.replyWithPhoto(
+        new InputFile(pngBuffer, "schedule.png"),
+        replyOptions(ctx),
+      );
     } catch (err) {
       logger.error({ err }, "telegram /schedule error");
-      await ctx.reply("❌ Ошибка загрузки расписания, попробуйте позже");
+      // Fallback to text if image generation fails
+      try {
+        const schedule = await scheduleFn(String(ctx.chat.id));
+        const text = formatSchedule(schedule);
+        await ctx.reply(text, replyOptions(ctx, { parse_mode: "HTML" }));
+      } catch {
+        await ctx.reply("❌ Ошибка загрузки расписания, попробуйте позже", replyOptions(ctx));
+      }
     }
   });
 
   bot.command("status", async (ctx) => {
     try {
       if (!weekStateFn) {
-        await ctx.reply("Команда /status пока недоступна");
+        await ctx.reply("Команда /status пока недоступна", replyOptions(ctx));
         return;
       }
       const chatId = String(ctx.chat.id);
@@ -222,74 +345,86 @@ export function createBot(ingestFn, scheduleFn, weekStateFn, timesheetFn, employ
         text += "\n\n✅ Все смены закрыты";
       }
 
-      await ctx.reply(text, { parse_mode: "HTML" });
+      await ctx.reply(text, replyOptions(ctx, { parse_mode: "HTML" }));
     } catch (err) {
       logger.error({ err }, "telegram /status error");
-      await ctx.reply("❌ Ошибка загрузки статуса, попробуйте позже");
+      await ctx.reply("❌ Ошибка загрузки статуса, попробуйте позже", replyOptions(ctx));
     }
   });
 
   bot.command("pay", async (ctx) => {
     try {
       if (!timesheetFn) {
-        await ctx.reply("Команда /pay пока недоступна");
+        await ctx.reply("Команда /pay пока недоступна", replyOptions(ctx));
         return;
       }
       const chatId = String(ctx.chat.id);
-      const resolved = await resolveEmployee(ctx.from.id, employeeService);
+      const devOvr = IS_DEV ? devRoleOverrides.get(String(ctx.from.id)) : null;
+      const resolved = devOvr || await resolveEmployee(ctx.from.id, employeeService);
       const userId = resolved?.employeeId || String(ctx.from.id);
       const ts = await timesheetFn(chatId);
       const emp = ts?.employees?.find((e) => e.user_id === userId);
       if (!emp) {
-        await ctx.reply("Данных по вашей зарплате пока нет.");
+        await ctx.reply("Данных по вашей зарплате пока нет.", replyOptions(ctx));
         return;
       }
       const text = formatPayBreakdown(emp);
-      await ctx.reply(text, { parse_mode: "HTML" });
+      await ctx.reply(text, replyOptions(ctx, { parse_mode: "HTML" }));
     } catch (err) {
       logger.error({ err }, "telegram /pay error");
-      await ctx.reply("❌ Ошибка загрузки зарплаты, попробуйте позже");
+      await ctx.reply("❌ Ошибка загрузки зарплаты, попробуйте позже", replyOptions(ctx));
     }
   });
 
-  // Admin command: /link @username u1 OR /link 123456789 u2
+  // /link — show binding status for the current user
   bot.command("link", async (ctx) => {
     try {
-      if (!employeeService) {
-        await ctx.reply("Команда /link пока недоступна");
-        return;
+      const resolved = await resolveEmployee(ctx.from.id, employeeService);
+      if (resolved) {
+        await ctx.reply(`✅ ${ctx.from.first_name} привязан как ${resolved.employeeName}`, replyOptions(ctx));
+      } else {
+        await ctx.reply(`❌ ${ctx.from.first_name} не найден в системе. Обратитесь к директору.`, replyOptions(ctx));
       }
-
-      const args = (ctx.message.text || "").replace(/^\/link\s*/, "").trim().split(/\s+/);
-      if (args.length < 2) {
-        await ctx.reply("Использование: /link <telegram_id или @username> <employee_id>\nПример: /link @isa_user u1\nПример: /link 123456789 u2");
-        return;
-      }
-
-      const [telegramIdentifier, employeeId] = args;
-      const telegramUserId = telegramIdentifier.startsWith("@") ? null : telegramIdentifier;
-      const telegramUsername = telegramIdentifier.startsWith("@") ? telegramIdentifier.replace("@", "") : null;
-
-      if (!telegramUserId && !telegramUsername) {
-        await ctx.reply("Укажите Telegram ID (число) или @username");
-        return;
-      }
-
-      // Verify employee exists
-      const emp = await employeeService.getById(employeeId);
-      if (!emp) {
-        await ctx.reply(`Сотрудник ${employeeId} не найден`);
-        return;
-      }
-
-      await employeeService.linkTelegram(employeeId, telegramUserId || "pending", telegramUsername);
-      const name = emp.name || employeeId;
-      const linkedTo = telegramUserId ? `ID ${telegramUserId}` : `@${telegramUsername}`;
-      await ctx.reply(`✅ ${name} привязан к Telegram ${linkedTo}`);
     } catch (err) {
       logger.error({ err }, "telegram /link error");
-      await ctx.reply("❌ Ошибка привязки, попробуйте позже");
+      await ctx.reply("❌ Ошибка, попробуйте позже", replyOptions(ctx));
     }
+  });
+
+  // Dev-only command: /as ИмяСотрудника — switch identity for testing
+  bot.command("as", async (ctx) => {
+    if (!IS_DEV) {
+      await ctx.reply("Команда /as доступна только в режиме разработки", replyOptions(ctx));
+      return;
+    }
+
+    const arg = (ctx.message.text || "").replace(/^\/as(@\w+)?\s*/, "").trim().toLowerCase();
+    if (!arg) {
+      const currentOverride = devRoleOverrides.get(String(ctx.from.id));
+      const currentName = currentOverride ? ID_TO_NAME[currentOverride.employeeId] || currentOverride.employeeId : "не задана";
+      await ctx.reply(
+        `Текущая роль: ${currentName}\n\nИспользование: /as Имя\nПример: /as Иса\n\nДоступные сотрудники:\n${Object.entries(ID_TO_NAME).map(([id, name]) => `• ${name} (${id})`).join('\n')}\n\nДля сброса: /as сброс`,
+        replyOptions(ctx)
+      );
+      return;
+    }
+
+    // Reset override
+    if (arg === "сброс" || arg === "reset" || arg === "off") {
+      devRoleOverrides.delete(String(ctx.from.id));
+      await ctx.reply("Роль сброшена. Теперь вы пишете от своего имени.", replyOptions(ctx));
+      return;
+    }
+
+    const empId = NAME_TO_ID[arg];
+    if (!empId) {
+      await ctx.reply(`Сотрудник «${arg}» не найден.\n\nДоступные: ${Object.values(ID_TO_NAME).join(', ')}`, replyOptions(ctx));
+      return;
+    }
+
+    const empName = ID_TO_NAME[empId] || empId;
+    devRoleOverrides.set(String(ctx.from.id), { employeeId: empId, employeeName: empName });
+    await ctx.reply(`Теперь вы пишете за ${empName} \uD83D\uDC64`, replyOptions(ctx));
   });
 
   bot.on("message:text", async (ctx) => {
@@ -301,7 +436,7 @@ export function createBot(ingestFn, scheduleFn, weekStateFn, timesheetFn, employ
         const chatId = String(ctx.chat.id);
         const schedule = await scheduleFn(chatId);
         const reply = formatSchedule(schedule);
-        await ctx.reply(reply, { parse_mode: "HTML" });
+        await ctx.reply(reply, replyOptions(ctx, { parse_mode: "HTML" }));
         return;
       }
       if (text === "статус") {
@@ -317,78 +452,94 @@ export function createBot(ingestFn, scheduleFn, weekStateFn, timesheetFn, employ
           } else {
             reply += "\n✅ Все смены закрыты";
           }
-          await ctx.reply(reply, { parse_mode: "HTML" });
+          await ctx.reply(reply, replyOptions(ctx, { parse_mode: "HTML" }));
         } else {
-          await ctx.reply("Команда 'статус' пока недоступна");
+          await ctx.reply("Команда 'статус' пока недоступна", replyOptions(ctx));
         }
         return;
       }
       if (text === "помощь") {
-        await ctx.reply(HELP_TEXT, { parse_mode: "HTML" });
+        await ctx.reply(HELP_TEXT, replyOptions(ctx, { parse_mode: "HTML" }));
         return;
       }
       if (text === "зарплата") {
         if (timesheetFn) {
           const chatId = String(ctx.chat.id);
-          const resolvedPay = await resolveEmployee(ctx.from.id, employeeService);
+          const devOvrPay = IS_DEV ? devRoleOverrides.get(String(ctx.from.id)) : null;
+          const resolvedPay = devOvrPay || await resolveEmployee(ctx.from.id, employeeService);
           const userId = resolvedPay?.employeeId || String(ctx.from.id);
           const ts = await timesheetFn(chatId);
           const emp = ts?.employees?.find((e) => e.user_id === userId);
           if (!emp) {
-            await ctx.reply("Данных по вашей зарплате пока нет.");
+            await ctx.reply("Данных по вашей зарплате пока нет.", replyOptions(ctx));
           } else {
-            await ctx.reply(formatPayBreakdown(emp), { parse_mode: "HTML" });
+            await ctx.reply(formatPayBreakdown(emp), replyOptions(ctx, { parse_mode: "HTML" }));
           }
         } else {
-          await ctx.reply("Команда 'зарплата' пока недоступна");
+          await ctx.reply("Команда 'зарплата' пока недоступна", replyOptions(ctx));
         }
         return;
       }
 
-      // Normal message processing — resolve employee from Telegram ID
-      const resolved = await resolveEmployee(ctx.from.id, employeeService);
-      const payload = buildIngestPayload(ctx);
-      if (resolved) {
-        // Override user_id with internal employee ID
-        payload.user_id = resolved.employeeId;
+      // --- Filters: skip irrelevant messages ---
+      // Forwarded messages
+      if (ctx.message.forward_origin || ctx.message.forward_from || ctx.message.forward_date) {
+        logger.debug("telegram: skipping forwarded message");
+        return;
       }
+
+      // Resolve employee first — unknown users are silently ignored in groups
+      const devOverride = IS_DEV ? devRoleOverrides.get(String(ctx.from.id)) : null;
+      const resolved = devOverride || await resolveEmployee(ctx.from.id, employeeService);
+
+      if (!resolved) {
+        // Unknown user — silently ignore in group chats
+        logger.debug({ from: ctx.from.id, text: text.substring(0, 50) }, "telegram: unknown user, ignoring");
+        return;
+      }
+
+      // Short/irrelevant messages filter
+      const SCHEDULE_KEYWORDS = /(?:пн|вт|ср|чт|пт|сб|вс|понедельник|вторник|среда|четверг|пятница|суббота|воскресенье|утро|вечер|могу|не могу|смогу|свободн|убр|убор|уберу|занят|дежур|смена|замен|подмен|все дни|каждый день|avail|cant|swap)/i;
+      if (text.length < 3 || (!SCHEDULE_KEYWORDS.test(text) && text.length < 30)) {
+        logger.debug({ text: text.substring(0, 50) }, "telegram: no schedule keywords, ignoring");
+        return;
+      }
+
+      // Normal message processing
+      const payload = buildIngestPayload(ctx);
+      payload.user_id = resolved.employeeId;
       const result = await ingestFn(payload);
 
       const facts = result.facts_preview || result.facts || [];
-      if (facts.length === 0 && !resolved) {
-        // Unknown user with no parseable message
-        await ctx.reply("Привет! Я не знаю тебя в системе. Попроси администратора привязать твой Telegram — /link");
-        return;
-      }
       if (facts.length > 0) {
-        // Try specific reply for known fact types
-        const userName = resolved?.employeeName || ctx.from.first_name || "Сотрудник";
-        const specificReply = formatFactReply(facts[0], userName);
-        if (specificReply) {
-          await ctx.reply(specificReply);
-        } else {
-          const summary = formatFacts(facts);
-          await ctx.reply(`✅ Принято: ${summary}`);
-        }
+        const userName = resolved.employeeName || ctx.from.first_name || "Сотрудник";
+        // Build compact confirmation for multiple facts
+        const reply = formatMultiFactReply(facts, userName);
+        await ctx.reply(reply, replyOptions(ctx));
         // Update pinned schedule after new facts
-        await updatePinnedSchedule(bot, String(ctx.chat.id));
-      } else {
-        await ctx.reply("📝 Записано, но не распознано. Попробуйте написать:\n• могу пн 10-13\n• не могу чт вечер\n• свободна ср с 14 до 17");
+        await updatePinnedSchedule(bot, String(ctx.chat.id), ctx.message?.message_thread_id);
       }
+      // No facts parsed — silently ignore (don't spam group with "не распознано")
     } catch (err) {
       logger.error({ err }, "telegram message handler error");
-      await ctx.reply("❌ Ошибка обработки, попробуйте позже");
+      await ctx.reply("❌ Ошибка обработки, попробуйте позже", replyOptions(ctx));
     }
   });
 
   /**
    * Update or create the pinned schedule message in a chat.
+   * @param {Bot} botInstance
+   * @param {string} chatId
+   * @param {number} [threadId] - message_thread_id for forum topics
    */
-  async function updatePinnedSchedule(botInstance, chatId) {
+  async function updatePinnedSchedule(botInstance, chatId, threadId) {
     try {
       const schedule = await scheduleFn(chatId);
       const text = formatPinnedSchedule(schedule);
-      const existingMsgId = pinnedMessageIds.get(chatId);
+      const pinKey = threadId ? `${chatId}:${threadId}` : chatId;
+      const existingMsgId = pinnedMessageIds.get(pinKey);
+      const sendOpts = { parse_mode: "HTML" };
+      if (threadId) sendOpts.message_thread_id = threadId;
 
       if (existingMsgId) {
         // Try to edit existing pinned message
@@ -402,8 +553,8 @@ export function createBot(ingestFn, scheduleFn, weekStateFn, timesheetFn, employ
       }
 
       // Send new message and pin it
-      const msg = await botInstance.api.sendMessage(chatId, text, { parse_mode: "HTML" });
-      pinnedMessageIds.set(chatId, msg.message_id);
+      const msg = await botInstance.api.sendMessage(chatId, text, sendOpts);
+      pinnedMessageIds.set(pinKey, msg.message_id);
       try {
         await botInstance.api.pinChatMessage(chatId, msg.message_id, { disable_notification: true });
       } catch (pinErr) {
