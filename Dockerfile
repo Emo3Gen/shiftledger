@@ -1,5 +1,6 @@
 # Stage 1: Build frontend
 FROM node:20-alpine AS frontend
+ARG CACHEBUST=1
 WORKDIR /app
 RUN apk add --no-cache python3 make g++
 COPY apps/simulator/package*.json ./apps/simulator/
