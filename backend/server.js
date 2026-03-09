@@ -2852,6 +2852,48 @@ app.put("/api/emogen/groups/:name", async (req, res) => {
   }
 });
 
+// GET /api/emogen/status — proxy Emogen /health (silent_mode status)
+app.get("/api/emogen/status", async (_req, res) => {
+  try {
+    const r = await fetch(`${EMOGEN_API_URL}/health`, {
+      headers: { Authorization: emogenAuthHeader },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!r.ok) {
+      return res.status(r.status).json({ error: `Emogen API: ${r.status} ${r.statusText}` });
+    }
+    const data = await r.json();
+    res.json(data);
+  } catch (e) {
+    logger.warn({ err: e }, "Emogen API unreachable (status)");
+    res.status(502).json({ error: "Emogen API unreachable", detail: e?.message });
+  }
+});
+
+// POST /api/emogen/silent-mode — toggle Emogen silent mode
+app.post("/api/emogen/silent-mode", async (req, res) => {
+  try {
+    const r = await fetch(`${EMOGEN_API_URL}/api/silent-mode`, {
+      method: "POST",
+      headers: {
+        Authorization: emogenAuthHeader,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(req.body),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!r.ok) {
+      const text = await r.text().catch(() => "");
+      return res.status(r.status).json({ error: `Emogen API: ${r.status}`, detail: text });
+    }
+    const data = await r.json();
+    res.json(data);
+  } catch (e) {
+    logger.warn({ err: e }, "Emogen API unreachable (silent-mode)");
+    res.status(502).json({ error: "Emogen API unreachable", detail: e?.message });
+  }
+});
+
 logger.debug("Emogen proxy routes registered");
 
 // ── Payments list — ежедневный список оплат ────────────────────────────────

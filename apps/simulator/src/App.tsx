@@ -424,6 +424,9 @@ export const App: React.FC = () => {
   const [emogenError, setEmogenError] = React.useState<string | null>(null);
   const [emogenSaving, setEmogenSaving] = React.useState<string | null>(null);
   const emogenFetched = React.useRef(false);
+  const [emogenSilent, setEmogenSilent] = React.useState<boolean | null>(null);
+  const [emogenStatusErr, setEmogenStatusErr] = React.useState<string | null>(null);
+  const [emogenToggling, setEmogenToggling] = React.useState(false);
   const [periodMode, setPeriodMode] = React.useState<"week" | "first_half" | "second_half" | "full_month">("week");
   const [extraWorkItems, setExtraWorkItems] = React.useState<any[]>([]);
   const [extraPayItems, setExtraPayItems] = React.useState<any[]>([]);
@@ -721,6 +724,25 @@ export const App: React.FC = () => {
       setEmogenError("Emogen недоступен: " + e.message);
     }).finally(() => setEmogenLoading(false));
   }, [settingsTab]);
+
+  // Load Emogen silent mode status when groups tab is selected
+  const fetchEmogenStatus = React.useCallback(() => {
+    setEmogenStatusErr(null);
+    fetch("/api/emogen/status").then(r => {
+      if (!r.ok) throw new Error(`${r.status}`);
+      return r.json();
+    }).then(d => {
+      setEmogenSilent(d.silent_mode === true);
+    }).catch((e) => {
+      setEmogenStatusErr("Emogen недоступен");
+      setEmogenSilent(null);
+    });
+  }, []);
+
+  React.useEffect(() => {
+    if (settingsTab !== "groups") return;
+    fetchEmogenStatus();
+  }, [settingsTab, fetchEmogenStatus]);
 
   // Load employees from API
   const loadEmployees = React.useCallback(async () => {
@@ -2075,6 +2097,53 @@ export const App: React.FC = () => {
                       }}
                     >{groupsLoading ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." : "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C \u0438\u0437 \u041F\u0430\u0440\u0430\u043F\u043B\u0430\u043D\u0430"}</button>
                     <span style={{ color: "#888" }}>{groupsConfig.length} {"\u0433\u0440\u0443\u043F\u043F"}</span>
+                  </div>
+
+                  {/* ── Emogen бот: статус + Silent Mode ──────── */}
+                  <div style={{ marginTop: 4, marginBottom: 10, padding: "8px 10px", background: "#f8f9fa", border: "1px solid #e0e0e0", borderRadius: 6 }}>
+                    <div style={{ fontWeight: "bold", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                      {"Emogen бот"}
+                      {emogenStatusErr && <span style={{ color: "#c00", fontWeight: "normal", fontSize: "0.9em" }}>{emogenStatusErr}</span>}
+                      {emogenSilent === null && !emogenStatusErr && <span style={{ color: "#888", fontWeight: "normal", fontSize: "0.85em" }}>{"проверка..."}</span>}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      {emogenSilent !== null && (
+                        <span style={{ fontSize: "0.9em", color: emogenSilent ? "#c00" : "#080" }}>
+                          {emogenSilent ? "🔇 Тихий режим" : "📢 Активен"}
+                        </span>
+                      )}
+                      <button
+                        disabled={emogenToggling || emogenSilent === null}
+                        style={{
+                          padding: "3px 10px", fontSize: "var(--font-xs)", cursor: emogenToggling || emogenSilent === null ? "not-allowed" : "pointer",
+                          background: emogenSilent ? "#e8f5e9" : "#fce4ec",
+                          border: "1px solid " + (emogenSilent ? "#a5d6a7" : "#ef9a9a"),
+                          borderRadius: 4, opacity: emogenToggling ? 0.6 : 1,
+                        }}
+                        onClick={async () => {
+                          if (emogenSilent === null) return;
+                          setEmogenToggling(true);
+                          try {
+                            const r = await fetch("/api/emogen/silent-mode", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ enabled: !emogenSilent }),
+                            });
+                            if (!r.ok) throw new Error(`${r.status}`);
+                            setEmogenSilent(!emogenSilent);
+                          } catch (e: any) {
+                            alert("Ошибка: " + (e.message || e));
+                          }
+                          setEmogenToggling(false);
+                        }}
+                      >
+                        {emogenToggling ? "..." : emogenSilent ? "📢 Включить" : "🔇 Выключить"}
+                      </button>
+                      <button
+                        style={{ padding: "3px 8px", fontSize: "var(--font-xs)", cursor: "pointer", background: "#f5f5f5", border: "1px solid #ccc", borderRadius: 3 }}
+                        onClick={fetchEmogenStatus}
+                      >{"⟳"}</button>
+                    </div>
                   </div>
 
                   {/* ── Цены (Emogen) ─────────────────────────── */}
