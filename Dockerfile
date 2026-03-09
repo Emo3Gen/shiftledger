@@ -1,5 +1,5 @@
 # Stage 1: Build frontend
-FROM node:20-alpine AS frontend-builder
+FROM node:20-alpine AS frontend
 WORKDIR /app
 RUN apk add --no-cache python3 make g++
 COPY apps/simulator/package*.json ./apps/simulator/
@@ -26,7 +26,7 @@ RUN npm ci --omit=dev
 COPY backend/ ./backend/
 
 # Copy built frontend from stage 1
-COPY --from=frontend-builder /app/apps/simulator/dist/ ./apps/simulator/dist/
+COPY --from=frontend /app/apps/simulator/dist/ ./apps/simulator/dist/
 
 EXPOSE 3000
 
