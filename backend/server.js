@@ -841,19 +841,8 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Простой webhook: только логируем Update.
-app.post("/telegram/webhook", async (req, res) => {
-  const update = req.body;
-
-  logger.info({ update }, "Telegram webhook update");
-
-  // Здесь позже можно будет вызвать Supabase-запросы, бизнес-логику и т.д.
-  // Например:
-  // import { supabase } from "./supabaseClient.js";
-  // await supabase.from("updates").insert({ raw: update });
-
-  return res.sendStatus(200);
-});
+// Telegram webhook endpoint (used in production instead of polling)
+// Registered dynamically after bot is created — see bot startup below.
 
 /**
  * @openapi
@@ -3064,7 +3053,14 @@ UserDirectory.syncFromDB(employeeService).then(async () => {
       telegramBot = bot;
       if (bot) {
         if (mode === "webhook") {
-          logger.info("Telegram bot started in webhook mode (configure WEBHOOK_URL externally)");
+          const { webhookCallback } = await import("grammy");
+          const webhookPath = "/telegram-webhook";
+          app.post(webhookPath, webhookCallback(bot, "express"));
+          await bot.init();
+          const webhookUrl = process.env.WEBHOOK_URL
+            || `https://shiftledger-production.up.railway.app${webhookPath}`;
+          await bot.api.setWebhook(webhookUrl, { drop_pending_updates: true });
+          logger.info({ webhookUrl }, "Telegram bot started (webhook)");
         } else {
           bot.start({ onStart: () => logger.info("Telegram bot started (long polling)") });
         }
