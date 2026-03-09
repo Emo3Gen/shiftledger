@@ -5,6 +5,7 @@ dotenv.config({ path: `.env.${envName}` });
 dotenv.config({ path: ".env" }); // also load base .env (for shared vars)
 
 import express from "express";
+import { webhookCallback } from "grammy";
 import { randomUUID, createHash } from "crypto";
 import { existsSync } from "fs";
 import { resolve, dirname } from "path";
@@ -3053,14 +3054,19 @@ UserDirectory.syncFromDB(employeeService).then(async () => {
       telegramBot = bot;
       if (bot) {
         if (mode === "webhook") {
-          const { webhookCallback } = await import("grammy");
           const webhookPath = "/telegram-webhook";
           app.post(webhookPath, webhookCallback(bot, "express"));
-          await bot.init();
-          const webhookUrl = process.env.WEBHOOK_URL
-            || `https://shiftledger-production.up.railway.app${webhookPath}`;
-          await bot.api.setWebhook(webhookUrl, { drop_pending_updates: true });
-          logger.info({ webhookUrl }, "Telegram bot started (webhook)");
+          (async () => {
+            try {
+              await bot.init();
+              const webhookUrl = process.env.WEBHOOK_URL
+                || `https://shiftledger-production.up.railway.app${webhookPath}`;
+              await bot.api.setWebhook(webhookUrl, { drop_pending_updates: true });
+              logger.info({ webhookUrl }, "Telegram bot started (webhook)");
+            } catch (err) {
+              logger.error({ err: err.message }, "Failed to set Telegram webhook");
+            }
+          })();
         } else {
           bot.start({ onStart: () => logger.info("Telegram bot started (long polling)") });
         }
