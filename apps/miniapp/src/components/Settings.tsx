@@ -1,14 +1,25 @@
 import React from "react";
-import { getEmployees, getBotMode, setBotMode, type Employee } from "../api";
+import {
+  getEmployees, createEmployee, updateEmployee, deleteEmployee,
+  getSettings, updateSetting, getBotMode, setBotMode, getCatalog,
+  type Employee, type CatalogItem,
+} from "../api";
 import { haptic } from "../telegram";
 
-type Tab = "shifts" | "employees" | "bot";
+type Tab = "shifts" | "employees" | "catalog" | "cleanings" | "branches" | "rates" | "bot";
 
-const TAB_ITEMS: Array<{ id: Tab; label: string }> = [
+const TABS: Array<{ id: Tab; label: string }> = [
   { id: "shifts", label: "Смены" },
   { id: "employees", label: "Сотрудники" },
+  { id: "rates", label: "Ставки" },
+  { id: "catalog", label: "Каталог" },
+  { id: "cleanings", label: "Уборки" },
+  { id: "branches", label: "Филиалы" },
   { id: "bot", label: "Бот" },
 ];
+
+const DAYS_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+const DAYS_KEY = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
 export const Settings: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
   const [tab, setTab] = React.useState<Tab>("shifts");
@@ -17,55 +28,69 @@ export const Settings: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
     <div>
       <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>Настройки</div>
 
-      {/* Tab bar */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
-        {TAB_ITEMS.map((t) => (
-          <button
-            key={t.id}
-            className={tab === t.id ? "btn" : "btn btn-secondary"}
-            style={{ flex: 1, fontSize: 13, padding: "8px 4px" }}
-            onClick={() => { haptic("light"); setTab(t.id); }}
-          >
-            {t.label}
-          </button>
-        ))}
+      {/* Scrollable tab bar */}
+      <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", marginBottom: 14, paddingBottom: 4 }}>
+        <div style={{ display: "flex", gap: 4, minWidth: "max-content" }}>
+          {TABS.map((t) => (
+            <button key={t.id}
+              className={tab === t.id ? "btn" : "btn btn-secondary"}
+              style={{ fontSize: 12, padding: "7px 12px", whiteSpace: "nowrap" }}
+              onClick={() => { haptic("light"); setTab(t.id); }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {tab === "shifts" && <ShiftsTab />}
-      {tab === "employees" && <EmployeesTab />}
+      {tab === "employees" && <EmployeesTab isOwner={isOwner} />}
+      {tab === "rates" && <RatesTab isOwner={isOwner} />}
+      {tab === "catalog" && <CatalogTab isOwner={isOwner} />}
+      {tab === "cleanings" && <CleaningsTab />}
+      {tab === "branches" && <BranchesTab />}
       {tab === "bot" && isOwner && <BotModeTab />}
       {tab === "bot" && !isOwner && (
-        <div className="card" style={{ textAlign: "center", color: "var(--tg-hint)" }}>
-          Только для владельца
-        </div>
+        <div className="card" style={{ textAlign: "center", color: "var(--tg-hint)" }}>Только для владельца</div>
       )}
     </div>
   );
 };
 
-// --- Shifts tab ---
+/* ── Shifts ── */
 
 const ShiftsTab: React.FC = () => {
-  const [morningFrom, setMorningFrom] = React.useState("10:00");
-  const [morningTo, setMorningTo] = React.useState("13:00");
-  const [eveningFrom, setEveningFrom] = React.useState("18:00");
-  const [eveningTo, setEveningTo] = React.useState("21:00");
+  const [mFrom, setMFrom] = React.useState("10:00");
+  const [mTo, setMTo] = React.useState("13:00");
+  const [eFrom, setEFrom] = React.useState("18:00");
+  const [eTo, setETo] = React.useState("21:00");
   const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
 
   React.useEffect(() => {
-    fetch("/api/miniapp/settings", {
-      headers: { Authorization: `Bearer ${sessionStorage.getItem("miniapp_token")}` },
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (data["shifts.morning.from"]) setMorningFrom(data["shifts.morning.from"]);
-        if (data["shifts.morning.to"]) setMorningTo(data["shifts.morning.to"]);
-        if (data["shifts.evening.from"]) setEveningFrom(data["shifts.evening.from"]);
-        if (data["shifts.evening.to"]) setEveningTo(data["shifts.evening.to"]);
+    getSettings()
+      .then((d) => {
+        if (d["shifts.morning.from"]) setMFrom(d["shifts.morning.from"]);
+        if (d["shifts.morning.to"]) setMTo(d["shifts.morning.to"]);
+        if (d["shifts.evening.from"]) setEFrom(d["shifts.evening.from"]);
+        if (d["shifts.evening.to"]) setETo(d["shifts.evening.to"]);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  const save = async () => {
+    haptic("medium"); setSaving(true);
+    try {
+      await Promise.all([
+        updateSetting("shifts.morning.from", mFrom),
+        updateSetting("shifts.morning.to", mTo),
+        updateSetting("shifts.evening.from", eFrom),
+        updateSetting("shifts.evening.to", eTo),
+      ]);
+    } catch (e: any) { alert(e.message); }
+    setSaving(false);
+  };
 
   if (loading) return <div className="loading">Загрузка...</div>;
 
@@ -74,19 +99,22 @@ const ShiftsTab: React.FC = () => {
       <div className="card">
         <div className="card-title">Утренняя смена</div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <TimeInput value={morningFrom} onChange={setMorningFrom} label="С" />
+          <TimeInput value={mFrom} onChange={setMFrom} label="С" />
           <span style={{ color: "var(--tg-hint)" }}>&mdash;</span>
-          <TimeInput value={morningTo} onChange={setMorningTo} label="До" />
+          <TimeInput value={mTo} onChange={setMTo} label="До" />
         </div>
       </div>
       <div className="card">
         <div className="card-title">Вечерняя смена</div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <TimeInput value={eveningFrom} onChange={setEveningFrom} label="С" />
+          <TimeInput value={eFrom} onChange={setEFrom} label="С" />
           <span style={{ color: "var(--tg-hint)" }}>&mdash;</span>
-          <TimeInput value={eveningTo} onChange={setEveningTo} label="До" />
+          <TimeInput value={eTo} onChange={setETo} label="До" />
         </div>
       </div>
+      <button className="btn" disabled={saving} onClick={save}>
+        {saving ? "..." : "Сохранить"}
+      </button>
     </>
   );
 };
@@ -94,109 +122,496 @@ const ShiftsTab: React.FC = () => {
 const TimeInput: React.FC<{ value: string; onChange: (v: string) => void; label: string }> = ({ value, onChange, label }) => (
   <div style={{ flex: 1 }}>
     <div style={{ fontSize: 11, color: "var(--tg-hint)", marginBottom: 4 }}>{label}</div>
-    <input
-      type="time"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      style={{
-        width: "100%",
-        padding: "8px 10px",
-        borderRadius: 8,
-        border: "1px solid rgba(255,255,255,0.12)",
-        background: "var(--tg-bg)",
-        color: "var(--tg-text)",
-        fontSize: 15,
-        fontFamily: "inherit",
-      }}
-    />
+    <input type="time" value={value} onChange={(e) => onChange(e.target.value)} style={fieldStyle} />
   </div>
 );
 
-// --- Employees tab ---
+/* ── Employees (inline edit + swipe delete) ── */
 
-const EmployeesTab: React.FC = () => {
+const ROLES: Record<string, string> = {
+  owner: "Владелец", director: "Директор", admin: "Администратор",
+  senior: "Старший", junior: "Младший", staff: "Сотрудник",
+};
+
+const EmployeesTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [editing, setEditing] = React.useState<string | null>(null);
+  const [editData, setEditData] = React.useState<Partial<Employee>>({});
+  const [saving, setSaving] = React.useState(false);
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [swipedId, setSwipedId] = React.useState<string | null>(null);
+  const touchStart = React.useRef<{ x: number; id: string } | null>(null);
 
-  React.useEffect(() => {
-    getEmployees()
-      .then(setEmployees)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+  const load = () => {
+    setLoading(true);
+    getEmployees(true).then(setEmployees).catch(() => {}).finally(() => setLoading(false));
+  };
+  React.useEffect(load, []);
+
+  const startEdit = (emp: Employee) => {
+    if (!isOwner) return;
+    haptic("light");
+    setEditing(emp.id);
+    setEditData({ name: emp.name, role: emp.role });
+    setSwipedId(null);
+  };
+
+  const saveEdit = async (id: string) => {
+    if (!editData.name) return;
+    haptic("medium"); setSaving(true);
+    try { await updateEmployee(id, editData); load(); setEditing(null); }
+    catch (e: any) { alert(e.message); }
+    setSaving(false);
+  };
+
+  const handleDelete = async (id: string) => {
+    haptic("heavy");
+    if (!confirm("Удалить сотрудника?")) return;
+    try { await deleteEmployee(id); load(); } catch (e: any) { alert(e.message); }
+    setSwipedId(null);
+  };
+
+  const onTouchStartRow = (e: React.TouchEvent, id: string) => {
+    touchStart.current = { x: e.touches[0].clientX, id };
+  };
+  const onTouchEndRow = (e: React.TouchEvent) => {
+    if (!touchStart.current) return;
+    const dx = e.changedTouches[0].clientX - touchStart.current.x;
+    if (dx < -60) { setSwipedId(touchStart.current.id); haptic("light"); }
+    else if (dx > 30) setSwipedId(null);
+    touchStart.current = null;
+  };
 
   if (loading) return <div className="loading">Загрузка...</div>;
 
-  const ROLE_LABELS: Record<string, string> = {
-    owner: "Владелец",
-    director: "Директор",
-    admin: "Администратор",
-    senior: "Старший",
-    junior: "Младший",
-    staff: "Сотрудник",
+  return (
+    <>
+      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        {employees.length === 0 ? (
+          <div style={{ padding: 14, textAlign: "center", color: "var(--tg-hint)" }}>Нет сотрудников</div>
+        ) : (
+          employees.map((emp, i) => (
+            <div key={emp.id} style={{ position: "relative", overflow: "hidden" }}>
+              {/* Delete bg */}
+              <div style={{
+                position: "absolute", right: 0, top: 0, bottom: 0, width: 70,
+                background: "var(--tg-destructive)", display: "flex", alignItems: "center", justifyContent: "center",
+                color: "#fff", fontSize: 13, fontWeight: 600,
+              }} onClick={() => handleDelete(emp.id)}>
+                Удалить
+              </div>
+
+              <div
+                onTouchStart={(e) => onTouchStartRow(e, emp.id)}
+                onTouchEnd={onTouchEndRow}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "12px 14px", background: "var(--tg-section-bg)",
+                  borderBottom: i < employees.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
+                  transform: swipedId === emp.id ? "translateX(-70px)" : "translateX(0)",
+                  transition: "transform 0.2s",
+                }}
+                onClick={() => editing !== emp.id && startEdit(emp)}
+              >
+                {editing === emp.id ? (
+                  <div style={{ flex: 1 }}>
+                    <input value={editData.name || ""} onChange={(e) => setEditData({ ...editData, name: e.target.value })}
+                      style={{ ...fieldStyle, marginBottom: 6, width: "100%" }} placeholder="Имя" />
+                    <select value={editData.role || "staff"}
+                      onChange={(e) => setEditData({ ...editData, role: e.target.value })}
+                      style={{ ...fieldStyle, width: "100%" }}>
+                      {Object.entries(ROLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                    </select>
+                    <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                      <button className="btn" disabled={saving} onClick={() => saveEdit(emp.id)} style={{ flex: 1, fontSize: 13, padding: "8px" }}>
+                        {saving ? "..." : "OK"}
+                      </button>
+                      <button className="btn btn-secondary" onClick={() => setEditing(null)} style={{ flex: 1, fontSize: 13, padding: "8px" }}>
+                        Отмена
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 15 }}>{emp.name}</div>
+                      <div style={{ fontSize: 12, color: "var(--tg-hint)", marginTop: 1 }}>{ROLES[emp.role] || emp.role}</div>
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--tg-hint)" }}>
+                      {emp.branch || ""} {emp.skill_level ? `\u00B7 ${emp.skill_level}` : ""}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {isOwner && (
+        <>
+          <button className="btn" onClick={() => { haptic("light"); setShowAdd(true); }} style={{ marginTop: 8, fontSize: 14 }}>
+            + Добавить сотрудника
+          </button>
+          {showAdd && <AddEmployeeSheet onClose={() => setShowAdd(false)} onDone={() => { setShowAdd(false); load(); }} />}
+        </>
+      )}
+    </>
+  );
+};
+
+/* ── Add Employee Sheet ── */
+
+const AddEmployeeSheet: React.FC<{ onClose: () => void; onDone: () => void }> = ({ onClose, onDone }) => {
+  const [name, setName] = React.useState("");
+  const [role, setRole] = React.useState("staff");
+  const [saving, setSaving] = React.useState(false);
+  const [visible, setVisible] = React.useState(false);
+
+  React.useEffect(() => { requestAnimationFrame(() => setVisible(true)); }, []);
+  const close = () => { setVisible(false); setTimeout(onClose, 250); };
+
+  const save = async () => {
+    if (!name) return;
+    haptic("medium"); setSaving(true);
+    try { await createEmployee({ name, role }); onDone(); } catch (e: any) { alert(e.message); }
+    setSaving(false);
   };
 
   return (
-    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-      {employees.length === 0 ? (
-        <div style={{ padding: 14, textAlign: "center", color: "var(--tg-hint)" }}>
-          Нет сотрудников
+    <>
+      <div onClick={close} style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200,
+        opacity: visible ? 1 : 0, transition: "opacity 0.25s",
+      }} />
+      <div style={{
+        position: "fixed", bottom: 0, left: "50%",
+        transform: `translateX(-50%) translateY(${visible ? 0 : 300}px)`,
+        width: "100%", maxWidth: 390, background: "var(--tg-section-bg)",
+        borderRadius: "16px 16px 0 0", zIndex: 201,
+        transition: "transform 0.3s cubic-bezier(0.2, 0, 0, 1)",
+        paddingBottom: "env(safe-area-inset-bottom, 16px)",
+      }}>
+        <div style={{ display: "flex", justifyContent: "center", padding: "10px 0 4px" }}>
+          <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.2)" }} />
         </div>
-      ) : (
-        employees.map((emp, i) => (
-          <div key={emp.id} style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "12px 14px",
-            borderBottom: i < employees.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
-          }}>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 15 }}>{emp.name}</div>
-              <div style={{ fontSize: 12, color: "var(--tg-hint)", marginTop: 1 }}>
-                {ROLE_LABELS[emp.role] || emp.role}
-              </div>
-            </div>
-            <div style={{
-              fontSize: 11,
-              padding: "3px 8px",
-              borderRadius: 6,
-              background: emp.role === "senior" ? "rgba(52,199,89,0.15)" : "rgba(255,255,255,0.08)",
-              color: emp.role === "senior" ? "rgba(52,199,89,1)" : "var(--tg-hint)",
-            }}>
-              {emp.id}
-            </div>
+        <div style={{ padding: "8px 16px 16px" }}>
+          <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 12 }}>Новый сотрудник</div>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Имя"
+            style={{ ...fieldStyle, width: "100%", marginBottom: 8 }} />
+          <select value={role} onChange={(e) => setRole(e.target.value)}
+            style={{ ...fieldStyle, width: "100%", marginBottom: 12 }}>
+            {Object.entries(ROLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          <button className="btn" disabled={saving || !name} onClick={save}>
+            {saving ? "..." : "Создать"}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+};
+
+/* ── Rates Tab ── */
+
+const RatesTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
+  const [employees, setEmployees] = React.useState<Employee[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState<string | null>(null);
+  const [rates, setRates] = React.useState<Record<string, string>>({});
+
+  const load = () => {
+    setLoading(true);
+    getEmployees(true).then((emps) => {
+      setEmployees(emps);
+      const r: Record<string, string> = {};
+      emps.forEach((e) => { r[e.id] = String(e.rate_per_hour || 0); });
+      setRates(r);
+    }).catch(() => {}).finally(() => setLoading(false));
+  };
+  React.useEffect(load, []);
+
+  const save = async (id: string) => {
+    haptic("medium"); setSaving(id);
+    try {
+      await updateEmployee(id, {
+        rate_per_hour: Number(rates[id]) || 0,
+        min_hours_per_week: employees.find((e) => e.id === id)?.min_hours_per_week,
+      });
+    } catch (e: any) { alert(e.message); }
+    setSaving(null);
+  };
+
+  if (loading) return <div className="loading">Загрузка...</div>;
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+      {employees.map((emp, i) => (
+        <div key={emp.id} style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "10px 14px",
+          borderBottom: i < employees.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
+        }}>
+          <div style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>{emp.name}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input value={rates[emp.id] || ""} onChange={(e) => setRates({ ...rates, [emp.id]: e.target.value })}
+              type="number" placeholder="0"
+              disabled={!isOwner}
+              style={{ ...fieldStyle, width: 70, textAlign: "right", fontSize: 14, padding: "6px 8px" }}
+              onBlur={() => isOwner && save(emp.id)} />
+            <span style={{ color: "var(--tg-hint)", fontSize: 12 }}>{"\u20BD"}/ч</span>
+            {saving === emp.id && <span style={{ fontSize: 11, color: "var(--tg-hint)" }}>...</span>}
           </div>
-        ))
-      )}
+        </div>
+      ))}
     </div>
   );
 };
 
-// --- Bot mode tab ---
+/* ── Catalog Tab (CRUD) ── */
 
-const BotModeTab: React.FC = () => {
-  const [mode, setMode] = React.useState<string>("manual");
+const CatalogTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
+  const [items, setItems] = React.useState<CatalogItem[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [switching, setSwitching] = React.useState(false);
+  const [newName, setNewName] = React.useState("");
+  const [newPrice, setNewPrice] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+
+  const load = () => {
+    setLoading(true);
+    getCatalog().then(setItems).catch(() => {}).finally(() => setLoading(false));
+  };
+  React.useEffect(load, []);
+
+  const saveCatalog = async (updated: CatalogItem[]) => {
+    setSaving(true);
+    try { await updateSetting("extra_work_catalog", updated); setItems(updated); }
+    catch (e: any) { alert(e.message); }
+    setSaving(false);
+  };
+
+  const addItem = () => {
+    if (!newName || !newPrice) return;
+    haptic("medium");
+    const item: CatalogItem = { id: `ew_${Date.now()}`, name: newName, price: Number(newPrice) };
+    saveCatalog([...items, item]);
+    setNewName(""); setNewPrice("");
+  };
+
+  const removeItem = (id: string) => {
+    haptic("medium");
+    saveCatalog(items.filter((i) => i.id !== id));
+  };
+
+  if (loading) return <div className="loading">Загрузка...</div>;
+
+  return (
+    <>
+      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        {items.length === 0 ? (
+          <div style={{ padding: 14, textAlign: "center", color: "var(--tg-hint)" }}>Каталог пуст</div>
+        ) : (
+          items.map((item, i) => (
+            <div key={item.id} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "12px 14px",
+              borderBottom: i < items.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
+            }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 15 }}>{item.name}</div>
+                <div style={{ fontSize: 13, color: "var(--tg-hint)" }}>{item.price} {"\u20BD"}</div>
+              </div>
+              {isOwner && (
+                <button onClick={() => removeItem(item.id)} style={{
+                  background: "rgba(255,59,48,0.15)", border: "none", borderRadius: 8,
+                  padding: "6px 10px", color: "var(--tg-destructive)", fontSize: 13,
+                  cursor: "pointer",
+                }}>
+                  {"\u2715"}
+                </button>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      {isOwner && (
+        <div className="card" style={{ marginTop: 8 }}>
+          <div className="card-title">Добавить</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Название"
+              style={{ ...fieldStyle, flex: 2 }} />
+            <input value={newPrice} onChange={(e) => setNewPrice(e.target.value)} placeholder={"\u20BD"} type="number"
+              style={{ ...fieldStyle, flex: 1 }} />
+          </div>
+          <button className="btn" disabled={saving || !newName || !newPrice} onClick={addItem}
+            style={{ marginTop: 8, fontSize: 14 }}>
+            {saving ? "..." : "+ Добавить"}
+          </button>
+        </div>
+      )}
+    </>
+  );
+};
+
+/* ── Cleanings 7x2 Grid ── */
+
+const CleaningsTab: React.FC = () => {
+  const [grid, setGrid] = React.useState<Record<string, boolean>>({});
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
 
   React.useEffect(() => {
-    getBotMode()
-      .then((d) => setMode(d.mode))
+    getSettings()
+      .then((d) => {
+        const g = d["cleanings.grid"] || {};
+        setGrid(g);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  const handleChange = async (newMode: string) => {
-    if (newMode === mode) return;
+  const toggle = async (key: string) => {
+    haptic("light");
+    const next = { ...grid, [key]: !grid[key] };
+    setGrid(next);
+    setSaving(true);
+    try { await updateSetting("cleanings.grid", next); } catch {}
+    setSaving(false);
+  };
+
+  if (loading) return <div className="loading">Загрузка...</div>;
+
+  return (
+    <div className="card">
+      <div className="card-title">Расписание уборок {saving && "(сохранение...)"}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "60px repeat(7, 1fr)", gap: 6, fontSize: 12 }}>
+        {/* Header */}
+        <div />
+        {DAYS_SHORT.map((d) => (
+          <div key={d} style={{ textAlign: "center", fontWeight: 600, color: "var(--tg-hint)" }}>{d}</div>
+        ))}
+
+        {/* Morning row */}
+        <div style={{ display: "flex", alignItems: "center", fontWeight: 600, color: "var(--tg-hint)", fontSize: 11 }}>Утро</div>
+        {DAYS_KEY.map((d) => {
+          const key = `${d}_morning`;
+          return (
+            <div key={key} style={{ display: "flex", justifyContent: "center" }}>
+              <Checkbox checked={!!grid[key]} onChange={() => toggle(key)} />
+            </div>
+          );
+        })}
+
+        {/* Evening row */}
+        <div style={{ display: "flex", alignItems: "center", fontWeight: 600, color: "var(--tg-hint)", fontSize: 11 }}>Вечер</div>
+        {DAYS_KEY.map((d) => {
+          const key = `${d}_evening`;
+          return (
+            <div key={key} style={{ display: "flex", justifyContent: "center" }}>
+              <Checkbox checked={!!grid[key]} onChange={() => toggle(key)} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const Checkbox: React.FC<{ checked: boolean; onChange: () => void }> = ({ checked, onChange }) => (
+  <button onClick={onChange} style={{
+    width: 28, height: 28, borderRadius: 6,
+    border: checked ? "none" : "2px solid rgba(255,255,255,0.2)",
+    background: checked ? "rgba(52,199,89,0.8)" : "transparent",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    cursor: "pointer", color: "#fff", fontSize: 14, fontWeight: 700,
+  }}>
+    {checked ? "\u2713" : ""}
+  </button>
+);
+
+/* ── Branches ── */
+
+const BranchesTab: React.FC = () => {
+  const [branches, setBranches] = React.useState<string[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [newBranch, setNewBranch] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    getSettings()
+      .then((d) => setBranches(d["branches"] || ["Основной"]))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const saveBranches = async (list: string[]) => {
+    setSaving(true);
+    try { await updateSetting("branches", list); setBranches(list); }
+    catch (e: any) { alert(e.message); }
+    setSaving(false);
+  };
+
+  const add = () => {
+    if (!newBranch) return;
     haptic("medium");
-    setSwitching(true);
-    try {
-      const result = await setBotMode(newMode);
-      setMode(result.mode);
-    } catch (e: any) {
-      alert(e.message);
-    }
+    saveBranches([...branches, newBranch]);
+    setNewBranch("");
+  };
+
+  const remove = (idx: number) => {
+    haptic("medium");
+    saveBranches(branches.filter((_, i) => i !== idx));
+  };
+
+  if (loading) return <div className="loading">Загрузка...</div>;
+
+  return (
+    <>
+      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        {branches.map((b, i) => (
+          <div key={i} style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "12px 14px",
+            borderBottom: i < branches.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
+          }}>
+            <span style={{ fontSize: 15, fontWeight: 600 }}>{b}</span>
+            {branches.length > 1 && (
+              <button onClick={() => remove(i)} style={{
+                background: "rgba(255,59,48,0.15)", border: "none", borderRadius: 8,
+                padding: "6px 10px", color: "var(--tg-destructive)", fontSize: 13, cursor: "pointer",
+              }}>{"\u2715"}</button>
+            )}
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <input value={newBranch} onChange={(e) => setNewBranch(e.target.value)} placeholder="Новый филиал"
+          style={{ ...fieldStyle, flex: 1 }} />
+        <button className="btn" disabled={saving || !newBranch} onClick={add} style={{ width: "auto", padding: "10px 18px", fontSize: 14 }}>
+          {saving ? "..." : "+"}
+        </button>
+      </div>
+    </>
+  );
+};
+
+/* ── Bot Mode ── */
+
+const BotModeTab: React.FC = () => {
+  const [mode, setMode] = React.useState("manual");
+  const [loading, setLoading] = React.useState(true);
+  const [switching, setSwitching] = React.useState(false);
+
+  React.useEffect(() => {
+    getBotMode().then((d) => setMode(d.mode)).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const change = async (m: string) => {
+    if (m === mode) return;
+    haptic("medium"); setSwitching(true);
+    try { const r = await setBotMode(m); setMode(r.mode); } catch (e: any) { alert(e.message); }
     setSwitching(false);
   };
 
@@ -213,20 +628,12 @@ const BotModeTab: React.FC = () => {
       {modes.map((m) => {
         const active = mode === m.id;
         return (
-          <button
-            key={m.id}
-            disabled={switching}
-            onClick={() => handleChange(m.id)}
+          <button key={m.id} disabled={switching} onClick={() => change(m.id)}
             className="card"
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              width: "100%",
-              textAlign: "left",
+              display: "flex", alignItems: "center", gap: 12, width: "100%",
+              textAlign: "left", cursor: "pointer", opacity: switching ? 0.5 : 1,
               border: active ? "2px solid var(--tg-link)" : "2px solid transparent",
-              cursor: "pointer",
-              opacity: switching ? 0.5 : 1,
             }}
           >
             <div style={{ fontSize: 28, lineHeight: 1 }}>{m.icon}</div>
@@ -234,12 +641,19 @@ const BotModeTab: React.FC = () => {
               <div style={{ fontWeight: 600, fontSize: 15 }}>{m.label}</div>
               <div style={{ fontSize: 12, color: "var(--tg-hint)", marginTop: 2 }}>{m.desc}</div>
             </div>
-            {active && (
-              <div style={{ color: "var(--tg-link)", fontSize: 18, fontWeight: 700 }}>{"\u2713"}</div>
-            )}
+            {active && <div style={{ color: "var(--tg-link)", fontSize: 18, fontWeight: 700 }}>{"\u2713"}</div>}
           </button>
         );
       })}
     </div>
   );
+};
+
+/* ── Shared ── */
+
+const fieldStyle: React.CSSProperties = {
+  padding: "8px 10px", borderRadius: 8,
+  border: "1px solid rgba(255,255,255,0.12)",
+  background: "var(--tg-bg)", color: "var(--tg-text)",
+  fontSize: 15, fontFamily: "inherit",
 };

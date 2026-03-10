@@ -122,4 +122,8 @@ export function haptic(type: "light" | "medium" | "heavy" = "light") {
   tg.HapticFeedback.impactOccurred(type);
 }
 
+export function hapticNotify(type: "success" | "error" | "warning") {
+  tg.HapticFeedback.notificationOccurred(type);
+}
+
 export { isDevMode };
