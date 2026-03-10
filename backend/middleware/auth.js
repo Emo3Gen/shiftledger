@@ -21,8 +21,9 @@ export function requireApiKey(req, res, next) {
   // Dev mode — no auth
   if (!API_KEY) return next();
 
-  // Skip health, webhook, and frontend routes — only protect API/debug/ingest
+  // Skip health, webhook, miniapp, and frontend routes — only protect API/debug/ingest
   if (req.path === "/health" || req.path === "/__ping" || req.path === "/telegram-webhook") return next();
+  if (req.path.startsWith("/api/miniapp/")) return next(); // miniapp has its own auth
   const isApiRoute = req.path.startsWith("/api/") || req.path.startsWith("/debug/")
     || req.path.startsWith("/ingest") || req.path.startsWith("/events") || req.path.startsWith("/facts")
     || req.path.startsWith("/parse");

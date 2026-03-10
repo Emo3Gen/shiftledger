@@ -48,6 +48,7 @@ import * as paraplan from "./services/paraplan/index.js";
 import { toWeekHoursTemplate } from "./services/paraplan/hoursCalculator.js";
 import { USE_EMOGEN_PARAPLAN, EMOGEN_API_URL, emogenFetch } from "./emogenClient.js";
 import paraplanRouter from "./routes/paraplan.js";
+import createMiniappRouter from "./routes/miniapp.js";
 import emogenRouter from "./routes/emogen.js";
 import createPaymentsRouter from "./routes/payments.js";
 import swaggerUi from "swagger-ui-express";
@@ -123,7 +124,14 @@ if (existsSync(distDir)) {
   logger.info("Serving static files from %s", distDir);
 }
 
-// API key auth — after static files, skips /health, /__ping, /telegram-webhook
+// Serve miniapp static files (production build) — no auth required
+const miniappDistDir = resolve(__dirname, "../apps/miniapp/dist");
+if (existsSync(miniappDistDir)) {
+  app.use("/miniapp", express.static(miniappDistDir));
+  logger.info("Serving miniapp static files from %s", miniappDistDir);
+}
+
+// API key auth — after static files, skips /health, /__ping, /telegram-webhook, /api/miniapp
 app.use(requireApiKey);
 
 // Helper: load slot templates for a tenant, convert to engine format
@@ -2723,6 +2731,7 @@ logger.debug("POST /api/schedule/publish-test route registered");
 app.use("/api/paraplan", paraplanRouter);
 app.use("/api/emogen", emogenRouter);
 app.use("/api/payments", createPaymentsRouter({ getTelegramBot: () => telegramBot }));
+app.use("/api/miniapp", createMiniappRouter({ getTelegramBot: () => telegramBot }));
 
 // ── Bot mode: manual / auto / debug ─────────────────────────────────────────
 app.get("/api/bot-mode", (_req, res) => {
@@ -2744,6 +2753,12 @@ import { sendPaymentsList } from "./paymentsService.js";
 logger.debug("Route modules registered (paraplan, emogen, payments)");
 
 // SPA fallback: serve index.html for unmatched routes (no auth, must be after all API routes)
+// Miniapp SPA fallback
+if (existsSync(miniappDistDir)) {
+  app.get("/miniapp/{*path}", (req, res) => {
+    res.sendFile(resolve(miniappDistDir, "index.html"));
+  });
+}
 if (existsSync(distDir)) {
   app.get("/{*path}", (req, res, next) => {
     // Don't serve index.html for API/debug/data routes — let them 404 naturally

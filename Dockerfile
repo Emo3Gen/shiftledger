@@ -1,4 +1,4 @@
-# Stage 1: Build frontend
+# Stage 1a: Build simulator frontend
 FROM node:20-alpine AS frontend
 ARG CACHEBUST=1
 WORKDIR /app
@@ -7,6 +7,14 @@ COPY apps/simulator/package*.json ./apps/simulator/
 RUN cd apps/simulator && npm ci
 COPY apps/simulator/ ./apps/simulator/
 RUN cd apps/simulator && npx vite build
+
+# Stage 1b: Build miniapp frontend
+FROM node:20-alpine AS miniapp
+WORKDIR /app
+COPY apps/miniapp/package*.json ./apps/miniapp/
+RUN cd apps/miniapp && npm ci
+COPY apps/miniapp/ ./apps/miniapp/
+RUN cd apps/miniapp && npx vite build
 
 # Stage 2: Backend
 FROM node:20-alpine
@@ -31,8 +39,9 @@ RUN npm ci --omit=dev
 WORKDIR /app
 COPY backend/ ./backend/
 
-# Copy built frontend from stage 1
+# Copy built frontends from stage 1
 COPY --from=frontend /app/apps/simulator/dist/ ./apps/simulator/dist/
+COPY --from=miniapp /app/apps/miniapp/dist/ ./apps/miniapp/dist/
 
 EXPOSE 3000
 
