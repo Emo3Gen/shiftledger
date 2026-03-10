@@ -1,13 +1,14 @@
 import React from "react";
 import { haptic } from "../telegram";
 
-type Screen = "dashboard" | "schedule" | "payments" | "payroll";
+type Screen = "dashboard" | "schedule" | "payments" | "payroll" | "settings";
 
 const tabs: Array<{ id: Screen; icon: string; label: string }> = [
   { id: "dashboard", icon: "\u{1F3E0}", label: "Главная" },
   { id: "schedule", icon: "\u{1F4C5}", label: "График" },
   { id: "payments", icon: "\u{1F4B3}", label: "Оплаты" },
   { id: "payroll", icon: "\u{1F4B0}", label: "Табель" },
+  { id: "settings", icon: "\u2699\uFE0F", label: "Настройки" },
 ];
 
 export const BottomNav: React.FC<{
@@ -50,13 +51,13 @@ export const BottomNav: React.FC<{
               border: "none",
               cursor: "pointer",
               color: active ? "var(--tg-link)" : "var(--tg-hint)",
-              fontSize: 20,
+              fontSize: 18,
               padding: "4px 0",
               transition: "color 0.15s",
             }}
           >
             <span>{tab.icon}</span>
-            <span style={{ fontSize: 10, fontWeight: active ? 600 : 400 }}>{tab.label}</span>
+            <span style={{ fontSize: 9, fontWeight: active ? 600 : 400 }}>{tab.label}</span>
           </button>
         );
       })}

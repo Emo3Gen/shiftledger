@@ -5,9 +5,10 @@ import { Dashboard } from "./components/Dashboard";
 import { Schedule } from "./components/Schedule";
 import { Payroll } from "./components/Payroll";
 import { Payments } from "./components/Payments";
+import { Settings } from "./components/Settings";
 import { BottomNav } from "./components/BottomNav";
 
-type Screen = "dashboard" | "schedule" | "payments" | "payroll";
+type Screen = "dashboard" | "schedule" | "payments" | "payroll" | "settings";
 
 const globalStyles = `
   :root {
@@ -145,7 +146,7 @@ export const App: React.FC = () => {
     })();
   }, []);
 
-  const isOwner = auth?.role === "owner";
+  const isOwner = auth?.user?.is_owner || auth?.role === "owner";
 
   return (
     <>
@@ -178,6 +179,7 @@ export const App: React.FC = () => {
               {screen === "schedule" && <Schedule isOwner={isOwner} />}
               {screen === "payments" && <Payments isOwner={isOwner} />}
               {screen === "payroll" && <Payroll />}
+              {screen === "settings" && <Settings isOwner={isOwner} />}
             </div>
             <BottomNav current={screen} onChange={setScreen} />
           </>

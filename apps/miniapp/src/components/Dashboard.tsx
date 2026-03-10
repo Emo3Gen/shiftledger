@@ -2,7 +2,7 @@ import React from "react";
 import { getDashboard, type DashboardData } from "../api";
 import { haptic } from "../telegram";
 
-type Screen = "dashboard" | "schedule" | "payments" | "payroll";
+type Screen = "dashboard" | "schedule" | "payments" | "payroll" | "settings";
 
 function fmtRub(n: number): string {
   if (!n) return "0 \u20BD";

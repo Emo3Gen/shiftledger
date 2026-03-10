@@ -1,16 +1,19 @@
 /**
  * Telegram Mini App API routes.
  *
- * POST /auth        — authenticate via Telegram initData
- * GET  /dashboard   — aggregated KPI + team list
- * GET  /schedule    — week schedule grid
- * GET  /payments    — tomorrow's payment list
- * GET  /payroll     — month timesheet
- * POST /schedule/publish   — publish schedule to Telegram
+ * POST /auth              — authenticate via Telegram initData
+ * GET  /dashboard         — aggregated KPI + team list
+ * GET  /schedule          — week schedule grid (simplified format)
+ * GET  /employees         — list of active employees
+ * PUT  /schedule/slot     — update a slot assignment
+ * GET  /payments          — tomorrow's payment list
+ * GET  /payroll           — month timesheet
+ * POST /schedule/publish  — publish schedule to Telegram
  * POST /payments/send-list — send payment list to Telegram
  */
 
 import { Router } from "express";
+import { randomUUID } from "crypto";
 import { validateInitData, createToken, requireMiniappAuth } from "../middleware/miniappAuth.js";
 import * as employeeService from "../employeeService.js";
 import * as settingsService from "../settingsService.js";
@@ -20,9 +23,11 @@ import { buildDraftSchedule } from "../scheduleEngineV0.js";
 import { buildTimesheet } from "../timesheetV0.js";
 import { supabase } from "../supabaseClient.js";
 import { fetchRecords, fetchGroupPrices } from "../paymentsService.js";
+import { getBotMode, setBotMode } from "../botMode.js";
 import logger from "../logger.js";
 
 const DEFAULT_CHAT_ID = process.env.TELEGRAM_GROUP_CHAT_ID || "dev_seed_chat";
+const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
 // --- Helpers ---
 
@@ -37,6 +42,14 @@ function getTomorrow() {
   const d = new Date();
   d.setDate(d.getDate() + 1);
   return d.toISOString().slice(0, 10);
+}
+
+function formatWeekLabel(weekStartISO) {
+  const d = new Date(weekStartISO + "T12:00:00");
+  const end = new Date(d);
+  end.setDate(d.getDate() + 6);
+  const fmt = (dt) => `${String(dt.getDate()).padStart(2, "0")}.${String(dt.getMonth() + 1).padStart(2, "0")}`;
+  return `${fmt(d)}-${fmt(end)}`;
 }
 
 async function loadSlotTypes(tenantId) {
@@ -82,6 +95,26 @@ async function loadFacts(chatId, weekStartISO) {
 function getTodayDow() {
   const days = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
   return days[new Date().getDay()];
+}
+
+/** Convert engine slots array → simplified { mon: { morning, morning_id, evening, evening_id, cleaning }, ... } */
+function slotsToSimple(engineSlots) {
+  const result = {};
+  for (const dow of DAYS) {
+    result[dow] = { morning: null, morning_id: null, evening: null, evening_id: null, cleaning: false };
+  }
+  for (const slot of (engineSlots || [])) {
+    const day = result[slot.dow];
+    if (!day) continue;
+    const isM = slot.slot_name === "Утро" || slot.slot_name === "morning";
+    const key = isM ? "morning" : "evening";
+    day[key] = slot.user_id ? (UserDirectory.getDisplayName(slot.user_id) || slot.user_id) : null;
+    day[`${key}_id`] = slot.user_id || null;
+    if (isM && slot.cleaning_user_id) {
+      day.cleaning = true;
+    }
+  }
+  return result;
 }
 
 // --- Router factory ---
@@ -210,7 +243,7 @@ export default function createMiniappRouter({ getTelegramBot }) {
     }
   });
 
-  // GET /schedule?week_start=YYYY-MM-DD
+  // GET /schedule?week_start=YYYY-MM-DD — simplified format
   router.get("/schedule", async (req, res) => {
     try {
       const weekStartISO = req.query.week_start || getMonday();
@@ -225,26 +258,29 @@ export default function createMiniappRouter({ getTelegramBot }) {
         settings,
       });
 
-      // Enrich slots with user display names
-      const slots = (schedule.slots || []).map((slot) => ({
-        dow: slot.dow,
-        slot_name: slot.slot_name,
-        from: slot.from,
-        to: slot.to,
-        user_id: slot.user_id || null,
-        user_name: slot.user_id ? UserDirectory.getDisplayName(slot.user_id) : null,
-        status: slot.status,
-        replaced_user_id: slot.replaced_user_id || null,
-        replaced_user_name: slot.replaced_user_id
-          ? UserDirectory.getDisplayName(slot.replaced_user_id)
-          : null,
-        cleaning_user_id: slot.cleaning_user_id || null,
-        cleaning_user_name: slot.cleaning_user_id
-          ? UserDirectory.getDisplayName(slot.cleaning_user_id)
-          : null,
-      }));
+      const slots = slotsToSimple(schedule.slots);
+
+      // Fallback: if all slots are empty, populate with a reference week pattern
+      const allEmpty = DAYS.every((d) => !slots[d].morning && !slots[d].evening);
+      if (allEmpty) {
+        // Get active employees to suggest a pattern
+        const employees = await employeeService.getAll();
+        const active = employees.filter((e) => e.is_active);
+        if (active.length > 0) {
+          // Rotate employees across days as a fallback template
+          for (let i = 0; i < DAYS.length; i++) {
+            const mIdx = i % active.length;
+            const eIdx = (i + 1) % active.length;
+            slots[DAYS[i]].morning = active[mIdx].name;
+            slots[DAYS[i]].morning_id = active[mIdx].id;
+            slots[DAYS[i]].evening = active[eIdx].name;
+            slots[DAYS[i]].evening_id = active[eIdx].id;
+          }
+        }
+      }
 
       res.json({
+        week: formatWeekLabel(weekStartISO),
         week_start: weekStartISO,
         today_dow: getTodayDow(),
         slots,
@@ -252,6 +288,175 @@ export default function createMiniappRouter({ getTelegramBot }) {
     } catch (e) {
       logger.error({ err: e }, "[miniapp] GET /schedule error");
       res.status(500).json({ error: "Internal error" });
+    }
+  });
+
+  // GET /employees — list of active employees for slot assignment
+  router.get("/employees", async (req, res) => {
+    try {
+      const employees = await employeeService.getAll();
+      const active = employees
+        .filter((e) => e.is_active)
+        .map((e) => ({ id: e.id, name: e.name, role: e.role || "staff" }));
+      res.json(active);
+    } catch (e) {
+      logger.error({ err: e }, "[miniapp] GET /employees error");
+      res.status(500).json({ error: "Internal error" });
+    }
+  });
+
+  // PUT /schedule/slot — update a slot assignment
+  router.put("/schedule/slot", async (req, res) => {
+    try {
+      const { role } = req.telegramUser;
+      if (role !== "owner" && role !== "director" && role !== "admin") {
+        return res.status(403).json({ ok: false, error: "Forbidden" });
+      }
+
+      const { week_start, day, slot, employee_id, cleaning } = req.body;
+      if (!week_start || !day || !slot) {
+        return res.status(400).json({ ok: false, error: "week_start, day, slot required" });
+      }
+      if (!DAYS.includes(day)) {
+        return res.status(400).json({ ok: false, error: "Invalid day" });
+      }
+      if (slot !== "morning" && slot !== "evening") {
+        return res.status(400).json({ ok: false, error: "Invalid slot (morning/evening)" });
+      }
+
+      const slotName = slot === "morning" ? "Утро" : "Вечер";
+      const chatId = DEFAULT_CHAT_ID;
+
+      if (employee_id) {
+        // Upsert SHIFT_ASSIGNMENT fact
+        const factPayload = {
+          week_start,
+          dow: day,
+          slot_name: slotName,
+          user_id: employee_id,
+          source: "miniapp",
+        };
+
+        // Remove existing assignment for this slot
+        const { data: existing } = await supabase
+          .from("facts")
+          .select("id")
+          .eq("chat_id", chatId)
+          .eq("fact_type", "SHIFT_ASSIGNMENT")
+          .limit(500);
+
+        const toDelete = (existing || []).filter((f) => {
+          // We need to re-fetch with payload to filter, but for efficiency
+          // just delete and re-insert
+          return false; // handled below
+        });
+
+        // Delete existing assignments for this specific slot
+        const { data: allFacts } = await supabase
+          .from("facts")
+          .select("*")
+          .eq("chat_id", chatId)
+          .eq("fact_type", "SHIFT_ASSIGNMENT")
+          .limit(500);
+
+        const slotFacts = (allFacts || []).filter(
+          (f) => f.fact_payload?.week_start === week_start
+            && f.fact_payload?.dow === day
+            && f.fact_payload?.slot_name === slotName
+        );
+
+        if (slotFacts.length > 0) {
+          await supabase
+            .from("facts")
+            .delete()
+            .in("id", slotFacts.map((f) => f.id));
+        }
+
+        // Insert new assignment
+        await supabase.from("facts").insert({
+          id: randomUUID(),
+          chat_id: chatId,
+          event_id: `miniapp-${Date.now()}`,
+          fact_type: "SHIFT_ASSIGNMENT",
+          fact_payload: factPayload,
+          created_at: new Date().toISOString(),
+        });
+      } else {
+        // Clear slot: delete assignment facts for this slot
+        const { data: allFacts } = await supabase
+          .from("facts")
+          .select("*")
+          .eq("chat_id", chatId)
+          .eq("fact_type", "SHIFT_ASSIGNMENT")
+          .limit(500);
+
+        const slotFacts = (allFacts || []).filter(
+          (f) => f.fact_payload?.week_start === week_start
+            && f.fact_payload?.dow === day
+            && f.fact_payload?.slot_name === slotName
+        );
+
+        if (slotFacts.length > 0) {
+          await supabase
+            .from("facts")
+            .delete()
+            .in("id", slotFacts.map((f) => f.id));
+        }
+      }
+
+      // Handle cleaning toggle
+      if (typeof cleaning === "boolean" && slot === "morning") {
+        // Delete existing cleaning facts for this slot
+        const { data: cleanFacts } = await supabase
+          .from("facts")
+          .select("*")
+          .eq("chat_id", chatId)
+          .eq("fact_type", "CLEANING_DONE")
+          .limit(500);
+
+        const slotClean = (cleanFacts || []).filter(
+          (f) => f.fact_payload?.week_start === week_start && f.fact_payload?.dow === day
+        );
+
+        if (slotClean.length > 0) {
+          await supabase
+            .from("facts")
+            .delete()
+            .in("id", slotClean.map((f) => f.id));
+        }
+
+        if (cleaning && employee_id) {
+          await supabase.from("facts").insert({
+            id: randomUUID(),
+            chat_id: chatId,
+            event_id: `miniapp-clean-${Date.now()}`,
+            fact_type: "CLEANING_DONE",
+            fact_payload: {
+              week_start,
+              dow: day,
+              user_id: employee_id,
+              source: "miniapp",
+            },
+            created_at: new Date().toISOString(),
+          });
+        }
+      }
+
+      // Return updated slot
+      const name = employee_id ? (UserDirectory.getDisplayName(employee_id) || employee_id) : null;
+      res.json({
+        ok: true,
+        slot: {
+          day,
+          slot,
+          name,
+          employee_id: employee_id || null,
+          cleaning: !!cleaning,
+        },
+      });
+    } catch (e) {
+      logger.error({ err: e }, "[miniapp] PUT /schedule/slot error");
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
     }
   });
 
@@ -301,7 +506,6 @@ export default function createMiniappRouter({ getTelegramBot }) {
           const status = STATUS_MAP[rec.status] || rec.status;
           let amount = 0;
           if (rec.status === "unpaid" || rec.status === "trial") {
-            // Calculate price if possible
             const sub = rec.subscription || {};
             amount = sub.price || 0;
           }
@@ -445,6 +649,54 @@ export default function createMiniappRouter({ getTelegramBot }) {
     } catch (e) {
       logger.error({ err: e }, "[miniapp] POST /schedule/publish error");
       res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // GET /settings — proxy to settingsService
+  router.get("/settings", async (req, res) => {
+    try {
+      const settings = await settingsService.getAll("dev");
+      res.json(settings);
+    } catch (e) {
+      logger.error({ err: e }, "[miniapp] GET /settings error");
+      res.status(500).json({ error: "Internal error" });
+    }
+  });
+
+  // PUT /settings — update a single setting
+  router.put("/settings", async (req, res) => {
+    try {
+      const { role } = req.telegramUser;
+      if (role !== "owner" && role !== "director" && role !== "admin") {
+        return res.status(403).json({ ok: false, error: "Forbidden" });
+      }
+      const { key, value } = req.body;
+      if (!key) return res.status(400).json({ ok: false, error: "key required" });
+      await settingsService.set("dev", key, value);
+      res.json({ ok: true });
+    } catch (e) {
+      logger.error({ err: e }, "[miniapp] PUT /settings error");
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // GET /bot-mode
+  router.get("/bot-mode", (_req, res) => {
+    res.json({ mode: getBotMode() });
+  });
+
+  // POST /bot-mode
+  router.post("/bot-mode", (req, res) => {
+    try {
+      const { role } = req.telegramUser;
+      if (role !== "owner" && role !== "director" && role !== "admin") {
+        return res.status(403).json({ ok: false, error: "Forbidden" });
+      }
+      const { mode } = req.body || {};
+      const result = setBotMode(mode);
+      res.json({ ok: true, mode: result });
+    } catch (e) {
+      res.status(400).json({ ok: false, error: e.message });
     }
   });
 
