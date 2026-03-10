@@ -4,10 +4,22 @@ const envName = process.env.APP_ENV || "dev";
 dotenv.config({ path: `.env.${envName}` });
 dotenv.config({ path: ".env" }); // also load base .env (for shared vars)
 
+// --- Validate required env vars ---
+const REQUIRED_ENV = [
+  'SUPABASE_URL',
+  'SUPABASE_SERVICE_ROLE_KEY',
+  'TELEGRAM_BOT_TOKEN',
+];
+const _missingEnv = REQUIRED_ENV.filter(k => !process.env[k]);
+if (_missingEnv.length) {
+  console.error('FATAL: Missing env vars:', _missingEnv.join(', '));
+  process.exit(1);
+}
+
 import express from "express";
 import { webhookCallback } from "grammy";
 import { randomUUID, createHash } from "crypto";
-import { existsSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { supabase } from "./supabaseClient.js";
@@ -57,6 +69,27 @@ const pendingClarifications = new Map();
 
 // Telegram bot instance reference (set after bot creation, used by /api/schedule/publish)
 let telegramBot = null;
+
+// --- Cron state persistence ---
+const __dirname_server = dirname(fileURLToPath(import.meta.url));
+const CRON_STATE_PATH = resolve(__dirname_server, "data", "cron-state.json");
+
+function loadCronState() {
+  try {
+    return JSON.parse(readFileSync(CRON_STATE_PATH, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+
+function saveCronState(state) {
+  try {
+    mkdirSync(dirname(CRON_STATE_PATH), { recursive: true });
+    writeFileSync(CRON_STATE_PATH, JSON.stringify(state, null, 2), "utf-8");
+  } catch (e) {
+    logger.warn({ err: e }, "Failed to persist cron state");
+  }
+}
 
 const app = express();
 
@@ -2838,7 +2871,7 @@ app.post("/api/bot-mode", (req, res) => {
 
 // ── Emogen proxy: forward price/group settings to Emogen bot backend ────────
 const EMOGEN_API_URL = process.env.EMOGEN_API_URL || "http://127.0.0.1:3001";
-const EMOGEN_API_PASSWORD = process.env.EMOGEN_API_PASSWORD || "prodeti2026";
+const EMOGEN_API_PASSWORD = process.env.EMOGEN_API_PASSWORD || "";
 const emogenAuthHeader = "Basic " + Buffer.from(":" + EMOGEN_API_PASSWORD).toString("base64");
 
 app.get("/api/emogen/groups", async (_req, res) => {
@@ -3145,7 +3178,9 @@ UserDirectory.syncFromDB(employeeService).then(async () => {
     }
 
     // --- Auto-collect cron ---
-    let lastAutoCollectDate = null;
+    const _cronState = loadCronState();
+    let lastAutoCollectDate = _cronState.autoCollect || null;
+    let lastPaymentsCronDate = _cronState.payments || null;
     const DOW_CRON_MAP = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 0 };
 
     const autoCollectCronCheck = async () => {
@@ -3171,6 +3206,7 @@ UserDirectory.syncFromDB(employeeService).then(async () => {
         const chatId = "dev_seed_chat"; // default chat
         const result = await autoCollectNextWeek(chatId, tenantId);
         lastAutoCollectDate = todayDateStr;
+        saveCronState({ autoCollect: lastAutoCollectDate, payments: lastPaymentsCronDate });
         logger.info({ week_start: result.week_start, date: todayDateStr }, "Auto-collect cron triggered successfully");
       } catch (e) {
         logger.error({ err: e }, "Auto-collect cron error");
@@ -3184,7 +3220,6 @@ UserDirectory.syncFromDB(employeeService).then(async () => {
     logger.info("Auto-collect cron started (checking every 60s)");
 
     // --- Payments list cron (daily at 19:30 MSK) ---
-    let lastPaymentsCronDate = null;
 
     const paymentsCronCheck = async () => {
       try {
@@ -3212,6 +3247,7 @@ UserDirectory.syncFromDB(employeeService).then(async () => {
 
         await sendPaymentsList(telegramBot, chatId, tomorrowStr, threadId);
         lastPaymentsCronDate = todayStr;
+        saveCronState({ autoCollect: lastAutoCollectDate, payments: lastPaymentsCronDate });
         logger.info({ date: tomorrowStr, chatId }, "Payments cron: list sent");
       } catch (e) {
         logger.error({ err: e }, "Payments cron error");

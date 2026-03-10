@@ -224,12 +224,12 @@ describe("factsParserV0", () => {
       expect(facts[0].confidence).toBe(0.6);
     });
 
-    test("- пн 10-13 → SHIFT_UNAVAILABILITY (leading dash), confidence 0.6", () => {
+    test("- пн 10-13 → SHIFT_UNAVAILABILITY (leading dash), confidence 0.85", () => {
       const facts = parseEventToFacts({ text: "- пн 10-13", received_at: RECEIVED_AT });
       expect(facts).toHaveLength(1);
       expect(facts[0].fact_type).toBe("SHIFT_UNAVAILABILITY");
       expect(facts[0].fact_payload.dow).toBe("mon");
-      expect(facts[0].confidence).toBe(0.6);
+      expect(facts[0].confidence).toBe(0.85);
     });
 
     test("нет сб утро → SHIFT_UNAVAILABILITY (keyword 'нет'), confidence 0.85", () => {
@@ -264,10 +264,13 @@ describe("factsParserV0", () => {
     });
   });
 
-  describe("NL: day-only without time → empty (not a valid short form)", () => {
-    test("пн → empty array", () => {
+  describe("NL: day-only without time → SHIFT_AVAILABILITY for all slots", () => {
+    test("пн → SHIFT_AVAILABILITY with confidence 0.5", () => {
       const facts = parseEventToFacts({ text: "пн", received_at: RECEIVED_AT });
-      expect(facts).toEqual([]);
+      expect(facts.length).toBeGreaterThanOrEqual(1);
+      expect(facts[0].fact_type).toBe("SHIFT_AVAILABILITY");
+      expect(facts[0].fact_payload.dow).toBe("mon");
+      expect(facts[0].confidence).toBe(0.5);
     });
   });
 

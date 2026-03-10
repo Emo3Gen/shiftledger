@@ -9,7 +9,7 @@ import logger from "./logger.js";
 import { getBotMode, ADMIN_CHAT_ID } from "./botMode.js";
 
 const EMOGEN_API_URL = process.env.EMOGEN_API_URL || "http://127.0.0.1:3001";
-const EMOGEN_API_PASSWORD = process.env.EMOGEN_API_PASSWORD || "prodeti2026";
+const EMOGEN_API_PASSWORD = process.env.EMOGEN_API_PASSWORD || "";
 const emogenAuthHeader = "Basic " + Buffer.from(":" + EMOGEN_API_PASSWORD).toString("base64");
 
 const DOW_RU = { 0: "вс", 1: "пн", 2: "вт", 3: "ср", 4: "чт", 5: "пт", 6: "сб" };

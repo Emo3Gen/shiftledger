@@ -2,6 +2,13 @@
  * Tests for Telegram bot: payload mapping, formatters, /start command.
  */
 
+// Mock botMode.js to avoid import.meta.url issue in Jest/Babel
+jest.mock("../botMode.js", () => ({
+  getBotMode: () => "manual",
+  setBotMode: jest.fn(),
+  ADMIN_CHAT_ID: "",
+}));
+
 import { buildIngestPayload, createBot } from "../telegram/bot.js";
 import { formatFacts, formatSchedule, formatWeekState, formatPayBreakdown, formatPinnedSchedule } from "../telegram/formatters.js";
 
