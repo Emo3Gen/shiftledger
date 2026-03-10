@@ -11,9 +11,10 @@ import { formatFacts, formatSchedule, formatPayBreakdown, formatPinnedSchedule }
 import { UserDirectory } from "../userDirectory.js";
 import { generateScheduleImage } from "../services/scheduleImage.js";
 
+import { getBotMode, ADMIN_CHAT_ID } from "../botMode.js";
+
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 const IS_DEV = process.env.APP_ENV === "dev" || process.env.TEST_MODE === "true";
-const SILENT_MODE = process.env.SILENT_MODE === "true";
 
 // In-memory store: chatId → pinned message_id
 const pinnedMessageIds = new Map();
@@ -534,36 +535,44 @@ export function createBot(ingestFn, scheduleFn, weekStateFn, timesheetFn, employ
    * @param {number} [threadId] - message_thread_id for forum topics
    */
   async function updatePinnedSchedule(botInstance, chatId, threadId) {
-    if (SILENT_MODE) {
-      logger.info({ chatId, threadId, silent: true }, "updatePinnedSchedule suppressed (SILENT_MODE)");
+    const botMode = getBotMode();
+    if (botMode === "manual") {
+      logger.info({ chatId, threadId, botMode }, "updatePinnedSchedule suppressed (manual mode)");
       return;
     }
     try {
       const schedule = await scheduleFn(chatId);
       const text = formatPinnedSchedule(schedule);
+
+      // debug mode → redirect to admin DM
+      const targetChat = botMode === "debug" && ADMIN_CHAT_ID ? ADMIN_CHAT_ID : chatId;
+      const debugPrefix = botMode === "debug" ? "[DEBUG]\n" : "";
+
       const pinKey = threadId ? `${chatId}:${threadId}` : chatId;
       const existingMsgId = pinnedMessageIds.get(pinKey);
       const sendOpts = { parse_mode: "HTML" };
-      if (threadId) sendOpts.message_thread_id = threadId;
+      // Only set thread_id for actual group (not debug redirect)
+      if (threadId && targetChat === chatId) sendOpts.message_thread_id = threadId;
 
-      if (existingMsgId) {
-        // Try to edit existing pinned message
+      if (existingMsgId && botMode !== "debug") {
+        // Try to edit existing pinned message (only in auto mode)
         try {
           await botInstance.api.editMessageText(chatId, existingMsgId, text, { parse_mode: "HTML" });
           return;
         } catch (editErr) {
-          // Message might have been deleted — send new one
           logger.debug({ editErr }, "failed to edit pinned message, sending new one");
         }
       }
 
-      // Send new message and pin it
-      const msg = await botInstance.api.sendMessage(chatId, text, sendOpts);
-      pinnedMessageIds.set(pinKey, msg.message_id);
-      try {
-        await botInstance.api.pinChatMessage(chatId, msg.message_id, { disable_notification: true });
-      } catch (pinErr) {
-        logger.debug({ pinErr }, "failed to pin message (bot may lack permissions)");
+      // Send new message
+      const msg = await botInstance.api.sendMessage(targetChat, debugPrefix + text, sendOpts);
+      if (botMode !== "debug") {
+        pinnedMessageIds.set(pinKey, msg.message_id);
+        try {
+          await botInstance.api.pinChatMessage(targetChat, msg.message_id, { disable_notification: true });
+        } catch (pinErr) {
+          logger.debug({ pinErr }, "failed to pin message (bot may lack permissions)");
+        }
       }
     } catch (err) {
       logger.error({ err }, "updatePinnedSchedule error");

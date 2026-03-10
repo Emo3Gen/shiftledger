@@ -1,6 +1,5 @@
 import dotenv from "dotenv";
 
-const SILENT_MODE = process.env.SILENT_MODE === "true";
 const envName = process.env.APP_ENV || "dev";
 dotenv.config({ path: `.env.${envName}` });
 dotenv.config({ path: ".env" }); // also load base .env (for shared vars)
@@ -30,6 +29,7 @@ import logger from "./logger.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 import { generalLimiter, ingestLimiter } from "./middleware/rateLimiter.js";
 import { createBot } from "./telegram/bot.js";
+import { getBotMode, setBotMode, ADMIN_CHAT_ID } from "./botMode.js";
 import { runDevSeed } from "./devSeed.js";
 import { generateScheduleImage } from "./services/scheduleImage.js";
 import * as paraplan from "./services/paraplan/index.js";
@@ -2560,31 +2560,38 @@ app.post("/api/schedule/publish", async (req, res) => {
       settings: tenantSettings,
     });
 
-    if (SILENT_MODE) {
-      logger.info({ chat_id, week_start: weekStartISO, silent: true }, "Schedule publish suppressed (SILENT_MODE)");
-      return res.json({ ok: true, week_start: weekStartISO, message_id: null, pinned: false, silent: true });
+    const botMode = getBotMode();
+    if (botMode === "manual") {
+      logger.info({ chat_id, week_start: weekStartISO, botMode }, "Schedule publish suppressed (manual mode)");
+      return res.json({ ok: true, week_start: weekStartISO, message_id: null, pinned: false, mode: "manual" });
     }
 
     const pngBuffer = generateScheduleImage(schedule);
     const { InputFile } = await import("grammy");
 
+    // debug mode → send to admin DM instead of group
+    const targetChatId = botMode === "debug" && ADMIN_CHAT_ID ? ADMIN_CHAT_ID : chat_id;
+
     // Default to thread_id=2 ("График младшие" topic) for the main group
     const effectiveThreadId = thread_id ?? 2;
     const sendOpts = {};
-    if (effectiveThreadId) sendOpts.message_thread_id = Number(effectiveThreadId);
+    // Only set thread_id for actual group (not debug redirect to admin DM)
+    if (effectiveThreadId && targetChatId === chat_id) sendOpts.message_thread_id = Number(effectiveThreadId);
 
     const sentMsg = await telegramBot.api.sendPhoto(
-      chat_id,
-      new InputFile(pngBuffer, "schedule.png"),
+      targetChatId,
+      new InputFile(pngBuffer, `${botMode === "debug" ? "[DEBUG] " : ""}schedule.png`),
       sendOpts,
     );
 
-    // Pin the message in the topic
-    try {
-      await telegramBot.api.pinChatMessage(chat_id, sentMsg.message_id, { disable_notification: true });
-      logger.info({ chat_id, message_id: sentMsg.message_id, thread_id: effectiveThreadId }, "Schedule PNG pinned");
-    } catch (pinErr) {
-      logger.warn({ err: pinErr, chat_id, message_id: sentMsg.message_id }, "Failed to pin schedule PNG (bot may lack pin permission)");
+    // Pin the message in the topic (skip in debug mode — don't pin in admin DM)
+    if (botMode !== "debug") {
+      try {
+        await telegramBot.api.pinChatMessage(targetChatId, sentMsg.message_id, { disable_notification: true });
+        logger.info({ chat_id: targetChatId, message_id: sentMsg.message_id, thread_id: effectiveThreadId }, "Schedule PNG pinned");
+      } catch (pinErr) {
+        logger.warn({ err: pinErr, chat_id: targetChatId, message_id: sentMsg.message_id }, "Failed to pin schedule PNG (bot may lack pin permission)");
+      }
     }
 
     logger.info({ chat_id, week_start: weekStartISO, thread_id: effectiveThreadId }, "Schedule PNG published to Telegram");
@@ -2813,6 +2820,21 @@ app.get("/api/paraplan/subscriptions", async (_req, res) => {
 });
 
 logger.debug("Paraplan API routes registered");
+
+// ── Bot mode: manual / auto / debug ─────────────────────────────────────────
+app.get("/api/bot-mode", (_req, res) => {
+  res.json({ mode: getBotMode() });
+});
+
+app.post("/api/bot-mode", (req, res) => {
+  try {
+    const { mode } = req.body || {};
+    const result = setBotMode(mode);
+    res.json({ ok: true, mode: result });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
 
 // ── Emogen proxy: forward price/group settings to Emogen bot backend ────────
 const EMOGEN_API_URL = process.env.EMOGEN_API_URL || "http://127.0.0.1:3001";

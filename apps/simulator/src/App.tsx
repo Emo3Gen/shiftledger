@@ -427,6 +427,8 @@ export const App: React.FC = () => {
   const [emogenSilent, setEmogenSilent] = React.useState<boolean | null>(null);
   const [emogenStatusErr, setEmogenStatusErr] = React.useState<string | null>(null);
   const [emogenToggling, setEmogenToggling] = React.useState(false);
+  const [botMode, setBotMode] = React.useState<string | null>(null);
+  const [botModeLoading, setBotModeLoading] = React.useState(false);
   const [periodMode, setPeriodMode] = React.useState<"week" | "first_half" | "second_half" | "full_month">("week");
   const [extraWorkItems, setExtraWorkItems] = React.useState<any[]>([]);
   const [extraPayItems, setExtraPayItems] = React.useState<any[]>([]);
@@ -743,6 +745,36 @@ export const App: React.FC = () => {
     if (settingsTab !== "groups") return;
     fetchEmogenStatus();
   }, [settingsTab, fetchEmogenStatus]);
+
+  // Load bot mode when groups tab is selected
+  const fetchBotMode = React.useCallback(() => {
+    fetch("/api/bot-mode").then(r => {
+      if (!r.ok) throw new Error(`${r.status}`);
+      return r.json();
+    }).then(d => setBotMode(d.mode))
+      .catch(() => setBotMode(null));
+  }, []);
+
+  React.useEffect(() => {
+    if (settingsTab !== "groups") return;
+    fetchBotMode();
+  }, [settingsTab, fetchBotMode]);
+
+  const changeBotMode = async (mode: string) => {
+    setBotModeLoading(true);
+    try {
+      const r = await fetch("/api/bot-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      if (!r.ok) throw new Error(`${r.status}`);
+      setBotMode(mode);
+    } catch (e: any) {
+      alert("Ошибка: " + (e.message || e));
+    }
+    setBotModeLoading(false);
+  };
 
   // Load employees from API
   const loadEmployees = React.useCallback(async () => {
@@ -2097,6 +2129,37 @@ export const App: React.FC = () => {
                       }}
                     >{groupsLoading ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." : "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C \u0438\u0437 \u041F\u0430\u0440\u0430\u043F\u043B\u0430\u043D\u0430"}</button>
                     <span style={{ color: "#888" }}>{groupsConfig.length} {"\u0433\u0440\u0443\u043F\u043F"}</span>
+                  </div>
+
+                  {/* ── Режим бота ──────────────────────────── */}
+                  <div style={{ marginTop: 4, marginBottom: 10, padding: "8px 10px", background: "#f0f4ff", border: "1px solid #c8d6f0", borderRadius: 6 }}>
+                    <div style={{ fontWeight: "bold", marginBottom: 6 }}>{"Режим бота"}</div>
+                    <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
+                      {([
+                        { mode: "manual", icon: "🖐", label: "Ручной", bg: "#fff3e0", border: "#ffcc80" },
+                        { mode: "auto", icon: "🤖", label: "Авто", bg: "#e8f5e9", border: "#a5d6a7" },
+                        { mode: "debug", icon: "🔍", label: "Отладка", bg: "#e3f2fd", border: "#90caf9" },
+                      ] as const).map((m) => (
+                        <button
+                          key={m.mode}
+                          disabled={botModeLoading}
+                          onClick={() => changeBotMode(m.mode)}
+                          style={{
+                            padding: "4px 10px", fontSize: "var(--font-xs)", cursor: botModeLoading ? "not-allowed" : "pointer",
+                            background: botMode === m.mode ? m.bg : "#f5f5f5",
+                            border: `2px solid ${botMode === m.mode ? m.border : "#ddd"}`,
+                            borderRadius: 4, fontWeight: botMode === m.mode ? 700 : 400,
+                            opacity: botModeLoading ? 0.6 : 1,
+                          }}
+                        >{m.icon} {m.label}</button>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: "0.85em", color: "#555" }}>
+                      {botMode === "manual" && "Бот молчит в группе. Публикация только вручную из панели."}
+                      {botMode === "auto" && "Бот публикует график и оплаты автоматически."}
+                      {botMode === "debug" && "Бот перехватывает отправки в группу → шлёт в личку директора с [DEBUG]."}
+                      {botMode === null && "Загрузка..."}
+                    </div>
                   </div>
 
                   {/* ── Emogen бот: статус + Silent Mode ──────── */}

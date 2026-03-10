@@ -5,6 +5,9 @@ dist/
 .env.local
 .env.*.local
 
+# Persisted runtime data
+backend/data/
+
 # Miscellaneous
 *.class
 *.lock
