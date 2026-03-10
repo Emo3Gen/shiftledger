@@ -55,7 +55,7 @@ function shortName(fullName) {
  */
 function extractPrefix(name) {
   const upper = name.toUpperCase();
-  const PREFIXES = ["СТАРТ-2", "СТАРТ-1", "МИНИ-2", "МИНИ-1", "ПКШК", "ГКП", "ИНГЛИШ", "РИСОВАНИЕ"];
+  const PREFIXES = ["СТАРТ-2", "СТАРТ-1", "МИНИ-2", "МИНИ-1", "ПКШК", "ГКП", "ИНГЛИШ", "РИСОВАНИЕ", "ТВОРЧЕСТВО"];
   for (const p of PREFIXES) {
     if (upper.startsWith(p)) return p;
   }

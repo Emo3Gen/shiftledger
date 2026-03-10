@@ -21,6 +21,10 @@ const SKIP_GROUPS = [
   "МИНИ-1 ЧТ (11:30-12:30)",
 ];
 
+// Group prefixes that are senior-only (don't require junior staff).
+// Used as default when auto-generating paraplan_groups config.
+export const SENIOR_ONLY_PREFIXES = ["ИНГЛИШ", "РИСОВАНИЕ", "ТВОРЧЕСТВО"];
+
 // Singleton state
 let dataService = null;
 let lastResult = null; // { hours, groups, teachers, updatedAt }
@@ -37,14 +41,27 @@ function getCredentials() {
 }
 
 /**
+ * Build juniorGroupIds Set from groupsConfig array.
+ * @param {Array} groupsConfig - Array of { paraplan_id, requires_junior }
+ * @returns {Set<string>|null} Set of group IDs that require junior, or null if no config
+ */
+function buildJuniorFilter(groupsConfig) {
+  if (!Array.isArray(groupsConfig) || groupsConfig.length === 0) return null;
+  return new Set(
+    groupsConfig.filter((g) => g.requires_junior).map((g) => g.paraplan_id)
+  );
+}
+
+/**
  * Initialize the Paraplan integration (authenticate + load data).
  * Safe to call multiple times — only runs once.
+ * @param {Array} [groupsConfig] - saved paraplan_groups config with requires_junior flags
  */
-export async function init() {
+export async function init(groupsConfig) {
   if (isInitialized) return lastResult;
   if (initPromise) return initPromise;
 
-  initPromise = _doInit();
+  initPromise = _doInit(groupsConfig);
   try {
     const result = await initPromise;
     isInitialized = true;
@@ -55,7 +72,7 @@ export async function init() {
   }
 }
 
-async function _doInit() {
+async function _doInit(groupsConfig) {
   const creds = getCredentials();
   if (!creds) {
     logger.warn("[paraplan] PARAPLAN_LOGIN / PARAPLAN_PASSWORD not set — integration disabled");
@@ -72,12 +89,13 @@ async function _doInit() {
 
   await dataService.init();
 
-  // Load hours immediately
-  const result = await calculateHoursFromParaplan(dataService, { skipGroups: SKIP_GROUPS });
+  // Load hours with junior filter if config available
+  const juniorGroupIds = buildJuniorFilter(groupsConfig);
+  const result = await calculateHoursFromParaplan(dataService, { skipGroups: SKIP_GROUPS, juniorGroupIds });
   lastResult = { ...result, updatedAt: new Date().toISOString() };
 
   logger.info(
-    { groups: result.groups.length, daysWithHours: Object.keys(result.hours).length },
+    { groups: result.groups.length, daysWithHours: Object.keys(result.hours).length, filtered: !!juniorGroupIds },
     "[paraplan] Data loaded"
   );
 
@@ -86,18 +104,21 @@ async function _doInit() {
 
 /**
  * Refresh data from Paraplan (re-fetch all groups + recalculate hours).
+ * @param {Array} [groupsConfig] - saved paraplan_groups config with requires_junior flags
  */
-export async function refresh() {
+export async function refresh(groupsConfig) {
   if (!dataService) {
-    return init();
+    return init(groupsConfig);
   }
 
+  const juniorGroupIds = buildJuniorFilter(groupsConfig);
+
   dataService.invalidateAll();
-  const result = await calculateHoursFromParaplan(dataService, { skipGroups: SKIP_GROUPS });
+  const result = await calculateHoursFromParaplan(dataService, { skipGroups: SKIP_GROUPS, juniorGroupIds });
   lastResult = { ...result, updatedAt: new Date().toISOString() };
 
   logger.info(
-    { groups: result.groups.length, daysWithHours: Object.keys(result.hours).length },
+    { groups: result.groups.length, daysWithHours: Object.keys(result.hours).length, filtered: !!juniorGroupIds },
     "[paraplan] Data refreshed"
   );
 
@@ -109,26 +130,7 @@ export async function refresh() {
  * @param {Array} groupsConfig - Array of { paraplan_id, requires_junior }
  */
 export async function refreshWithFilter(groupsConfig) {
-  if (!dataService) return init();
-
-  // Build set of group IDs that require junior (only those count for hours)
-  const juniorGroupIds = new Set(
-    groupsConfig.filter((g) => g.requires_junior).map((g) => g.paraplan_id)
-  );
-
-  dataService.invalidateAll();
-  const result = await calculateHoursFromParaplan(dataService, {
-    skipGroups: SKIP_GROUPS,
-    juniorGroupIds,
-  });
-  lastResult = { ...result, updatedAt: new Date().toISOString() };
-
-  logger.info(
-    { groups: result.groups.length, juniorFiltered: juniorGroupIds.size, daysWithHours: Object.keys(result.hours).length },
-    "[paraplan] Data refreshed with junior filter"
-  );
-
-  return lastResult;
+  return refresh(groupsConfig);
 }
 
 /**

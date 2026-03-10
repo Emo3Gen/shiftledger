@@ -2728,7 +2728,9 @@ app.get("/api/paraplan/groups", async (req, res) => {
 
 app.post("/api/paraplan/refresh", async (req, res) => {
   try {
-    const result = await paraplan.refresh();
+    const tenantId = req.query.tenant_id || "dev";
+    const savedConfig = await settingsService.get(tenantId, "paraplan_groups");
+    const result = await paraplan.refresh(savedConfig || undefined);
     res.json({ ok: true, updatedAt: result?.updatedAt, groupCount: result?.groups?.length || 0 });
   } catch (e) {
     logger.error({ err: e }, "POST /api/paraplan/refresh error");
@@ -2744,11 +2746,12 @@ app.get("/api/paraplan/groups-config", async (req, res) => {
     // If no saved config, auto-generate from Paraplan groups
     if (!saved && paraplan.isReady()) {
       const groups = paraplan.getGroups();
+      const seniorPrefixes = paraplan.SENIOR_ONLY_PREFIXES || [];
       const config = groups.map((g) => ({
         paraplan_id: g.id,
         name: g.name,
         prefix: g.prefix,
-        requires_junior: true,
+        requires_junior: !seniorPrefixes.includes(g.prefix),
         required_skill_level: null,
         lessons: g.lessons || [],
       }));
@@ -2804,7 +2807,7 @@ app.post("/api/paraplan/sync-groups", async (req, res) => {
       paraplan_id: g.id,
       name: g.name,
       prefix: g.prefix,
-      requires_junior: existingMap.get(g.id)?.requires_junior ?? true,
+      requires_junior: existingMap.get(g.id)?.requires_junior ?? !(paraplan.SENIOR_ONLY_PREFIXES || []).includes(g.prefix),
       required_skill_level: existingMap.get(g.id)?.required_skill_level ?? null,
       lessons: g.lessons || [],
     }));
@@ -3026,7 +3029,10 @@ UserDirectory.syncFromDB(employeeService).then(async () => {
   }
   // Initialize Paraplan integration (non-blocking: server starts even if Paraplan fails)
   if (paraplan.isConfigured()) {
-    paraplan.init().then(() => {
+    const tenantId = process.env.DEFAULT_TENANT_ID || "dev";
+    settingsService.get(tenantId, "paraplan_groups").then((savedConfig) => {
+      return paraplan.init(savedConfig || undefined);
+    }).then(() => {
       logger.info("[paraplan] Integration ready");
     }).catch((err) => {
       logger.warn({ err: err.message }, "[paraplan] Init failed — hours will use defaults");
