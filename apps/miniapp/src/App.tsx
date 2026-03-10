@@ -1,6 +1,6 @@
 import React from "react";
 import { authenticate, clearToken, type AuthResult } from "./api";
-import { themeParams, user, isDevMode } from "./telegram";
+import { themeParams, user, isDevMode, ready } from "./telegram";
 import { Dashboard } from "./components/Dashboard";
 import { Schedule } from "./components/Schedule";
 import { Payroll } from "./components/Payroll";
@@ -178,6 +178,54 @@ const globalStyles = `
   }
 `;
 
+/* ── Pull to Refresh ── */
+
+const PullRefresh: React.FC<{ children: React.ReactNode; onRefresh: () => void }> = ({ children, onRefresh }) => {
+  const [pullY, setPullY] = React.useState(0);
+  const [refreshing, setRefreshing] = React.useState(false);
+  const startY = React.useRef<number | null>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    if (containerRef.current && containerRef.current.scrollTop <= 0) {
+      startY.current = e.touches[0].clientY;
+    }
+  };
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (startY.current === null) return;
+    const dy = e.touches[0].clientY - startY.current;
+    if (dy > 0 && containerRef.current && containerRef.current.scrollTop <= 0) {
+      setPullY(Math.min(dy * 0.4, 80));
+    }
+  };
+  const onTouchEnd = () => {
+    if (pullY > 50 && !refreshing) {
+      setRefreshing(true);
+      onRefresh();
+      setTimeout(() => { setRefreshing(false); setPullY(0); }, 800);
+    } else {
+      setPullY(0);
+    }
+    startY.current = null;
+  };
+
+  return (
+    <div ref={containerRef} className="screen"
+      onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+    >
+      {(pullY > 10 || refreshing) && (
+        <div style={{
+          textAlign: "center", padding: "4px 0", fontSize: 12, color: "var(--tg-hint)",
+          transition: "opacity 0.2s", opacity: pullY > 30 || refreshing ? 1 : pullY / 30,
+        }}>
+          {refreshing ? "\u21BB ..." : pullY > 50 ? "\u2191 Отпустите" : "\u2193 Потяните"}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+};
+
 /* ── App ── */
 
 export const App: React.FC = () => {
@@ -185,8 +233,11 @@ export const App: React.FC = () => {
   const [auth, setAuth] = React.useState<AuthResult | null>(null);
   const [authLoading, setAuthLoading] = React.useState(true);
   const [authError, setAuthError] = React.useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = React.useState(0);
+  const doRefresh = React.useCallback(() => setRefreshKey((k) => k + 1), []);
 
   React.useEffect(() => {
+    ready();
     (async () => {
       try {
         const result = await authenticate();
@@ -228,13 +279,13 @@ export const App: React.FC = () => {
             </div>
           ) : (
             <>
-              <div className="screen">
-                {screen === "dashboard" && <Dashboard isOwner={isOwner} onNavigate={setScreen} />}
-                {screen === "schedule" && <Schedule isOwner={isOwner} />}
-                {screen === "payments" && <Payments isOwner={isOwner} />}
-                {screen === "payroll" && <Payroll />}
-                {screen === "settings" && <Settings isOwner={isOwner} />}
-              </div>
+              <PullRefresh onRefresh={doRefresh}>
+                {screen === "dashboard" && <Dashboard key={refreshKey} isOwner={isOwner} onNavigate={setScreen} />}
+                {screen === "schedule" && <Schedule key={refreshKey} isOwner={isOwner} />}
+                {screen === "payments" && <Payments key={refreshKey} isOwner={isOwner} />}
+                {screen === "payroll" && <Payroll key={refreshKey} />}
+                {screen === "settings" && <Settings key={refreshKey} isOwner={isOwner} />}
+              </PullRefresh>
               <BottomNav current={screen} onChange={setScreen} />
             </>
           )}

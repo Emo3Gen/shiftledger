@@ -82,6 +82,9 @@ export interface ScheduleData {
 }
 export const getSchedule = (ws?: string) => apiGet<ScheduleData>(`/api/miniapp/schedule${ws ? `?week_start=${ws}` : ""}`);
 export const publishSchedule = (ws: string) => apiPost("/api/miniapp/schedule/publish", { week_start: ws });
+export const proposeSchedule = (ws: string) => apiPost("/api/miniapp/schedule/propose", { week_start: ws });
+export const lockSchedule = (ws: string) => apiPost("/api/miniapp/schedule/lock", { week_start: ws });
+export const resetSchedule = (ws: string) => apiPost("/api/miniapp/schedule/reset", { week_start: ws });
 export const updateSlot = (ws: string, day: string, slot: string, eid: string | null, cleaning?: boolean) =>
   apiPut("/api/miniapp/schedule/slot", { week_start: ws, day, slot, employee_id: eid, cleaning });
 

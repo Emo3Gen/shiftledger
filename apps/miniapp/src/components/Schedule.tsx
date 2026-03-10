@@ -1,9 +1,10 @@
 import React from "react";
 import {
-  getSchedule, getEmployees, updateSlot, publishSchedule, addExtraPay, getCatalog,
+  getSchedule, getEmployees, updateSlot, publishSchedule, proposeSchedule, lockSchedule, resetSchedule, addExtraPay, getCatalog,
   type ScheduleData, type SlotData, type Employee, type CatalogItem,
 } from "../api";
-import { haptic } from "../telegram";
+import { haptic, hapticNotify } from "../telegram";
+import { useToast } from "../App";
 
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 const DAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
@@ -48,6 +49,7 @@ interface ModalState {
 }
 
 export const Schedule: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
+  const toast = useToast();
   const [weekStart, setWeekStart] = React.useState(getMonday);
   const [data, setData] = React.useState<ScheduleData | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -56,6 +58,7 @@ export const Schedule: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
   const [modal, setModal] = React.useState<ModalState | null>(null);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [saving, setSaving] = React.useState(false);
+  const [actionLoading, setActionLoading] = React.useState<string | null>(null);
 
   const load = React.useCallback(async (ws: string) => {
     setLoading(true);
@@ -108,8 +111,22 @@ export const Schedule: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
       await updateSlot(weekStart, modal.day, modal.slot, employeeId, cleaning);
       setData(await getSchedule(weekStart));
       setModal(null);
-    } catch (e: any) { alert(e.message); }
+    } catch (e: any) { toast(e.message, "error"); }
     setSaving(false);
+  };
+
+  const handleAction = async (action: "propose" | "lock" | "reset") => {
+    haptic("medium");
+    setActionLoading(action);
+    try {
+      if (action === "propose") await proposeSchedule(weekStart);
+      else if (action === "lock") await lockSchedule(weekStart);
+      else await resetSchedule(weekStart);
+      hapticNotify("success");
+      toast(action === "propose" ? "График предложен" : action === "lock" ? "График зафиксирован" : "Неделя сброшена", "success");
+      load(weekStart);
+    } catch (e: any) { hapticNotify("error"); toast(e.message, "error"); }
+    setActionLoading(null);
   };
 
   const bg = (ds: SlotData | undefined, slot: "morning" | "evening") =>
@@ -234,6 +251,24 @@ export const Schedule: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {/* Schedule actions */}
+          {isOwner && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
+              <button className="btn btn-secondary" disabled={!!actionLoading} onClick={() => handleAction("propose")}
+                style={{ fontSize: 12, padding: "9px 4px" }}>
+                {actionLoading === "propose" ? "..." : "\u{1F4CB} Предложить"}
+              </button>
+              <button className="btn btn-secondary" disabled={!!actionLoading} onClick={() => handleAction("lock")}
+                style={{ fontSize: 12, padding: "9px 4px" }}>
+                {actionLoading === "lock" ? "..." : "\u{1F512} Зафиксировать"}
+              </button>
+              <button className="btn btn-secondary" disabled={!!actionLoading} onClick={() => handleAction("reset")}
+                style={{ fontSize: 12, padding: "9px 4px", color: "var(--tg-destructive)" }}>
+                {actionLoading === "reset" ? "..." : "\u{1F504} Обнулить"}
+              </button>
             </div>
           )}
 
@@ -455,6 +490,7 @@ const ExtraWorkSheet: React.FC<{
   onClose: () => void;
   onDone: () => void;
 }> = ({ employeeId, employeeName, weekStart, onClose, onDone }) => {
+  const toast = useToast();
   const [catalog, setCatalog] = React.useState<CatalogItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
@@ -475,7 +511,7 @@ const ExtraWorkSheet: React.FC<{
     try {
       await addExtraPay({ user_id: employeeId, work_type_id: typeId || name, work_name: name, price, date: weekStart });
       onDone();
-    } catch (e: any) { alert(e.message); }
+    } catch (e: any) { toast(e.message, "error"); }
     setSaving(false);
   };
 

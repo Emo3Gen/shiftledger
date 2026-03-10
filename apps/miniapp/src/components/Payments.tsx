@@ -7,6 +7,18 @@ function fmtRub(n: number): string {
   return Math.round(n).toLocaleString("ru-RU") + " \u20BD";
 }
 
+function getTomorrow(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function formatDateLabel(iso: string): string {
+  const d = new Date(iso + "T12:00:00");
+  const months = ["\u044F\u043D\u0432", "\u0444\u0435\u0432", "\u043C\u0430\u0440", "\u0430\u043F\u0440", "\u043C\u0430\u044F", "\u0438\u044E\u043D", "\u0438\u044E\u043B", "\u0430\u0432\u0433", "\u0441\u0435\u043D", "\u043E\u043A\u0442", "\u043D\u043E\u044F", "\u0434\u0435\u043A"];
+  return `${d.getDate()} ${months[d.getMonth()]}`;
+}
+
 const STATUS_ICONS: Record<string, string> = {
   subscription: "\u2713",
   makeup: "\u21A9",
@@ -24,18 +36,26 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export const Payments: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
+  const [date, setDate] = React.useState(getTomorrow);
   const [data, setData] = React.useState<PaymentsData | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [sending, setSending] = React.useState(false);
   const [sendResult, setSendResult] = React.useState<string | null>(null);
 
-  React.useEffect(() => {
+  const load = React.useCallback((d: string) => {
     setLoading(true);
-    getPayments()
-      .then(setData)
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    getPayments(d).then(setData).catch(() => {}).finally(() => setLoading(false));
   }, []);
+
+  React.useEffect(() => { load(date); }, [date, load]);
+
+  const navigate = (dir: -1 | 0 | 1) => {
+    haptic("light");
+    if (dir === 0) { setDate(getTomorrow()); return; }
+    const d = new Date(date + "T12:00:00");
+    d.setDate(d.getDate() + dir);
+    setDate(d.toISOString().slice(0, 10));
+  };
 
   const handleSend = async () => {
     if (!data?.date) return;
@@ -51,23 +71,29 @@ export const Payments: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
     setSending(false);
   };
 
-  if (loading) return <div className="loading">Загрузка...</div>;
-  if (!data) return <div className="error-box">Не удалось загрузить</div>;
-
-  const tomorrow = new Date(data.date + "T12:00:00");
-  const dateLabel = `${tomorrow.getDate()} ${["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"][tomorrow.getMonth()]}`;
-
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
-        <div>
-          <div style={{ fontSize: 18, fontWeight: 700 }}>Оплаты</div>
-          <div style={{ fontSize: 13, color: "var(--tg-hint)" }}>на {dateLabel}</div>
+      {/* Date navigation */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <button className="btn btn-secondary" style={{ width: 40, padding: 8, fontSize: 18 }} onClick={() => navigate(-1)}>&larr;</button>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>Оплаты</div>
+          <div style={{ fontSize: 13, color: "var(--tg-hint)", cursor: "pointer" }} onClick={() => navigate(0)}>
+            {formatDateLabel(date)}
+          </div>
         </div>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>{data.total_students} уч.</div>
-          <div style={{ fontSize: 12, color: "var(--tg-hint)" }}>{fmtRub(data.total_amount)}</div>
-        </div>
+        <button className="btn btn-secondary" style={{ width: 40, padding: 8, fontSize: 18 }} onClick={() => navigate(1)}>&rarr;</button>
+      </div>
+
+      {loading ? (
+        <div className="loading">Загрузка...</div>
+      ) : !data ? (
+        <div className="error-box">Не удалось загрузить</div>
+      ) : (
+      <>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+        <div style={{ fontSize: 15, fontWeight: 600 }}>{data.total_students} уч.</div>
+        <div style={{ fontSize: 14, color: "var(--tg-hint)" }}>{fmtRub(data.total_amount)}</div>
       </div>
 
       {data.groups.length === 0 ? (
@@ -127,6 +153,8 @@ export const Payments: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
         }}>
           {sendResult === "ok" ? "\u2705 Отправлено" : sendResult}
         </div>
+      )}
+      </>
       )}
     </div>
   );

@@ -4,6 +4,7 @@ import {
   type PayrollData, type PayrollEmployee, type CatalogItem,
 } from "../api";
 import { haptic } from "../telegram";
+import { useToast } from "../App";
 
 function fmtRub(n: number): string {
   if (!n) return "0 \u20BD";
@@ -166,6 +167,7 @@ const PayrollDetail: React.FC<{
   onClose: () => void;
   onReload: () => void;
 }> = ({ employee: emp, onClose, onReload }) => {
+  const toast = useToast();
   const [visible, setVisible] = React.useState(false);
   const [dragY, setDragY] = React.useState(0);
   const [showAdd, setShowAdd] = React.useState(false);
@@ -186,7 +188,7 @@ const PayrollDetail: React.FC<{
   const act = async (fn: () => Promise<any>, id: string) => {
     haptic("medium");
     setActionId(id);
-    try { await fn(); onReload(); close(); } catch (e: any) { alert(e.message); }
+    try { await fn(); onReload(); close(); } catch (e: any) { toast(e.message, "error"); }
     setActionId(null);
   };
 
@@ -321,6 +323,7 @@ const AddExtraSheet: React.FC<{
   userId: string; userName: string;
   onClose: () => void; onDone: () => void;
 }> = ({ userId, userName, onClose, onDone }) => {
+  const toast = useToast();
   const [catalog, setCatalog] = React.useState<CatalogItem[]>([]);
   const [tab, setTab] = React.useState<"work" | "pay">("work");
   const [loading, setLoading] = React.useState(true);
@@ -341,7 +344,7 @@ const AddExtraSheet: React.FC<{
   const addWork = async (name: string, price: number, typeId?: string) => {
     haptic("medium"); setSaving(true);
     try { await addExtraPay({ user_id: userId, work_type_id: typeId || name, work_name: name, price }); onDone(); }
-    catch (e: any) { alert(e.message); }
+    catch (e: any) { toast(e.message, "error"); }
     setSaving(false);
   };
 
@@ -349,7 +352,7 @@ const AddExtraSheet: React.FC<{
     if (!payAmount) return;
     haptic("medium"); setSaving(true);
     try { await addExtraPay({ user_id: userId, amount: Number(payAmount), comment: payComment || undefined }); onDone(); }
-    catch (e: any) { alert(e.message); }
+    catch (e: any) { toast(e.message, "error"); }
     setSaving(false);
   };
 

@@ -5,6 +5,7 @@ import {
   type Employee, type CatalogItem,
 } from "../api";
 import { haptic } from "../telegram";
+import { useToast } from "../App";
 
 type Tab = "shifts" | "employees" | "catalog" | "cleanings" | "branches" | "rates" | "bot";
 
@@ -60,12 +61,14 @@ export const Settings: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
 /* ── Shifts ── */
 
 const ShiftsTab: React.FC = () => {
+  const toast = useToast();
   const [mFrom, setMFrom] = React.useState("10:00");
   const [mTo, setMTo] = React.useState("13:00");
   const [eFrom, setEFrom] = React.useState("18:00");
   const [eTo, setETo] = React.useState("21:00");
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
 
   React.useEffect(() => {
     getSettings()
@@ -88,7 +91,9 @@ const ShiftsTab: React.FC = () => {
         updateSetting("shifts.evening.from", eFrom),
         updateSetting("shifts.evening.to", eTo),
       ]);
-    } catch (e: any) { alert(e.message); }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch (e: any) { toast(e.message, "error"); }
     setSaving(false);
   };
 
@@ -112,8 +117,8 @@ const ShiftsTab: React.FC = () => {
           <TimeInput value={eTo} onChange={setETo} label="До" />
         </div>
       </div>
-      <button className="btn" disabled={saving} onClick={save}>
-        {saving ? "..." : "Сохранить"}
+      <button className="btn" disabled={saving} onClick={save} style={saved ? { background: "rgba(52,199,89,0.9)" } : {}}>
+        {saving ? "..." : saved ? "\u2705 Сохранено" : "Сохранить"}
       </button>
     </>
   );
@@ -133,7 +138,12 @@ const ROLES: Record<string, string> = {
   senior: "Старший", junior: "Младший", staff: "Сотрудник",
 };
 
+const SKILL_LEVELS: Record<string, string> = {
+  beginner: "Начинающий", intermediate: "Средний", advanced: "Продвинутый", expert: "Эксперт",
+};
+
 const EmployeesTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
+  const toast = useToast();
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [editing, setEditing] = React.useState<string | null>(null);
@@ -153,22 +163,31 @@ const EmployeesTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
     if (!isOwner) return;
     haptic("light");
     setEditing(emp.id);
-    setEditData({ name: emp.name, role: emp.role });
+    setEditData({
+      name: emp.name, role: emp.role,
+      skill_level: emp.skill_level || "beginner",
+      rate_per_hour: emp.rate_per_hour || 0,
+      min_hours_per_week: emp.min_hours_per_week || 0,
+      max_hours_per_week: emp.max_hours_per_week || 0,
+      branch: emp.branch || "",
+      auto_schedule: emp.auto_schedule !== false,
+      telegram_user_id: emp.telegram_user_id || "",
+    });
     setSwipedId(null);
   };
 
   const saveEdit = async (id: string) => {
     if (!editData.name) return;
     haptic("medium"); setSaving(true);
-    try { await updateEmployee(id, editData); load(); setEditing(null); }
-    catch (e: any) { alert(e.message); }
+    try { await updateEmployee(id, editData); load(); setEditing(null); toast("Сохранено", "success"); }
+    catch (e: any) { toast(e.message, "error"); }
     setSaving(false);
   };
 
   const handleDelete = async (id: string) => {
     haptic("heavy");
     if (!confirm("Удалить сотрудника?")) return;
-    try { await deleteEmployee(id); load(); } catch (e: any) { alert(e.message); }
+    try { await deleteEmployee(id); load(); toast("Удалён", "success"); } catch (e: any) { toast(e.message, "error"); }
     setSwipedId(null);
   };
 
@@ -218,12 +237,47 @@ const EmployeesTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
                   <div style={{ flex: 1 }}>
                     <input value={editData.name || ""} onChange={(e) => setEditData({ ...editData, name: e.target.value })}
                       style={{ ...fieldStyle, marginBottom: 6, width: "100%" }} placeholder="Имя" />
-                    <select value={editData.role || "staff"}
-                      onChange={(e) => setEditData({ ...editData, role: e.target.value })}
-                      style={{ ...fieldStyle, width: "100%" }}>
-                      {Object.entries(ROLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                    </select>
-                    <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                    <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                      <select value={editData.role || "staff"}
+                        onChange={(e) => setEditData({ ...editData, role: e.target.value })}
+                        style={{ ...fieldStyle, flex: 1 }}>
+                        {Object.entries(ROLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                      </select>
+                      <select value={editData.skill_level || "beginner"}
+                        onChange={(e) => setEditData({ ...editData, skill_level: e.target.value })}
+                        style={{ ...fieldStyle, flex: 1 }}>
+                        {Object.entries(SKILL_LEVELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                      </select>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 10, color: "var(--tg-hint)", marginBottom: 2 }}>Ставка/ч</div>
+                        <input type="number" value={editData.rate_per_hour || ""} onChange={(e) => setEditData({ ...editData, rate_per_hour: Number(e.target.value) })}
+                          style={{ ...fieldStyle, width: "100%" }} placeholder="0" />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 10, color: "var(--tg-hint)", marginBottom: 2 }}>Мин ч/нед</div>
+                        <input type="number" value={editData.min_hours_per_week || ""} onChange={(e) => setEditData({ ...editData, min_hours_per_week: Number(e.target.value) })}
+                          style={{ ...fieldStyle, width: "100%" }} placeholder="0" />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 10, color: "var(--tg-hint)", marginBottom: 2 }}>Макс ч/нед</div>
+                        <input type="number" value={editData.max_hours_per_week || ""} onChange={(e) => setEditData({ ...editData, max_hours_per_week: Number(e.target.value) })}
+                          style={{ ...fieldStyle, width: "100%" }} placeholder="0" />
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                      <input value={editData.branch || ""} onChange={(e) => setEditData({ ...editData, branch: e.target.value })}
+                        style={{ ...fieldStyle, flex: 1 }} placeholder="Филиал" />
+                      <input value={editData.telegram_user_id || ""} onChange={(e) => setEditData({ ...editData, telegram_user_id: e.target.value })}
+                        style={{ ...fieldStyle, flex: 1 }} placeholder="Telegram ID" />
+                    </div>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, marginBottom: 8, color: "var(--tg-text)" }}>
+                      <input type="checkbox" checked={editData.auto_schedule !== false}
+                        onChange={(e) => setEditData({ ...editData, auto_schedule: e.target.checked })} />
+                      Автоматическое расписание
+                    </label>
+                    <div style={{ display: "flex", gap: 6 }}>
                       <button className="btn" disabled={saving} onClick={() => saveEdit(emp.id)} style={{ flex: 1, fontSize: 13, padding: "8px" }}>
                         {saving ? "..." : "OK"}
                       </button>
@@ -264,6 +318,7 @@ const EmployeesTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
 /* ── Add Employee Sheet ── */
 
 const AddEmployeeSheet: React.FC<{ onClose: () => void; onDone: () => void }> = ({ onClose, onDone }) => {
+  const toast = useToast();
   const [name, setName] = React.useState("");
   const [role, setRole] = React.useState("staff");
   const [saving, setSaving] = React.useState(false);
@@ -275,7 +330,7 @@ const AddEmployeeSheet: React.FC<{ onClose: () => void; onDone: () => void }> = 
   const save = async () => {
     if (!name) return;
     haptic("medium"); setSaving(true);
-    try { await createEmployee({ name, role }); onDone(); } catch (e: any) { alert(e.message); }
+    try { await createEmployee({ name, role }); toast("Создан", "success"); onDone(); } catch (e: any) { toast(e.message, "error"); }
     setSaving(false);
   };
 
@@ -316,6 +371,7 @@ const AddEmployeeSheet: React.FC<{ onClose: () => void; onDone: () => void }> = 
 /* ── Rates Tab ── */
 
 const RatesTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
+  const toast = useToast();
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState<string | null>(null);
@@ -339,7 +395,7 @@ const RatesTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
         rate_per_hour: Number(rates[id]) || 0,
         min_hours_per_week: employees.find((e) => e.id === id)?.min_hours_per_week,
       });
-    } catch (e: any) { alert(e.message); }
+    } catch (e: any) { toast(e.message, "error"); }
     setSaving(null);
   };
 
@@ -372,6 +428,7 @@ const RatesTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
 /* ── Catalog Tab (CRUD) ── */
 
 const CatalogTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
+  const toast = useToast();
   const [items, setItems] = React.useState<CatalogItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [newName, setNewName] = React.useState("");
@@ -387,7 +444,7 @@ const CatalogTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
   const saveCatalog = async (updated: CatalogItem[]) => {
     setSaving(true);
     try { await updateSetting("extra_work_catalog", updated); setItems(updated); }
-    catch (e: any) { alert(e.message); }
+    catch (e: any) { toast(e.message, "error"); }
     setSaving(false);
   };
 
@@ -534,6 +591,7 @@ const Checkbox: React.FC<{ checked: boolean; onChange: () => void }> = ({ checke
 /* ── Branches ── */
 
 const BranchesTab: React.FC = () => {
+  const toast = useToast();
   const [branches, setBranches] = React.useState<string[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [newBranch, setNewBranch] = React.useState("");
@@ -549,7 +607,7 @@ const BranchesTab: React.FC = () => {
   const saveBranches = async (list: string[]) => {
     setSaving(true);
     try { await updateSetting("branches", list); setBranches(list); }
-    catch (e: any) { alert(e.message); }
+    catch (e: any) { toast(e.message, "error"); }
     setSaving(false);
   };
 
@@ -600,6 +658,7 @@ const BranchesTab: React.FC = () => {
 /* ── Bot Mode ── */
 
 const BotModeTab: React.FC = () => {
+  const toast = useToast();
   const [mode, setMode] = React.useState("manual");
   const [loading, setLoading] = React.useState(true);
   const [switching, setSwitching] = React.useState(false);
@@ -611,7 +670,7 @@ const BotModeTab: React.FC = () => {
   const change = async (m: string) => {
     if (m === mode) return;
     haptic("medium"); setSwitching(true);
-    try { const r = await setBotMode(m); setMode(r.mode); } catch (e: any) { alert(e.message); }
+    try { const r = await setBotMode(m); setMode(r.mode); } catch (e: any) { toast(e.message, "error"); }
     setSwitching(false);
   };
 

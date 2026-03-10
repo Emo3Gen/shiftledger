@@ -198,26 +198,8 @@ export default function createMiniappRouter({ getTelegramBot }) {
   router.get("/schedule", async (req, res) => {
     try {
       const weekStartISO = req.query.week_start || getMonday();
-      const { schedule } = await buildScheduleAndTimesheet(weekStartISO);
+      const { schedule, timesheet } = await buildScheduleAndTimesheet(weekStartISO);
       const slots = slotsToRich(schedule.slots);
-
-      // Fallback if empty
-      const allEmpty = DAYS.every((d) => !slots[d].morning && !slots[d].evening);
-      if (allEmpty) {
-        const employees = await employeeService.getAll();
-        const active = employees.filter((e) => e.is_active);
-        for (let i = 0; i < DAYS.length && active.length > 0; i++) {
-          slots[DAYS[i]].morning = active[i % active.length].name;
-          slots[DAYS[i]].morning_id = active[i % active.length].id;
-          slots[DAYS[i]].morning_status = "ASSIGNED";
-          slots[DAYS[i]].evening = active[(i + 1) % active.length].name;
-          slots[DAYS[i]].evening_id = active[(i + 1) % active.length].id;
-          slots[DAYS[i]].evening_status = "ASSIGNED";
-        }
-      }
-
-      // Employee hours summary for the week
-      const { timesheet } = await buildScheduleAndTimesheet(weekStartISO);
       const empHours = {};
       for (const e of timesheet.employees) {
         empHours[e.user_id] = { hours: e.effective_hours, min: UserDirectory.getUser(e.user_id)?.min_hours_per_week || 0 };
@@ -283,6 +265,62 @@ export default function createMiniappRouter({ getTelegramBot }) {
     } catch (e) {
       logger.error({ err: e }, "[miniapp] DELETE /employees/:id error");
       res.status(400).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // ──── SCHEDULE ACTIONS: Propose / Lock / Reset ────
+
+  router.post("/schedule/propose", async (req, res) => {
+    try {
+      if (!isOwnerRole(req.telegramUser.role)) return res.status(403).json({ ok: false, error: "Forbidden" });
+      const weekStartISO = req.body.week_start || getMonday();
+      const { schedule } = await buildScheduleAndTimesheet(weekStartISO);
+      res.json({ ok: true, week_start: weekStartISO, slots_count: (schedule.slots || []).length });
+    } catch (e) {
+      logger.error({ err: e }, "[miniapp] POST /schedule/propose error");
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  router.post("/schedule/lock", async (req, res) => {
+    try {
+      if (!isOwnerRole(req.telegramUser.role)) return res.status(403).json({ ok: false, error: "Forbidden" });
+      const weekStartISO = req.body.week_start || getMonday();
+      const chatId = DEFAULT_CHAT_ID;
+      // Insert WEEK_STATE_CHANGE fact → ACTIVE
+      await supabase.from("facts").insert({
+        id: randomUUID(), chat_id: chatId, event_id: `miniapp-lock-${Date.now()}`,
+        fact_type: "WEEK_STATE_CHANGE",
+        fact_payload: { week_start: weekStartISO, new_state: "ACTIVE", source: "miniapp" },
+        created_at: new Date().toISOString(),
+      });
+      res.json({ ok: true, week_start: weekStartISO, state: "ACTIVE" });
+    } catch (e) {
+      logger.error({ err: e }, "[miniapp] POST /schedule/lock error");
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  router.post("/schedule/reset", async (req, res) => {
+    try {
+      if (!isOwnerRole(req.telegramUser.role)) return res.status(403).json({ ok: false, error: "Forbidden" });
+      const weekStartISO = req.body.week_start || getMonday();
+      const chatId = DEFAULT_CHAT_ID;
+      // Delete SHIFT_ASSIGNMENT facts for this week
+      const { data: facts } = await supabase.from("facts").select("id, fact_payload").eq("chat_id", chatId).eq("fact_type", "SHIFT_ASSIGNMENT").limit(1000);
+      const toDelete = (facts || []).filter((f) => f.fact_payload?.week_start === weekStartISO).map((f) => f.id);
+      if (toDelete.length > 0) await supabase.from("facts").delete().in("id", toDelete);
+      // Insert WEEK_STATE_CHANGE → COLLECTING
+      await supabase.from("facts").insert({
+        id: randomUUID(), chat_id: chatId, event_id: `miniapp-reset-${Date.now()}`,
+        fact_type: "WEEK_STATE_CHANGE",
+        fact_payload: { week_start: weekStartISO, new_state: "COLLECTING", source: "miniapp" },
+        created_at: new Date().toISOString(),
+      });
+      res.json({ ok: true, week_start: weekStartISO, state: "COLLECTING", deleted: toDelete.length });
+    } catch (e) {
+      logger.error({ err: e }, "[miniapp] POST /schedule/reset error");
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
     }
   });
 
@@ -430,10 +468,22 @@ export default function createMiniappRouter({ getTelegramBot }) {
         total_pay: employees.reduce((s, e) => s + e.total_pay, 0),
       };
 
-      const d = new Date(weekStartISO + "T12:00:00");
-      const endD = new Date(d); endD.setDate(d.getDate() + 6);
       const fmt = (dt) => `${String(dt.getDate()).padStart(2, "0")}.${String(dt.getMonth() + 1).padStart(2, "0")}`;
-      const periodLabel = `${fmt(d)} \u2013 ${fmt(endD)}`;
+      let periodLabel;
+      if (period === "week") {
+        const d = new Date(weekStartISO + "T12:00:00");
+        const endD = new Date(d); endD.setDate(d.getDate() + 6);
+        periodLabel = `${fmt(d)} \u2013 ${fmt(endD)}`;
+      } else {
+        const d = new Date(weekStartISO + "T12:00:00");
+        const year = d.getFullYear();
+        const month = d.getMonth();
+        let start, end;
+        if (period === "first_half") { start = 1; end = 15; }
+        else if (period === "second_half") { start = 16; end = new Date(year, month + 1, 0).getDate(); }
+        else { start = 1; end = new Date(year, month + 1, 0).getDate(); }
+        periodLabel = `${fmt(new Date(year, month, start))} \u2013 ${fmt(new Date(year, month, end))}`;
+      }
 
       res.json({ period: periodLabel, employees, totals });
     } catch (e) {
