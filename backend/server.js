@@ -45,6 +45,7 @@ import { getBotMode, setBotMode, ADMIN_CHAT_ID } from "./botMode.js";
 import { runDevSeed } from "./devSeed.js";
 import { generateScheduleImage } from "./services/scheduleImage.js";
 import * as paraplan from "./services/paraplan/index.js";
+import { toWeekHoursTemplate } from "./services/paraplan/hoursCalculator.js";
 import swaggerUi from "swagger-ui-express";
 import { specs as swaggerSpecs } from "./swagger.js";
 import {
@@ -138,11 +139,36 @@ async function loadSlotTypes(tenantId) {
   return null; // null = use engine defaults
 }
 
+// Emogen-sourced hours cache (used when USE_EMOGEN_PARAPLAN = true)
+let _emogenHoursCache = null; // { hours: {...}, updatedAt }
+
+async function fetchEmogenHours() {
+  if (!EMOGEN_API_URL) return null;
+  try {
+    const r = await emogenFetch("/api/paraplan/hours");
+    if (!r.ok) { logger.warn({ status: r.status }, "[emogen] Failed to fetch hours"); return null; }
+    const data = await r.json();
+    if (data.hours) {
+      _emogenHoursCache = { hours: data.hours, updatedAt: data.updatedAt || new Date().toISOString() };
+      logger.info({ days: Object.keys(data.hours).length }, "[emogen] Paraplan hours cached");
+    }
+    return _emogenHoursCache;
+  } catch (e) {
+    logger.warn({ err: e.message }, "[emogen] Hours fetch error");
+    return null;
+  }
+}
+
 // Wrapper: buildDraftSchedule with Paraplan hours auto-merged into settings
 function buildDraftSchedule(params) {
-  if (paraplan.isReady() && params.settings) {
+  // Merge Paraplan hours from direct connection OR Emogen cache
+  const hasDirectParaplan = paraplan.isReady();
+  const hasEmogenHours = USE_EMOGEN_PARAPLAN && _emogenHoursCache?.hours;
+  if ((hasDirectParaplan || hasEmogenHours) && params.settings) {
     const defaultTemplate = params.settings["schedule.week_hours_template"] || {};
-    const merged = paraplan.getWeekHoursTemplate(defaultTemplate);
+    const merged = hasDirectParaplan
+      ? paraplan.getWeekHoursTemplate(defaultTemplate)
+      : toWeekHoursTemplate(_emogenHoursCache.hours, defaultTemplate);
     params = { ...params, settings: { ...params.settings, "schedule.week_hours_template": merged } };
   }
   // Inject slot skill requirements from paraplan_groups config
@@ -873,6 +899,10 @@ app.get("/health", (req, res) => {
     ok: true,
     env: envName,
     time: new Date().toISOString(),
+    paraplan: {
+      mode: USE_EMOGEN_PARAPLAN ? "emogen" : "direct",
+      ready: USE_EMOGEN_PARAPLAN ? !!EMOGEN_API_URL : paraplan.isReady(),
+    },
   });
 });
 
@@ -2688,6 +2718,9 @@ logger.debug("POST /api/schedule/publish-test route registered");
 // --- Paraplan Integration Endpoints ---
 
 app.get("/api/paraplan/status", async (req, res) => {
+  if (USE_EMOGEN_PARAPLAN) {
+    return res.json({ ok: true, mode: "emogen", configured: true, initialized: true, ready: true, emogen_url: EMOGEN_API_URL });
+  }
   try {
     res.json({ ok: true, ...paraplan.getStatus() });
   } catch (e) {
@@ -2697,6 +2730,7 @@ app.get("/api/paraplan/status", async (req, res) => {
 });
 
 app.get("/api/paraplan/hours", async (req, res) => {
+  if (USE_EMOGEN_PARAPLAN) return proxyToEmogen(req, res, "/api/paraplan/hours");
   try {
     if (!paraplan.isReady()) {
       return res.json({ ok: true, hours: null, message: "Paraplan not initialized" });
@@ -2710,6 +2744,10 @@ app.get("/api/paraplan/hours", async (req, res) => {
 });
 
 app.get("/api/paraplan/groups", async (req, res) => {
+  if (USE_EMOGEN_PARAPLAN) {
+    const qs = req.query.date ? `?date=${encodeURIComponent(req.query.date)}` : "";
+    return proxyToEmogen(req, res, `/api/paraplan/groups${qs}`);
+  }
   try {
     if (!paraplan.isReady()) {
       return res.json({ ok: true, groups: [], message: "Paraplan not initialized" });
@@ -2727,6 +2765,7 @@ app.get("/api/paraplan/groups", async (req, res) => {
 });
 
 app.post("/api/paraplan/refresh", async (req, res) => {
+  if (USE_EMOGEN_PARAPLAN) return proxyToEmogen(req, res, "/api/paraplan/refresh");
   try {
     const tenantId = req.query.tenant_id || "dev";
     const savedConfig = await settingsService.get(tenantId, "paraplan_groups");
@@ -2789,6 +2828,7 @@ app.put("/api/paraplan/groups-config", async (req, res) => {
 });
 
 app.post("/api/paraplan/sync-groups", async (req, res) => {
+  if (USE_EMOGEN_PARAPLAN) return proxyToEmogen(req, res, "/api/paraplan/sync-groups");
   try {
     const tenantId = req.body.tenant_id || "dev";
     if (!paraplan.isReady()) {
@@ -2822,6 +2862,13 @@ app.post("/api/paraplan/sync-groups", async (req, res) => {
 
 // Compensations (отработки) from Paraplan
 app.get("/api/paraplan/compensations", async (req, res) => {
+  if (USE_EMOGEN_PARAPLAN) {
+    const params = new URLSearchParams();
+    if (req.query.from) params.set("from", req.query.from);
+    if (req.query.to) params.set("to", req.query.to);
+    const qs = params.toString() ? `?${params}` : "";
+    return proxyToEmogen(req, res, `/api/paraplan/compensations${qs}`);
+  }
   try {
     if (!paraplan.isReady()) return res.json({ ok: false, error: "Paraplan not initialized" });
     const ds = paraplan.getDataService();
@@ -2841,6 +2888,7 @@ app.get("/api/paraplan/compensations", async (req, res) => {
 
 // Subscription templates (абонементы)
 app.get("/api/paraplan/subscriptions", async (_req, res) => {
+  if (USE_EMOGEN_PARAPLAN) return proxyToEmogen(_req, res, "/api/paraplan/subscriptions");
   try {
     if (!paraplan.isReady()) return res.json({ ok: false, error: "Paraplan not initialized" });
     const ds = paraplan.getDataService();
@@ -2873,9 +2921,42 @@ app.post("/api/bot-mode", (req, res) => {
 });
 
 // ── Emogen proxy: forward price/group settings to Emogen bot backend ────────
-const EMOGEN_API_URL = process.env.EMOGEN_API_URL || "http://127.0.0.1:3001";
+const EMOGEN_API_URL = process.env.EMOGEN_API_URL || "";
 const EMOGEN_API_PASSWORD = process.env.EMOGEN_API_PASSWORD || "";
-const emogenAuthHeader = "Basic " + Buffer.from(":" + EMOGEN_API_PASSWORD).toString("base64");
+const emogenAuthHeader = EMOGEN_API_PASSWORD
+  ? "Basic " + Buffer.from(":" + EMOGEN_API_PASSWORD).toString("base64")
+  : "";
+
+// When EMOGEN_API_URL is set, route Paraplan data through Emogen (no direct CRM login)
+const USE_EMOGEN_PARAPLAN = !!EMOGEN_API_URL;
+
+/**
+ * Proxy helper: fetch from Emogen API with auth.
+ * @param {string} path - e.g. "/api/paraplan/hours"
+ * @param {object} [opts] - fetch options override
+ * @returns {Response}
+ */
+async function emogenFetch(path, opts = {}) {
+  const url = `${EMOGEN_API_URL}${path}`;
+  const headers = { ...opts.headers };
+  if (emogenAuthHeader) headers.Authorization = emogenAuthHeader;
+  return fetch(url, { ...opts, headers });
+}
+
+/**
+ * Proxy an incoming request to Emogen and pipe the JSON response back.
+ */
+async function proxyToEmogen(req, res, emogenPath) {
+  try {
+    const r = await emogenFetch(emogenPath);
+    const data = await r.json();
+    if (!r.ok) return res.status(r.status).json(data);
+    res.json(data);
+  } catch (e) {
+    logger.warn({ err: e, path: emogenPath }, "Emogen proxy error");
+    res.status(502).json({ ok: false, error: "Emogen API unreachable", detail: e?.message });
+  }
+}
 
 app.get("/api/emogen/groups", async (_req, res) => {
   try {
@@ -3027,18 +3108,27 @@ UserDirectory.syncFromDB(employeeService).then(async () => {
   } catch (e) {
     logger.warn({ err: e }, "Failed to load extra work catalog for parser");
   }
-  // Initialize Paraplan integration (non-blocking: server starts even if Paraplan fails)
-  if (paraplan.isConfigured()) {
+  // Initialize Paraplan integration
+  if (USE_EMOGEN_PARAPLAN) {
+    // Production: route Paraplan data through Emogen — no direct CRM login
+    logger.info({ emogenUrl: EMOGEN_API_URL }, "[paraplan] Using Emogen proxy (no direct CRM connection)");
+    fetchEmogenHours().catch((err) => {
+      logger.warn({ err: err?.message }, "[paraplan] Initial Emogen hours fetch failed — will retry");
+    });
+    // Refresh Emogen hours every 30 minutes
+    setInterval(() => fetchEmogenHours().catch(() => {}), 30 * 60 * 1000);
+  } else if (paraplan.isConfigured()) {
+    // Dev: direct Paraplan connection
     const tenantId = process.env.DEFAULT_TENANT_ID || "dev";
     settingsService.get(tenantId, "paraplan_groups").then((savedConfig) => {
       return paraplan.init(savedConfig || undefined);
     }).then(() => {
-      logger.info("[paraplan] Integration ready");
+      logger.info("[paraplan] Integration ready (direct)");
     }).catch((err) => {
       logger.warn({ err: err.message }, "[paraplan] Init failed — hours will use defaults");
     });
   } else {
-    logger.info("[paraplan] Not configured (PARAPLAN_LOGIN/PARAPLAN_PASSWORD missing)");
+    logger.info("[paraplan] Not configured (no EMOGEN_API_URL, no PARAPLAN_LOGIN/PARAPLAN_PASSWORD)");
   }
 }).finally(() => {
   app.listen(port, () => {
