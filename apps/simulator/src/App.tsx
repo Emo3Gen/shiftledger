@@ -1,4 +1,9 @@
 import React from "react";
+import { UserDirectory, fmtNum, fmtRub, InfoTip } from "./components/shared";
+import { ScheduleGrid } from "./components/ScheduleGrid";
+import { PayrollTable } from "./components/PayrollTable";
+import { ParaplanPanel } from "./components/ParaplanPanel";
+import { BotModePanel } from "./components/BotModePanel";
 
 // ---- Visibility & Scale Infrastructure ----
 
@@ -105,29 +110,7 @@ const ToggleSection: React.FC<{
   );
 };
 
-// InfoTip: small ⓘ icon with hover tooltip
-const InfoTip: React.FC<{ text: string }> = ({ text }) => {
-  const [show, setShow] = React.useState(false);
-  return (
-    <span
-      style={{ position: "relative", display: "inline-block", marginLeft: 4, cursor: "help" }}
-      onMouseEnter={() => setShow(true)}
-      onMouseLeave={() => setShow(false)}
-      onClick={() => setShow((p) => !p)}
-    >
-      <span style={{ fontSize: 13, color: "#aaa", userSelect: "none" }}>{"\u24D8"}</span>
-      {show && (
-        <span style={{
-          position: "absolute", left: "50%", top: "100%", transform: "translateX(-50%)",
-          marginTop: 4, padding: "6px 10px", background: "#fff", border: "1px solid #ddd",
-          borderRadius: 4, boxShadow: "0 2px 8px rgba(0,0,0,0.15)", fontSize: 12,
-          color: "#333", lineHeight: 1.4, maxWidth: 250, minWidth: 150, whiteSpace: "normal",
-          zIndex: 50, pointerEvents: "none",
-        }}>{text}</span>
-      )}
-    </span>
-  );
-};
+// InfoTip imported from ./components/shared
 
 // SettingsDrawer: gear icon + panel with checkboxes, presets, scale slider
 const SettingsDrawer: React.FC<{
@@ -276,53 +259,9 @@ function translateWeekState(state: string): { label: string; color: string; emoj
   return map[state] || { label: state, color: "#666", emoji: "❓" };
 }
 
-// UserDirectory для отображения имен сотрудников
-const UserDirectory = {
-  users: new Map<string, { id: string; displayName: string; ratePerHour: number; role: string; minHours: number }>([
-    ["u1", { id: "u1", displayName: "Иса", ratePerHour: 280, role: "junior", minHours: 22 }],
-    ["u2", { id: "u2", displayName: "Дарина", ratePerHour: 280, role: "junior", minHours: 20 }],
-    ["u3", { id: "u3", displayName: "Ксюша", ratePerHour: 280, role: "junior", minHours: 0 }],
-    ["u4", { id: "u4", displayName: "Карина", ratePerHour: 280, role: "junior", minHours: 20 }],
-    ["isa", { id: "u1", displayName: "Иса", ratePerHour: 280, role: "junior", minHours: 22 }],
-    ["daria", { id: "u2", displayName: "Дарина", ratePerHour: 280, role: "junior", minHours: 20 }],
-    ["ksu", { id: "u3", displayName: "Ксюша", ratePerHour: 280, role: "junior", minHours: 0 }],
-    ["karina", { id: "u4", displayName: "Карина", ratePerHour: 280, role: "junior", minHours: 20 }],
-  ]),
-  getDisplayName(userId: string): string {
-    const user = this.users.get(userId);
-    if (user) return user.displayName;
-    // Если не найден, показываем с пометкой
-    return `Неизвестный сотрудник (${userId})`;
-  },
-  getAllUsers(): Array<{ id: string; displayName: string; ratePerHour: number; role: string; minHours: number }> {
-    const seen = new Set<string>();
-    const result: Array<{ id: string; displayName: string; ratePerHour: number; role: string; minHours: number }> = [];
-    for (const [key, user] of this.users.entries()) {
-      if (user.id.startsWith("u") && !seen.has(user.id)) {
-        seen.add(user.id);
-        result.push(user);
-      }
-    }
-    return result.sort((a, b) => a.id.localeCompare(b.id));
-  },
-};
+// UserDirectory imported from ./components/shared
 
-// Formatting helpers for payroll table
-function fmtNum(n: number | null | undefined): string {
-  if (n == null) return "0";
-  // Show 1 decimal for non-integer, none for integer
-  return n % 1 === 0 ? String(n) : n.toFixed(1);
-}
-function fmtRub(n: number | null | undefined): string {
-  if (n == null || n === 0) return "0 ₽";
-  const s = Math.round(n).toString();
-  // Add thousands separator (space)
-  const parts = [];
-  for (let i = s.length; i > 0; i -= 3) {
-    parts.unshift(s.slice(Math.max(0, i - 3), i));
-  }
-  return parts.join("\u2009") + " ₽"; // thin space separator
-}
+// fmtNum, fmtRub imported from ./components/shared
 
 export const App: React.FC = () => {
   const [tenants, setTenants] = React.useState<Tenant[]>([]);
@@ -1625,85 +1564,9 @@ export const App: React.FC = () => {
                 <span style={{ fontSize: 10, color: "#888", transition: "transform 0.15s", display: "inline-block", transform: collapsed["payroll"] ? "rotate(-90deg)" : "rotate(0deg)" }}>{"\u25BC"}</span>
                 <h3 style={{ margin: 0, fontSize: "var(--font-sm)", flex: 1 }}>Табель расчета зарплаты</h3>
               </div>
-              {!collapsed["payroll"] && <>{timesheet ? (
-                <div style={{ fontSize: "0.8em", padding: "8px" }}>
-                  <div style={{ marginBottom: "8px", fontWeight: "bold" }}>
-                    {(() => {
-                      const RU_MONTHS = ['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
-                      const ws = weekStartISO || timesheet.week_start;
-                      const d = new Date(ws + "T12:00:00");
-                      const dd = (dt: Date) => String(dt.getDate()).padStart(2, "0");
-                      const mm = (dt: Date) => String(dt.getMonth() + 1).padStart(2, "0");
-                      if (periodMode === "full_month") {
-                        return `Табель за ${RU_MONTHS[d.getMonth()]} ${d.getFullYear()}`;
-                      }
-                      if (periodMode === "first_half") {
-                        const start = new Date(d.getFullYear(), d.getMonth(), 1);
-                        const end = new Date(d.getFullYear(), d.getMonth(), 15);
-                        return `Табель за период: ${dd(start)}.${mm(start)} \u2013 ${dd(end)}.${mm(end)}.${end.getFullYear()}`;
-                      }
-                      if (periodMode === "second_half") {
-                        const start = new Date(d.getFullYear(), d.getMonth(), 16);
-                        const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-                        const end = new Date(d.getFullYear(), d.getMonth(), lastDay);
-                        return `Табель за период: ${dd(start)}.${mm(start)} \u2013 ${dd(end)}.${mm(end)}.${end.getFullYear()}`;
-                      }
-                      // week mode
-                      const weD = new Date(d); weD.setDate(weD.getDate() + 6);
-                      return `Табель за неделю: ${dd(d)}.${mm(d)} \u2013 ${dd(weD)}.${mm(weD)}.${weD.getFullYear()}`;
-                    })()}
-                  </div>
-                  {timesheet.totals && (
-                    <div style={{ marginBottom: "8px", padding: "4px", backgroundColor: "#f0f0f0", borderRadius: "4px" }}>
-                      <strong>Итого:</strong> {fmtNum(timesheet.totals.total_hours)} ч, {fmtRub(timesheet.totals.total_pay)}
-                    </div>
-                  )}
-                  {timesheet.employees && timesheet.employees.length > 0 ? (
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.7em" }}>
-                      <thead>
-                        <tr style={{ borderBottom: "1px solid #ccc" }}>
-                          <th style={{ textAlign: "left", padding: "2px 3px" }}>Имя</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Часы</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Пробл.</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Эфф.ч</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Смены ₽</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Уб.</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Уб. ₽</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Допы</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Дети</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Допы ₽</th>
-                          <th style={{ textAlign: "right", padding: "2px 3px" }}>Доп₽</th>
-                          {timesheet.employees.some((e: any) => (e.inter_branch_pay || 0) > 0) && <th style={{ textAlign: "right", padding: "2px 3px" }}>{"\u041C\u0435\u0436\u0444."}</th>}
-                          <th style={{ textAlign: "right", padding: "2px 3px", fontWeight: "bold" }}>Итого ₽</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {timesheet.employees.map((emp: any, idx: number) => (
-                          <tr key={idx} style={{ borderBottom: "1px solid #eee" }}>
-                            <td style={{ padding: "2px 3px" }}>{emp.name || emp.user_id}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtNum(emp.shift_hours)}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px", color: emp.problem_shifts > 0 ? "#dc3545" : undefined }}>{emp.problem_shifts}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtNum(emp.effective_hours)}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.shift_pay)}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.cleaning_count}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.cleaning_pay)}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.extra_classes_count ?? emp.extra_classes?.length ?? 0}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{emp.extra_classes_total_kids ?? 0}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{fmtRub(emp.extra_classes_total_pay ?? emp.extra_pay ?? 0)}</td>
-                            <td style={{ textAlign: "right", padding: "2px 3px" }}>{(() => { const sum = (emp.extra_work_approved_pay || 0) + (emp.extra_pay_total || 0); return sum > 0 ? fmtRub(sum) : "\u2014"; })()}</td>
-                            {timesheet.employees.some((e: any) => (e.inter_branch_pay || 0) > 0) && <td style={{ textAlign: "right", padding: "2px 3px" }}>{(emp.inter_branch_pay || 0) > 0 ? fmtNum(emp.inter_branch_pay) : "\u2014"}</td>}
-                            <td style={{ textAlign: "right", padding: "2px 3px", fontWeight: "bold" }}>{fmtRub(emp.total_pay)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  ) : (
-                    <div className="empty">Нет данных. Нажмите "Показать табель" в Debug панели.</div>
-                  )}
-                </div>
-              ) : (
-                <div className="empty">Табель не загружен. Нажмите "Показать табель" в Debug панели.</div>
-              )}</>}
+              {!collapsed["payroll"] && (
+                <PayrollTable timesheet={timesheet} weekStartISO={weekStartISO} periodMode={periodMode} />
+              )}
             </div>
             )}
 
@@ -2131,83 +1994,18 @@ export const App: React.FC = () => {
                     <span style={{ color: "#888" }}>{groupsConfig.length} {"\u0433\u0440\u0443\u043F\u043F"}</span>
                   </div>
 
-                  {/* ── Режим бота ──────────────────────────── */}
-                  <div style={{ marginTop: 4, marginBottom: 10, padding: "8px 10px", background: "#f0f4ff", border: "1px solid #c8d6f0", borderRadius: 6 }}>
-                    <div style={{ fontWeight: "bold", marginBottom: 6 }}>{"Режим бота"}</div>
-                    <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
-                      {([
-                        { mode: "manual", icon: "🖐", label: "Ручной", bg: "#fff3e0", border: "#ffcc80" },
-                        { mode: "auto", icon: "🤖", label: "Авто", bg: "#e8f5e9", border: "#a5d6a7" },
-                        { mode: "debug", icon: "🔍", label: "Отладка", bg: "#e3f2fd", border: "#90caf9" },
-                      ] as const).map((m) => (
-                        <button
-                          key={m.mode}
-                          disabled={botModeLoading}
-                          onClick={() => changeBotMode(m.mode)}
-                          style={{
-                            padding: "4px 10px", fontSize: "var(--font-xs)", cursor: botModeLoading ? "not-allowed" : "pointer",
-                            background: botMode === m.mode ? m.bg : "#f5f5f5",
-                            border: `2px solid ${botMode === m.mode ? m.border : "#ddd"}`,
-                            borderRadius: 4, fontWeight: botMode === m.mode ? 700 : 400,
-                            opacity: botModeLoading ? 0.6 : 1,
-                          }}
-                        >{m.icon} {m.label}</button>
-                      ))}
-                    </div>
-                    <div style={{ fontSize: "0.85em", color: "#555" }}>
-                      {botMode === "manual" && "Бот молчит в группе. Публикация только вручную из панели."}
-                      {botMode === "auto" && "Бот публикует график и оплаты автоматически."}
-                      {botMode === "debug" && "Бот перехватывает отправки в группу → шлёт в личку директора с [DEBUG]."}
-                      {botMode === null && "Загрузка..."}
-                    </div>
-                  </div>
-
-                  {/* ── Emogen бот: статус + Silent Mode ──────── */}
-                  <div style={{ marginTop: 4, marginBottom: 10, padding: "8px 10px", background: "#f8f9fa", border: "1px solid #e0e0e0", borderRadius: 6 }}>
-                    <div style={{ fontWeight: "bold", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
-                      {"Emogen бот"}
-                      {emogenStatusErr && <span style={{ color: "#c00", fontWeight: "normal", fontSize: "0.9em" }}>{emogenStatusErr}</span>}
-                      {emogenSilent === null && !emogenStatusErr && <span style={{ color: "#888", fontWeight: "normal", fontSize: "0.85em" }}>{"проверка..."}</span>}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      {emogenSilent !== null && (
-                        <span style={{ fontSize: "0.9em", color: emogenSilent ? "#c00" : "#080" }}>
-                          {emogenSilent ? "🔇 Тихий режим" : "📢 Активен"}
-                        </span>
-                      )}
-                      <button
-                        disabled={emogenToggling || emogenSilent === null}
-                        style={{
-                          padding: "3px 10px", fontSize: "var(--font-xs)", cursor: emogenToggling || emogenSilent === null ? "not-allowed" : "pointer",
-                          background: emogenSilent ? "#e8f5e9" : "#fce4ec",
-                          border: "1px solid " + (emogenSilent ? "#a5d6a7" : "#ef9a9a"),
-                          borderRadius: 4, opacity: emogenToggling ? 0.6 : 1,
-                        }}
-                        onClick={async () => {
-                          if (emogenSilent === null) return;
-                          setEmogenToggling(true);
-                          try {
-                            const r = await fetch("/api/emogen/silent-mode", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ enabled: !emogenSilent }),
-                            });
-                            if (!r.ok) throw new Error(`${r.status}`);
-                            setEmogenSilent(!emogenSilent);
-                          } catch (e: any) {
-                            alert("Ошибка: " + (e.message || e));
-                          }
-                          setEmogenToggling(false);
-                        }}
-                      >
-                        {emogenToggling ? "..." : emogenSilent ? "📢 Включить" : "🔇 Выключить"}
-                      </button>
-                      <button
-                        style={{ padding: "3px 8px", fontSize: "var(--font-xs)", cursor: "pointer", background: "#f5f5f5", border: "1px solid #ccc", borderRadius: 3 }}
-                        onClick={fetchEmogenStatus}
-                      >{"⟳"}</button>
-                    </div>
-                  </div>
+                  {/* ── Режим бота + Emogen ──────────────────── */}
+                  <BotModePanel
+                    botMode={botMode}
+                    botModeLoading={botModeLoading}
+                    changeBotMode={changeBotMode}
+                    emogenSilent={emogenSilent}
+                    emogenStatusErr={emogenStatusErr}
+                    emogenToggling={emogenToggling}
+                    setEmogenSilent={setEmogenSilent}
+                    setEmogenToggling={setEmogenToggling}
+                    fetchEmogenStatus={fetchEmogenStatus}
+                  />
 
                   {/* ── Цены (Emogen) ─────────────────────────── */}
                   <div style={{ marginTop: 4 }}>
@@ -2383,115 +2181,19 @@ export const App: React.FC = () => {
                   Параплан CRM
                   <span style={{ marginLeft: 8, fontSize: "0.75em", color: paraplanStatus?.ready ? "#4caf50" : paraplanStatus?.configured ? "#ff9800" : "#999" }}>
                     {paraplanStatus?.ready ? "\u2705" : paraplanStatus?.configured ? "\u26A0\uFE0F" : "\u274C"}
-                    {paraplanStatus?.ready ? " \u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D" : paraplanStatus?.configured ? " \u0418\u043D\u0438\u0446\u0438\u0430\u043B\u0438\u0437\u0430\u0446\u0438\u044F..." : " \u041D\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043D"}
+                    {paraplanStatus?.ready ? " Подключен" : paraplanStatus?.configured ? " Инициализация..." : " Не настроен"}
                   </span>
                 </h3>
               </div>
               {!collapsed["paraplan"] && (
-                <div style={{ fontSize: "var(--font-xs)", padding: "8px" }}>
-                  {/* Status row */}
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-                    <button
-                      type="button"
-                      disabled={paraplanRefreshing}
-                      style={{ padding: "3px 10px", fontSize: "var(--font-xs)", cursor: paraplanRefreshing ? "wait" : "pointer", background: "#f5f5f5", border: "1px solid #ccc", borderRadius: 4 }}
-                      onClick={async () => {
-                        setParaplanRefreshing(true);
-                        try {
-                          const res = await fetch("/api/paraplan/refresh", { method: "POST" });
-                          const data = await res.json();
-                          if (data.ok) {
-                            // Reload status and hours
-                            const [statusRes, hoursRes] = await Promise.all([
-                              fetch("/api/paraplan/status").then(r => r.json()),
-                              fetch("/api/paraplan/hours").then(r => r.json()),
-                            ]);
-                            if (statusRes.ok) setParaplanStatus(statusRes);
-                            if (hoursRes.ok) setParaplanHours(hoursRes);
-                          }
-                        } catch (e) { console.error("Paraplan refresh error", e); }
-                        setParaplanRefreshing(false);
-                      }}
-                    >
-                      {paraplanRefreshing ? "\u041E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435..." : "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C \u0438\u0437 \u041F\u0430\u0440\u0430\u043F\u043B\u0430\u043D\u0430"}
-                    </button>
-                    {paraplanStatus?.updatedAt && (
-                      <span style={{ color: "#888" }}>
-                        {"\u041E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u043E: "}{new Date(paraplanStatus.updatedAt).toLocaleTimeString("ru")}
-                      </span>
-                    )}
-                    {paraplanStatus && (
-                      <span style={{ color: "#888" }}>
-                        | {paraplanStatus.groupCount || 0} {"групп"} | {paraplanStatus.daysWithHours || 0} {"дн. с часами"}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Hours table */}
-                  {paraplanHours?.hours && (
-                    <div style={{ marginTop: 4 }}>
-                      <strong>{"\u0427\u0430\u0441\u044B \u0441\u043C\u0435\u043D \u0438\u0437 \u041F\u0430\u0440\u0430\u043F\u043B\u0430\u043D\u0430:"}</strong>
-                      <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 4, fontSize: "var(--font-xs)" }}>
-                        <thead>
-                          <tr style={{ borderBottom: "1px solid #ddd" }}>
-                            <th style={{ textAlign: "left", padding: "2px 6px" }}>{"\u0414\u0435\u043D\u044C"}</th>
-                            <th style={{ textAlign: "center", padding: "2px 6px" }}>{"\u0423\u0442\u0440\u043E"}</th>
-                            <th style={{ textAlign: "center", padding: "2px 6px" }}>{"\u0412\u0435\u0447\u0435\u0440"}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((dow) => {
-                            const RU: Record<string, string> = { mon: "\u041F\u043D", tue: "\u0412\u0442", wed: "\u0421\u0440", thu: "\u0427\u0442", fri: "\u041F\u0442", sat: "\u0421\u0431", sun: "\u0412\u0441" };
-                            const dayData = paraplanHours.hours[dow];
-                            if (!dayData) return (
-                              <tr key={dow} style={{ borderBottom: "1px solid #f0f0f0" }}>
-                                <td style={{ padding: "2px 6px", fontWeight: "bold" }}>{RU[dow]}</td>
-                                <td style={{ textAlign: "center", padding: "2px 6px", color: "#ccc" }}>{"\u2014"}</td>
-                                <td style={{ textAlign: "center", padding: "2px 6px", color: "#ccc" }}>{"\u2014"}</td>
-                              </tr>
-                            );
-                            const renderSlot = (slot: any) => {
-                              if (!slot) return <span style={{ color: "#ccc" }}>{"\u2014"}</span>;
-                              const groups = slot.groups || [];
-                              const excluded = groups.filter((g: any) => !g.included);
-                              return (
-                                <div>
-                                  <strong>{slot.hours}{"ч"}</strong>
-                                  <span style={{ color: "#888", marginLeft: 4 }}>({slot.paid_start}{"\u2013"}{slot.paid_end})</span>
-                                  <div style={{ marginTop: 2 }}>
-                                    {groups.map((g: any, i: number) => (
-                                      <div key={i} style={{ fontSize: "0.85em", color: g.included ? "#555" : "#bbb", textDecoration: g.included ? "none" : "line-through" }}>
-                                        {g.prefix} {g.start}{"\u2013"}{g.end} {g.teacher ? `(${g.teacher})` : ""}
-                                      </div>
-                                    ))}
-                                  </div>
-                                  {excluded.length > 0 && (
-                                    <div style={{ fontSize: "0.8em", color: "#f57c00", marginTop: 1 }}>
-                                      {"\u26A0"} {excluded.length} {excluded.length === 1 ? "группа без мл." : "групп без мл."}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            };
-                            return (
-                              <tr key={dow} style={{ borderBottom: "1px solid #f0f0f0", verticalAlign: "top" }}>
-                                <td style={{ padding: "2px 6px", fontWeight: "bold" }}>{RU[dow]}</td>
-                                <td style={{ padding: "2px 6px" }}>{renderSlot(dayData.morning)}</td>
-                                <td style={{ padding: "2px 6px" }}>{renderSlot(dayData.evening)}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-
-                  {!paraplanStatus?.configured && (
-                    <div style={{ color: "#999", padding: 8 }}>
-                      {"\u0414\u043B\u044F \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u044F \u0443\u043A\u0430\u0436\u0438\u0442\u0435 PARAPLAN_LOGIN \u0438 PARAPLAN_PASSWORD \u0432 .env"}
-                    </div>
-                  )}
-                </div>
+                <ParaplanPanel
+                  paraplanStatus={paraplanStatus}
+                  paraplanHours={paraplanHours}
+                  paraplanRefreshing={paraplanRefreshing}
+                  setParaplanRefreshing={setParaplanRefreshing}
+                  setParaplanStatus={setParaplanStatus}
+                  setParaplanHours={setParaplanHours}
+                />
               )}
             </div>
             )}
@@ -3375,250 +3077,14 @@ export const App: React.FC = () => {
                     
                     {/* Schedule Grid 7×2 */}
                     {vis["live_grid"] !== false && schedule.slots && (
-                  <div style={{ marginBottom: "16px" }}>
-                    <div style={{ fontSize: "0.85em", marginBottom: "8px", fontWeight: "bold" }}>
-                      Живой график: <InfoTip text="Таблица смен на неделю. Зелёный=назначен, голубой=замена, розовый=проблема" />
-                    </div>
-                    {(() => {
-                      const emptyCount = (schedule.slots || []).filter((s: any) => !s.user_id).length;
-                      return emptyCount > 0 ? (
-                        <div style={{ padding: "6px 10px", marginBottom: 8, borderRadius: 4, fontSize: "0.8em", fontWeight: "bold", background: "#f8d7da", color: "#721c24", border: "1px solid #f5c6cb" }}>
-                          &#9888;&#65039; Есть {emptyCount} незакрытых смен
-                        </div>
-                      ) : null;
-                    })()}
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "80px repeat(7, 1fr)",
-                        gap: "4px",
-                        fontSize: "0.75em",
-                      }}
-                    >
-                      {/* Header row */}
-                      <div style={{ fontWeight: "bold", padding: "4px" }}>Слот</div>
-                      {(["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const).map((dowKey, i) => {
-                        const dayLabels = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
-                        const isToday = schedule.today_dow === dowKey;
-                        const dayDate = (() => {
-                          const ws = new Date(weekStartISO + "T00:00:00");
-                          ws.setDate(ws.getDate() + i);
-                          const dd = String(ws.getDate()).padStart(2, "0");
-                          const mm = String(ws.getMonth() + 1).padStart(2, "0");
-                          return `${dd}.${mm}`;
-                        })();
-                        return (
-                          <div key={i} style={{
-                            fontWeight: "bold", padding: "4px", textAlign: "center",
-                            ...(isToday ? { borderLeft: "3px solid #007bff", background: "#e7f3ff", color: "#1976d2" } : {}),
-                          }}>
-                            <div>{dayLabels[i]}<br/><small style={{ fontSize: "0.75em" }}>{dayDate}</small></div>
-                          </div>
-                        );
-                      })}
-                      
-                      {/* Morning slots */}
-                      <div style={{ padding: "4px", fontWeight: "bold" }}>Утро</div>
-                      {["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((dow) => {
-                        const slot = (schedule.slots || []).find(
-                          (s: any) => s.dow === dow && s.slot_name === "Утро"
-                        );
-                        const isLocked = slot?.locked === true;
-                        const canEditLocked = senderRole === "owner" || senderRole === "admin";
-                        const effectivelyLocked = isLocked && !canEditLocked;
-                        const isToday = schedule.today_dow === dow;
-                        const bgColor = isLocked
-                          ? "#f0f0f0"
-                          : slot?.status === "NEEDS_REPLACEMENT"
-                            ? "#fff3cd"
-                            : slot?.replaced_user_id
-                              ? "#d0e8ff"
-                              : slot?.status === "CONFIRMED"
-                                ? "#d4edda"
-                                : slot?.status === "PENDING"
-                                  ? "#fff3cd"
-                                  : "#f8d7da";
-                        const borderColor =
-                          slot?.status === "NEEDS_REPLACEMENT"
-                            ? "#ff9800"
-                            : slot?.replaced_user_id
-                              ? "#4a90d9"
-                              : slot?.status === "CONFIRMED"
-                                ? "#28a745"
-                                : slot?.status === "PENDING"
-                                  ? "#ffc107"
-                                  : "#dc3545";
-                        return (
-                          <div
-                            key={`${dow}-morning`}
-                            title={effectivelyLocked ? "Этот день прошёл" : isLocked ? "Этот день прошёл (редактирование задним числом)" : "Кликните для назначения"}
-                            onClick={() => {
-                              if (effectivelyLocked) return;
-                              openSlotModal(dow, "Утро", slot?.from || "10:00", slot?.to || "13:00", slot?.user_id || null, slot?.available_user_ids || [], isLocked);
-                            }}
-                            style={{
-                              padding: "6px",
-                              backgroundColor: bgColor,
-                              border: `2px solid ${borderColor}`,
-                              borderRadius: "4px",
-                              minHeight: "50px",
-                              display: "flex",
-                              flexDirection: "column",
-                              justifyContent: "center",
-                              cursor: effectivelyLocked ? "default" : "pointer",
-                              ...(effectivelyLocked ? { opacity: 0.6 } : isLocked ? { opacity: 0.85 } : {}),
-                              ...(isToday ? { borderLeft: "3px solid #007bff" } : {}),
-                            }}
-                          >
-                            {slot?.user_id ? (
-                              <>
-                                <div style={{ fontWeight: "bold", marginBottom: "4px" }}>
-                                  {slot.status === "NEEDS_REPLACEMENT"
-                                    ? `${UserDirectory.getDisplayName(slot.user_id)} ⚠️`
-                                    : slot.replaced_user_id
-                                      ? `${UserDirectory.getDisplayName(slot.user_id)} 🔄`
-                                      : UserDirectory.getDisplayName(slot.user_id)}
-                                </div>
-                                <div style={{ fontSize: "0.75em", color: "#666" }}>
-                                  {slot.status === "NEEDS_REPLACEMENT"
-                                    ? "ищем замену"
-                                    : slot.replaced_user_id
-                                      ? `(за ${UserDirectory.getDisplayName(slot.replaced_user_id)})`
-                                      : slot.hours != null ? `${slot.hours.toFixed(1)} ч` : "—"}
-                                  {slot.is_problem && slot.status !== "NEEDS_REPLACEMENT" && " ⚠️"}
-                                </div>
-                                {slot.skill_mismatch && (
-                                  <div style={{ fontSize: "0.7em", color: "#e65100" }} title={`Требуется: ${slot.skill_mismatch.required}, у сотрудника: ${slot.skill_mismatch.actual}`}>
-                                    {"\u26A0"} квалиф.
-                                  </div>
-                                )}
-                                {(() => {
-                                  const cellExtras = extrasMap.get(`${dow}|${slot.user_id}`) || [];
-                                  if (cellExtras.length === 0) return null;
-                                  const hasPending = cellExtras.some(e => e.status === "pending");
-                                  const tooltip = cellExtras.map(e => `${e.label} ${e.amount}\u20BD`).join(", ");
-                                  return <div style={{ fontSize: "0.75em", marginTop: "1px" }} title={tooltip}>{hasPending ? "\u23F3" : "\uD83D\uDCB0"}</div>;
-                                })()}
-                              </>
-                            ) : (
-                              <div style={{ color: "#dc3545", fontWeight: "bold", fontSize: "0.85em" }}>&#9888;&#65039; Не назначен</div>
-                            )}
-                          </div>
-                        );
-                      })}
-
-                      {/* Evening slots */}
-                      <div style={{ padding: "4px", fontWeight: "bold" }}>Вечер</div>
-                      {["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((dow) => {
-                        const slot = (schedule.slots || []).find(
-                          (s: any) => s.dow === dow && s.slot_name === "Вечер"
-                        );
-                        const isLocked = slot?.locked === true;
-                        const canEditLocked = senderRole === "owner" || senderRole === "admin";
-                        const effectivelyLocked = isLocked && !canEditLocked;
-                        const isToday = schedule.today_dow === dow;
-                        const bgColor = isLocked
-                          ? "#f0f0f0"
-                          : slot?.status === "NEEDS_REPLACEMENT"
-                            ? "#fff3cd"
-                            : slot?.replaced_user_id
-                              ? "#d0e8ff"
-                              : slot?.status === "CONFIRMED"
-                                ? "#d4edda"
-                                : slot?.status === "PENDING"
-                                  ? "#fff3cd"
-                                  : "#f8d7da";
-                        const borderColor =
-                          slot?.status === "NEEDS_REPLACEMENT"
-                            ? "#ff9800"
-                            : slot?.replaced_user_id
-                              ? "#4a90d9"
-                              : slot?.status === "CONFIRMED"
-                                ? "#28a745"
-                                : slot?.status === "PENDING"
-                                  ? "#ffc107"
-                                  : "#dc3545";
-                        // Cleaning info for evening slots
-                        const cleaningUser = slot?.cleaning_user_id;
-                        const cleaningIsSwap = slot?.cleaning_is_replacement;
-                        return (
-                          <div
-                            key={`${dow}-evening`}
-                            title={effectivelyLocked ? "Этот день прошёл" : isLocked ? "Этот день прошёл (редактирование задним числом)" : "Кликните для назначения"}
-                            onClick={() => {
-                              if (effectivelyLocked) return;
-                              openSlotModal(dow, "Вечер", slot?.from || "18:00", slot?.to || "21:00", slot?.user_id || null, slot?.available_user_ids || [], isLocked);
-                            }}
-                            style={{
-                              padding: "6px",
-                              backgroundColor: bgColor,
-                              border: `2px solid ${borderColor}`,
-                              borderRadius: "4px",
-                              minHeight: "50px",
-                              display: "flex",
-                              flexDirection: "column",
-                              justifyContent: "center",
-                              cursor: effectivelyLocked ? "default" : "pointer",
-                              ...(effectivelyLocked ? { opacity: 0.6 } : isLocked ? { opacity: 0.85 } : {}),
-                              ...(isToday ? { borderLeft: "3px solid #007bff" } : {}),
-                            }}
-                          >
-                            {slot?.user_id ? (
-                              <>
-                                <div style={{ fontWeight: "bold", marginBottom: "4px" }}>
-                                  {slot.status === "NEEDS_REPLACEMENT"
-                                    ? `${UserDirectory.getDisplayName(slot.user_id)} ⚠️`
-                                    : slot.replaced_user_id
-                                      ? `${UserDirectory.getDisplayName(slot.user_id)} 🔄`
-                                      : UserDirectory.getDisplayName(slot.user_id)}
-                                </div>
-                                <div style={{ fontSize: "0.75em", color: "#666" }}>
-                                  {slot.status === "NEEDS_REPLACEMENT"
-                                    ? "ищем замену"
-                                    : slot.replaced_user_id
-                                      ? `(за ${UserDirectory.getDisplayName(slot.replaced_user_id)})`
-                                      : slot.hours != null ? `${slot.hours.toFixed(1)} ч` : "—"}
-                                  {slot.is_problem && slot.status !== "NEEDS_REPLACEMENT" && " ⚠️"}
-                                </div>
-                                {slot.cleaning_status && slot.cleaning_status !== "NOT_SCHEDULED" && (
-                                <div style={{
-                                  fontSize: "0.8em",
-                                  marginTop: "2px",
-                                  padding: "1px 4px",
-                                  borderRadius: "3px",
-                                  color: slot.cleaning_status === "NEEDS_REPLACEMENT" ? "#856404" : slot.cleaning_status === "REPLACED" ? "#004085" : slot.cleaning_scheduled === false ? "#e65100" : "#8B4513",
-                                  backgroundColor: slot.cleaning_status === "NEEDS_REPLACEMENT" ? "#fff3cd" : slot.cleaning_status === "REPLACED" ? "#d0e8ff" : "transparent",
-                                  ...(slot.cleaning_scheduled === false ? { border: "1px solid #ff9800", borderRadius: "3px" } : {}),
-                                }}
-                                  title={slot.cleaning_scheduled === false ? "\u041D\u0435\u0448\u0442\u0430\u0442\u043D\u0430\u044F \u0443\u0431\u043E\u0440\u043A\u0430" : undefined}
-                                >
-                                  {slot.cleaning_status === "NEEDS_REPLACEMENT"
-                                    ? `\uD83E\uDDF9 ${UserDirectory.getDisplayName(cleaningUser)} \u26A0\uFE0F`
-                                    : slot.cleaning_status === "REPLACED"
-                                      ? `\uD83E\uDDF9 ${UserDirectory.getDisplayName(cleaningUser)} \uD83D\uDD04${slot.cleaning_original_user_id ? ` (\u0437\u0430 ${UserDirectory.getDisplayName(slot.cleaning_original_user_id)})` : ""}`
-                                      : cleaningUser && cleaningIsSwap
-                                        ? `\uD83E\uDDF9\u2192${UserDirectory.getDisplayName(cleaningUser)}`
-                                        : "\uD83E\uDDF9"}
-                                </div>
-                                )}
-                                {(() => {
-                                  const cellExtras = extrasMap.get(`${dow}|${slot.user_id}`) || [];
-                                  if (cellExtras.length === 0) return null;
-                                  const hasPending = cellExtras.some(e => e.status === "pending");
-                                  const tooltip = cellExtras.map(e => `${e.label} ${e.amount}\u20BD`).join(", ");
-                                  return <div style={{ fontSize: "0.75em", marginTop: "1px" }} title={tooltip}>{hasPending ? "\u23F3" : "\uD83D\uDCB0"}</div>;
-                                })()}
-                              </>
-                            ) : (
-                              <div style={{ color: "#dc3545", fontWeight: "bold", fontSize: "0.85em" }}>&#9888;&#65039; Не назначен</div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
+                      <ScheduleGrid
+                        schedule={schedule}
+                        weekStartISO={weekStartISO}
+                        senderRole={senderRole}
+                        extrasMap={extrasMap}
+                        openSlotModal={openSlotModal}
+                      />
+                    )}
                     {/* Weekly hours summary */}
                     {schedule && schedule.slots && (() => {
                       const hoursByUser = new Map<string, number>();
