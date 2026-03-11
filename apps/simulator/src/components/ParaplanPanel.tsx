@@ -30,13 +30,14 @@ function SlotInfo({ slot, filterPrefixes }: { slot: any; filterPrefixes: Set<str
   let paidStart = slot.paid_start;
   let paidEnd = slot.paid_end;
   if (filterPrefixes) {
-    // Sort filtered groups by start time, find first/last → range + 1h buffer each side
-    const sorted = [...groups].sort((a: any, b: any) => toMin(a.start) - toMin(b.start));
-    const newStart = Math.max(0, toMin(sorted[0].start) - PREP_BUFFER);
-    const newEnd = toMin(sorted[sorted.length - 1].end) + PREP_BUFFER;
-    hours = Math.round((newEnd - newStart) / 60 * 10) / 10;
-    paidStart = fmtMin(newStart);
-    paidEnd = fmtMin(newEnd);
+    // Range of filtered lessons + 2h buffer (1h before first, 1h after last)
+    const starts = groups.map((g: any) => toMin(g.start));
+    const ends = groups.map((g: any) => toMin(g.end));
+    const first = Math.min(...starts);
+    const last = Math.max(...ends);
+    hours = Math.round((last - first + 2 * PREP_BUFFER) / 60 * 10) / 10;
+    paidStart = fmtMin(Math.max(0, first - PREP_BUFFER));
+    paidEnd = fmtMin(last + PREP_BUFFER);
   }
 
   const excluded = groups.filter((g: any) => !g.included);
