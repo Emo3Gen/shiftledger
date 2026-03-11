@@ -13,9 +13,7 @@ export interface ParaplanPanelProps {
 const RU_DOW: Record<string, string> = { mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс" };
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
-const PREP_BUFFER = 60; // ±1h buffer, same as backend
 const toMin = (t: string) => parseInt(t.split(":")[0]) * 60 + parseInt(t.split(":")[1]);
-const fmtMin = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
 function SlotInfo({ slot, filterPrefixes }: { slot: any; filterPrefixes: Set<string> | null }) {
   if (!slot) return <span style={{ color: "#ccc" }}>{"\u2014"}</span>;
@@ -30,13 +28,10 @@ function SlotInfo({ slot, filterPrefixes }: { slot: any; filterPrefixes: Set<str
   let paidStart = slot.paid_start;
   let paidEnd = slot.paid_end;
   if (filterPrefixes) {
-    const starts = groups.map((g: any) => toMin(g.start));
-    const ends = groups.map((g: any) => toMin(g.end));
-    const paidStartMin = Math.max(0, Math.min(...starts) - PREP_BUFFER);
-    const paidEndMin = Math.max(...ends) + PREP_BUFFER;
-    hours = Math.round((paidEndMin - paidStartMin) / 60 * 10) / 10;
-    paidStart = fmtMin(paidStartMin);
-    paidEnd = fmtMin(paidEndMin);
+    // Sum of each group's duration, not time range
+    hours = Math.round(groups.reduce((sum: number, g: any) => sum + (toMin(g.end) - toMin(g.start)) / 60, 0) * 10) / 10;
+    paidStart = groups.reduce((m: string, g: any) => (g.start < m ? g.start : m), groups[0].start);
+    paidEnd = groups.reduce((m: string, g: any) => (g.end > m ? g.end : m), groups[0].end);
   }
 
   const excluded = groups.filter((g: any) => !g.included);
