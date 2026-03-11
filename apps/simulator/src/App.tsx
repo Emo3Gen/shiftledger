@@ -2106,6 +2106,7 @@ export const App: React.FC = () => {
                                   <option value="experienced">{"\u043E\u043F\u044B\u0442"}</option>
                                   <option value="guru">{"\u0433\u0443\u0440\u0443"}</option>
                                 </select>
+                                {pgFirst.price_type !== "single" && (<>
                                 <label style={{ color: "#666", fontSize: "0.85em" }}>{"\u0410\u0431\u043E\u043D:"}</label>
                                 <input type="number" value={pgFirst.subscription_price || ""} style={{ width: 55, fontSize: "var(--font-xs)", padding: "1px 3px", textAlign: "right" }}
                                   onChange={(e) => {
@@ -2114,6 +2115,7 @@ export const App: React.FC = () => {
                                   }}
                                   onBlur={(e) => { const val = Number(e.target.value) || null; saveGroupField(pgFirst.paraplan_id, "subscription_price", val); }}
                                 />
+                                </>)}
                                 <label style={{ color: "#666", fontSize: "0.85em" }}>{"\u0420\u0430\u0437:"}</label>
                                 <input type="number" value={pgFirst.single_price || ""} style={{ width: 55, fontSize: "var(--font-xs)", padding: "1px 3px", textAlign: "right" }}
                                   onChange={(e) => {
@@ -2130,9 +2132,11 @@ export const App: React.FC = () => {
                                   }}
                                   onBlur={(e) => { const val = Number(e.target.value) || null; saveGroupField(pgFirst.paraplan_id, "discount_pct", val); }}
                                 />
-                                {(pgFirst.discount_pct > 0 && pgFirst.subscription_price) && (
+                                {pgFirst.discount_pct > 0 && (pgFirst.subscription_price || pgFirst.single_price) && (
                                   <span style={{ color: "#888", fontSize: "0.8em" }}>
-                                    {pgFirst.subscription_price}{"\u2192"}{Math.round(pgFirst.subscription_price * (1 - pgFirst.discount_pct / 100))}{"\u20BD"}
+                                    {pgFirst.subscription_price ? `${pgFirst.subscription_price}\u2192${Math.round(pgFirst.subscription_price * (1 - pgFirst.discount_pct / 100))}\u20BD` : ""}
+                                    {pgFirst.subscription_price && pgFirst.single_price ? " " : ""}
+                                    {pgFirst.single_price ? `${pgFirst.single_price}\u2192${Math.round(pgFirst.single_price * (1 - pgFirst.discount_pct / 100))}\u20BD` : ""}
                                   </span>
                                 )}
                                 </>

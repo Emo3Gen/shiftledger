@@ -148,6 +148,7 @@ export interface GroupConfig {
   subscription_price?: number | null;
   single_price?: number | null;
   discount_pct?: number | null;
+  price_type?: "subscription" | "single";
 }
 export const getGroups = () => apiGet<GroupConfig[]>("/api/miniapp/groups");
 export const updateGroupJunior = (id: string, requires_junior: boolean) =>

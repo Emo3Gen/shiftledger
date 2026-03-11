@@ -581,6 +581,7 @@ const GroupsTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
       {groups.map((g, i) => {
         const isExpanded = expanded === g.paraplan_id;
         const disc = g.discount_pct || 0;
+        const isSingleOnly = g.price_type === "single";
         return (
         <div key={g.paraplan_id} style={{
           borderBottom: i < groups.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
@@ -596,8 +597,8 @@ const GroupsTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
               <div style={{ fontWeight: 600, fontSize: 14 }}>{g.name}</div>
               <div style={{ fontSize: 11, color: "var(--tg-hint)" }}>
                 {g.prefix}
-                {g.subscription_price ? ` \u00B7 ${g.subscription_price}\u20BD` : ""}
-                {g.single_price ? ` \u00B7 ${g.single_price}\u20BD/раз` : ""}
+                {isSingleOnly ? "" : g.subscription_price ? ` \u00B7 ${g.subscription_price}\u20BD` : ""}
+                {g.single_price ? ` \u00B7 ${g.single_price}\u20BD${isSingleOnly ? "" : "/раз"}` : ""}
                 {disc > 0 ? ` \u00B7 -${disc}%` : ""}
               </div>
             </div>
@@ -616,6 +617,7 @@ const GroupsTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
           </div>
           {isExpanded && isOwner && (
             <div style={{ padding: "0 14px 12px", display: "flex", gap: 6 }}>
+              {!isSingleOnly && (
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 10, color: "var(--tg-hint)", marginBottom: 2 }}>Абонемент</div>
                 <input type="number" placeholder="0"
@@ -624,6 +626,7 @@ const GroupsTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
                   onBlur={(e) => savePriceField(g, "subscription_price", e.target.value)}
                   style={{ ...fieldStyle, width: "100%", fontSize: 13, padding: "6px 8px" }} />
               </div>
+              )}
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 10, color: "var(--tg-hint)", marginBottom: 2 }}>Разовое</div>
                 <input type="number" placeholder="0"
@@ -642,10 +645,11 @@ const GroupsTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
               </div>
             </div>
           )}
-          {isExpanded && isOwner && disc > 0 && g.subscription_price && (
+          {isExpanded && isOwner && disc > 0 && (g.subscription_price || g.single_price) && (
             <div style={{ padding: "0 14px 10px", fontSize: 12, color: "var(--tg-hint)" }}>
-              {g.subscription_price} {"\u2192"} {Math.round(g.subscription_price * (1 - disc / 100))}{"\u20BD"}
-              {g.single_price ? ` \u00B7 ${g.single_price} \u2192 ${Math.round(g.single_price * (1 - disc / 100))}\u20BD` : ""}
+              {g.subscription_price ? `${g.subscription_price} \u2192 ${Math.round(g.subscription_price * (1 - disc / 100))}\u20BD` : ""}
+              {g.subscription_price && g.single_price ? " \u00B7 " : ""}
+              {g.single_price ? `${g.single_price} \u2192 ${Math.round(g.single_price * (1 - disc / 100))}\u20BD` : ""}
             </div>
           )}
         </div>

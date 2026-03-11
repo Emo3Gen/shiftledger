@@ -78,7 +78,10 @@ export const ParaplanPanel: React.FC<ParaplanPanelProps> = ({
         )}
         {paraplanStatus && (
           <span style={{ color: "#888" }}>
-            | {paraplanStatus.groupCount || 0} групп | {paraplanStatus.daysWithHours || 0} дн. с часами
+            | {paraplanStatus.groupCount || 0} групп
+            {paraplanStatus.mode === "emogen"
+              ? (paraplanStatus.daysWithHours ? ` | ${paraplanStatus.daysWithHours} дн. с часами` : "")
+              : ` | ${paraplanStatus.daysWithHours || 0} дн. с часами`}
           </span>
         )}
       </div>
