@@ -337,15 +337,32 @@ export default function createMiniappRouter({ getTelegramBot }) {
       const slotName = slot === "morning" ? "Утро" : "Вечер";
       const chatId = DEFAULT_CHAT_ID;
 
-      // Delete existing assignments for this slot
+      // Get slot times from settings or defaults
+      const settings = await settingsService.getAll("dev");
+      const slotTimes = slot === "morning"
+        ? { from: settings["shifts.morning.from"] || "10:00", to: settings["shifts.morning.to"] || "13:00" }
+        : { from: settings["shifts.evening.from"] || "18:00", to: settings["shifts.evening.to"] || "21:00" };
+
+      // Delete existing assignments for this slot (match both old slot_name format and new from/to format)
       const { data: allFacts } = await supabase.from("facts").select("*").eq("chat_id", chatId).eq("fact_type", "SHIFT_ASSIGNMENT").limit(500);
-      const slotFacts = (allFacts || []).filter((f) => f.fact_payload?.week_start === week_start && f.fact_payload?.dow === day && f.fact_payload?.slot_name === slotName);
+      const slotFacts = (allFacts || []).filter((f) =>
+        f.fact_payload?.week_start === week_start && f.fact_payload?.dow === day &&
+        (f.fact_payload?.slot_name === slotName || (f.fact_payload?.from === slotTimes.from && f.fact_payload?.to === slotTimes.to))
+      );
       if (slotFacts.length > 0) await supabase.from("facts").delete().in("id", slotFacts.map((f) => f.id));
 
       if (employee_id) {
+        const d = new Date(week_start + "T12:00:00");
+        d.setDate(d.getDate() + DAYS.indexOf(day));
+        const dateStr = d.toISOString().slice(0, 10);
         await supabase.from("facts").insert({
           id: randomUUID(), chat_id: chatId, event_id: `miniapp-${Date.now()}`, fact_type: "SHIFT_ASSIGNMENT",
-          fact_payload: { week_start, dow: day, slot_name: slotName, user_id: employee_id, source: "miniapp" },
+          fact_payload: {
+            week_start, dow: day, slot_name: slotName,
+            from: slotTimes.from, to: slotTimes.to, date: dateStr,
+            assigned_user_id: employee_id, user_id: employee_id,
+            source: "miniapp",
+          },
           created_at: new Date().toISOString(),
         });
       }
