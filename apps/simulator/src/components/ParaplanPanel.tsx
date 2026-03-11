@@ -13,6 +13,10 @@ export interface ParaplanPanelProps {
 const RU_DOW: Record<string, string> = { mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс" };
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
+const PREP_BUFFER = 60; // ±1h buffer, same as backend
+const toMin = (t: string) => parseInt(t.split(":")[0]) * 60 + parseInt(t.split(":")[1]);
+const fmtMin = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
 function SlotInfo({ slot, filterPrefixes }: { slot: any; filterPrefixes: Set<string> | null }) {
   if (!slot) return <span style={{ color: "#ccc" }}>{"\u2014"}</span>;
   const allGroups = slot.groups || [];
@@ -20,11 +24,26 @@ function SlotInfo({ slot, filterPrefixes }: { slot: any; filterPrefixes: Set<str
     ? allGroups.filter((g: any) => filterPrefixes.has(g.prefix))
     : allGroups;
   if (groups.length === 0) return <span style={{ color: "#ccc" }}>{"\u2014"}</span>;
+
+  // Recalculate hours & time range from filtered groups
+  let hours = slot.hours;
+  let paidStart = slot.paid_start;
+  let paidEnd = slot.paid_end;
+  if (filterPrefixes) {
+    const starts = groups.map((g: any) => toMin(g.start));
+    const ends = groups.map((g: any) => toMin(g.end));
+    const paidStartMin = Math.max(0, Math.min(...starts) - PREP_BUFFER);
+    const paidEndMin = Math.max(...ends) + PREP_BUFFER;
+    hours = Math.round((paidEndMin - paidStartMin) / 60 * 10) / 10;
+    paidStart = fmtMin(paidStartMin);
+    paidEnd = fmtMin(paidEndMin);
+  }
+
   const excluded = groups.filter((g: any) => !g.included);
   return (
     <div>
-      <strong>{slot.hours}ч</strong>
-      <span style={{ color: "#888", marginLeft: 4 }}>({slot.paid_start}{"\u2013"}{slot.paid_end})</span>
+      <strong>{hours}ч</strong>
+      <span style={{ color: "#888", marginLeft: 4 }}>({paidStart}{"\u2013"}{paidEnd})</span>
       <div style={{ marginTop: 2 }}>
         {groups.map((g: any, i: number) => (
           <div key={i} style={{ fontSize: "0.85em", color: g.included ? "#555" : "#bbb", textDecoration: g.included ? "none" : "line-through" }}>
