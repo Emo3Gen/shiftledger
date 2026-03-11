@@ -2106,6 +2106,35 @@ export const App: React.FC = () => {
                                   <option value="experienced">{"\u043E\u043F\u044B\u0442"}</option>
                                   <option value="guru">{"\u0433\u0443\u0440\u0443"}</option>
                                 </select>
+                                <label style={{ color: "#666", fontSize: "0.85em" }}>{"\u0410\u0431\u043E\u043D:"}</label>
+                                <input type="number" value={pgFirst.subscription_price || ""} style={{ width: 55, fontSize: "var(--font-xs)", padding: "1px 3px", textAlign: "right" }}
+                                  onChange={(e) => {
+                                    const val = Number(e.target.value) || null;
+                                    setGroupsConfig(groupsConfig.map((gc: any) => gc.prefix === g.name ? { ...gc, subscription_price: val } : gc));
+                                  }}
+                                  onBlur={(e) => { const val = Number(e.target.value) || null; saveGroupField(pgFirst.paraplan_id, "subscription_price", val); }}
+                                />
+                                <label style={{ color: "#666", fontSize: "0.85em" }}>{"\u0420\u0430\u0437:"}</label>
+                                <input type="number" value={pgFirst.single_price || ""} style={{ width: 55, fontSize: "var(--font-xs)", padding: "1px 3px", textAlign: "right" }}
+                                  onChange={(e) => {
+                                    const val = Number(e.target.value) || null;
+                                    setGroupsConfig(groupsConfig.map((gc: any) => gc.prefix === g.name ? { ...gc, single_price: val } : gc));
+                                  }}
+                                  onBlur={(e) => { const val = Number(e.target.value) || null; saveGroupField(pgFirst.paraplan_id, "single_price", val); }}
+                                />
+                                <label style={{ color: "#666", fontSize: "0.85em" }}>{"\u0421\u043A\u0438\u0434\u043A\u0430%:"}</label>
+                                <input type="number" value={pgFirst.discount_pct || ""} min="0" max="100" style={{ width: 40, fontSize: "var(--font-xs)", padding: "1px 3px", textAlign: "right" }}
+                                  onChange={(e) => {
+                                    const val = Number(e.target.value) || null;
+                                    setGroupsConfig(groupsConfig.map((gc: any) => gc.prefix === g.name ? { ...gc, discount_pct: val } : gc));
+                                  }}
+                                  onBlur={(e) => { const val = Number(e.target.value) || null; saveGroupField(pgFirst.paraplan_id, "discount_pct", val); }}
+                                />
+                                {(pgFirst.discount_pct > 0 && pgFirst.subscription_price) && (
+                                  <span style={{ color: "#888", fontSize: "0.8em" }}>
+                                    {pgFirst.subscription_price}{"\u2192"}{Math.round(pgFirst.subscription_price * (1 - pgFirst.discount_pct / 100))}{"\u20BD"}
+                                  </span>
+                                )}
                                 </>
                               )}
                               {g.trial_price != null && (

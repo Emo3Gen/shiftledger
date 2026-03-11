@@ -13,10 +13,14 @@ export const emogenAuthHeader = EMOGEN_API_PASSWORD
 // When EMOGEN_API_URL is set, route Paraplan data through Emogen (no direct CRM login)
 export const USE_EMOGEN_PARAPLAN = !!EMOGEN_API_URL;
 
-// Shared Emogen hours cache (set by server.js, read by routes/paraplan.js)
+// Shared Emogen caches (set by server.js, read by routes/paraplan.js)
 let _emogenHoursCache = null;
+let _emogenStatus = null; // { groups, teachers, lastUpdate, ready }
+
 export function setEmogenHoursCache(cache) { _emogenHoursCache = cache; }
 export function getEmogenHoursCache() { return _emogenHoursCache; }
+export function setEmogenStatus(s) { _emogenStatus = s; }
+export function getEmogenStatus() { return _emogenStatus; }
 
 /**
  * Fetch from Emogen API with auth.
@@ -29,6 +33,27 @@ export async function emogenFetch(path, opts = {}) {
   const headers = { ...opts.headers };
   if (emogenAuthHeader) headers.Authorization = emogenAuthHeader;
   return fetch(url, { ...opts, headers });
+}
+
+/**
+ * Fetch Emogen health/status and cache it.
+ * Emogen /health returns { paraplan: { ready, groups, teachers, lastUpdate } }
+ */
+export async function refreshEmogenStatus() {
+  if (!EMOGEN_API_URL) return null;
+  try {
+    const r = await emogenFetch("/health");
+    if (!r.ok) { logger.warn({ status: r.status }, "[emogen] Health check failed"); return null; }
+    const data = await r.json();
+    if (data.paraplan) {
+      _emogenStatus = data.paraplan;
+      logger.info({ groups: data.paraplan.groups, teachers: data.paraplan.teachers }, "[emogen] Status cached");
+    }
+    return _emogenStatus;
+  } catch (e) {
+    logger.warn({ err: e.message }, "[emogen] Health fetch error");
+    return null;
+  }
 }
 
 /**

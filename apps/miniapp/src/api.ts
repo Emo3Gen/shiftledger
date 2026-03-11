@@ -145,10 +145,15 @@ export interface GroupConfig {
   prefix: string;
   requires_junior: boolean;
   required_skill_level: string | null;
+  subscription_price?: number | null;
+  single_price?: number | null;
+  discount_pct?: number | null;
 }
 export const getGroups = () => apiGet<GroupConfig[]>("/api/miniapp/groups");
 export const updateGroupJunior = (id: string, requires_junior: boolean) =>
   apiPut(`/api/miniapp/groups/${id}`, { requires_junior });
+export const updateGroupField = (id: string, field: string, value: any) =>
+  apiPut(`/api/miniapp/groups/${id}`, { [field]: value });
 
 // ── Settings ──
 export const getSettings = () => apiGet<Record<string, any>>("/api/miniapp/settings");

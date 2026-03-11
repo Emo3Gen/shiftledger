@@ -641,12 +641,18 @@ export default function createMiniappRouter({ getTelegramBot }) {
     try {
       if (!isOwnerRole(req.telegramUser.role)) return res.status(403).json({ ok: false, error: "Forbidden" });
       const { id } = req.params;
-      const { requires_junior } = req.body;
+      const { requires_junior, subscription_price, single_price, discount_pct } = req.body;
 
       const groups = await settingsService.get("dev", "paraplan_groups") || [];
-      const updated = groups.map((g) =>
-        g.paraplan_id === id ? { ...g, requires_junior: !!requires_junior } : g
-      );
+      const updated = groups.map((g) => {
+        if (g.paraplan_id !== id) return g;
+        const patch = { ...g };
+        if (requires_junior !== undefined) patch.requires_junior = !!requires_junior;
+        if (subscription_price !== undefined) patch.subscription_price = subscription_price;
+        if (single_price !== undefined) patch.single_price = single_price;
+        if (discount_pct !== undefined) patch.discount_pct = discount_pct;
+        return patch;
+      });
 
       await settingsService.set("dev", "paraplan_groups", updated, "Paraplan groups config");
       res.json({ ok: true, groups: updated });

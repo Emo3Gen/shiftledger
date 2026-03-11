@@ -2,7 +2,7 @@ import React from "react";
 import {
   getEmployees, createEmployee, updateEmployee, deleteEmployee,
   getSettings, updateSetting, getBotMode, setBotMode, getCatalog,
-  getGroups, updateGroupJunior,
+  getGroups, updateGroupJunior, updateGroupField,
   type Employee, type CatalogItem, type GroupConfig,
 } from "../api";
 import { haptic } from "../telegram";
@@ -522,6 +522,8 @@ const GroupsTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
   const [groups, setGroups] = React.useState<GroupConfig[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [toggling, setToggling] = React.useState<string | null>(null);
+  const [expanded, setExpanded] = React.useState<string | null>(null);
+  const [drafts, setDrafts] = React.useState<Record<string, Record<string, string>>>({});
 
   React.useEffect(() => {
     getGroups().then(setGroups).catch(() => {}).finally(() => setLoading(false));
@@ -543,6 +545,23 @@ const GroupsTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
     setToggling(null);
   };
 
+  const savePriceField = async (g: GroupConfig, field: string, value: string) => {
+    const num = value === "" ? null : Number(value);
+    if (value !== "" && isNaN(num as number)) return;
+    try {
+      await updateGroupField(g.paraplan_id, field, num);
+      setGroups((prev) => prev.map((x) => x.paraplan_id === g.paraplan_id ? { ...x, [field]: num } : x));
+    } catch (e: any) { toast(e.message, "error"); }
+  };
+
+  const getDraft = (id: string, field: string, fallback: any) => {
+    return drafts[id]?.[field] ?? (fallback != null ? String(fallback) : "");
+  };
+
+  const setDraft = (id: string, field: string, val: string) => {
+    setDrafts((prev) => ({ ...prev, [id]: { ...prev[id], [field]: val } }));
+  };
+
   if (loading) return <div className="loading">Загрузка...</div>;
 
   if (groups.length === 0) {
@@ -559,31 +578,79 @@ const GroupsTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
         <div style={{ fontSize: 12, color: "var(--tg-section-header)", fontWeight: 600 }}>ГРУППА</div>
         <div style={{ fontSize: 12, color: "var(--tg-section-header)", fontWeight: 600 }}>ПОМОЩНИК</div>
       </div>
-      {groups.map((g, i) => (
+      {groups.map((g, i) => {
+        const isExpanded = expanded === g.paraplan_id;
+        const disc = g.discount_pct || 0;
+        return (
         <div key={g.paraplan_id} style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "10px 14px",
           borderBottom: i < groups.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
           opacity: toggling === g.paraplan_id ? 0.5 : 1,
         }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>{g.name}</div>
-            <div style={{ fontSize: 11, color: "var(--tg-hint)" }}>{g.prefix}</div>
-          </div>
-          <button
-            onClick={() => toggle(g)}
-            disabled={!isOwner || toggling !== null}
-            style={{
-              padding: "6px 12px", borderRadius: 8, border: "none", cursor: isOwner ? "pointer" : "default",
-              background: g.requires_junior ? "rgba(52,199,89,0.15)" : "rgba(255,149,0,0.15)",
-              color: g.requires_junior ? "rgba(52,199,89,1)" : "rgba(255,149,0,1)",
-              fontSize: 14, fontWeight: 600, transition: "all 0.15s",
-            }}
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "10px 14px",
+          }}
+            onClick={() => { haptic("light"); setExpanded(isExpanded ? null : g.paraplan_id); }}
           >
-            {g.requires_junior ? "\u{1F465}" : "\u{1F464}"}
-          </button>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{g.name}</div>
+              <div style={{ fontSize: 11, color: "var(--tg-hint)" }}>
+                {g.prefix}
+                {g.subscription_price ? ` \u00B7 ${g.subscription_price}\u20BD` : ""}
+                {g.single_price ? ` \u00B7 ${g.single_price}\u20BD/раз` : ""}
+                {disc > 0 ? ` \u00B7 -${disc}%` : ""}
+              </div>
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); toggle(g); }}
+              disabled={!isOwner || toggling !== null}
+              style={{
+                padding: "6px 12px", borderRadius: 8, border: "none", cursor: isOwner ? "pointer" : "default",
+                background: g.requires_junior ? "rgba(52,199,89,0.15)" : "rgba(255,149,0,0.15)",
+                color: g.requires_junior ? "rgba(52,199,89,1)" : "rgba(255,149,0,1)",
+                fontSize: 14, fontWeight: 600, transition: "all 0.15s",
+              }}
+            >
+              {g.requires_junior ? "\u{1F465}" : "\u{1F464}"}
+            </button>
+          </div>
+          {isExpanded && isOwner && (
+            <div style={{ padding: "0 14px 12px", display: "flex", gap: 6 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 10, color: "var(--tg-hint)", marginBottom: 2 }}>Абонемент</div>
+                <input type="number" placeholder="0"
+                  value={getDraft(g.paraplan_id, "subscription_price", g.subscription_price)}
+                  onChange={(e) => setDraft(g.paraplan_id, "subscription_price", e.target.value)}
+                  onBlur={(e) => savePriceField(g, "subscription_price", e.target.value)}
+                  style={{ ...fieldStyle, width: "100%", fontSize: 13, padding: "6px 8px" }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 10, color: "var(--tg-hint)", marginBottom: 2 }}>Разовое</div>
+                <input type="number" placeholder="0"
+                  value={getDraft(g.paraplan_id, "single_price", g.single_price)}
+                  onChange={(e) => setDraft(g.paraplan_id, "single_price", e.target.value)}
+                  onBlur={(e) => savePriceField(g, "single_price", e.target.value)}
+                  style={{ ...fieldStyle, width: "100%", fontSize: 13, padding: "6px 8px" }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 10, color: "var(--tg-hint)", marginBottom: 2 }}>Скидка %</div>
+                <input type="number" placeholder="0" min="0" max="100"
+                  value={getDraft(g.paraplan_id, "discount_pct", g.discount_pct)}
+                  onChange={(e) => setDraft(g.paraplan_id, "discount_pct", e.target.value)}
+                  onBlur={(e) => savePriceField(g, "discount_pct", e.target.value)}
+                  style={{ ...fieldStyle, width: "100%", fontSize: 13, padding: "6px 8px" }} />
+              </div>
+            </div>
+          )}
+          {isExpanded && isOwner && disc > 0 && g.subscription_price && (
+            <div style={{ padding: "0 14px 10px", fontSize: 12, color: "var(--tg-hint)" }}>
+              {g.subscription_price} {"\u2192"} {Math.round(g.subscription_price * (1 - disc / 100))}{"\u20BD"}
+              {g.single_price ? ` \u00B7 ${g.single_price} \u2192 ${Math.round(g.single_price * (1 - disc / 100))}\u20BD` : ""}
+            </div>
+          )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 };

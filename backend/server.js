@@ -46,7 +46,7 @@ import { runDevSeed } from "./devSeed.js";
 import { generateScheduleImage } from "./services/scheduleImage.js";
 import * as paraplan from "./services/paraplan/index.js";
 import { toWeekHoursTemplate } from "./services/paraplan/hoursCalculator.js";
-import { USE_EMOGEN_PARAPLAN, EMOGEN_API_URL, emogenFetch, setEmogenHoursCache } from "./emogenClient.js";
+import { USE_EMOGEN_PARAPLAN, EMOGEN_API_URL, emogenFetch, setEmogenHoursCache, refreshEmogenStatus } from "./emogenClient.js";
 import paraplanRouter from "./routes/paraplan.js";
 import createMiniappRouter from "./routes/miniapp.js";
 import emogenRouter from "./routes/emogen.js";
@@ -2804,11 +2804,18 @@ UserDirectory.syncFromDB(employeeService).then(async () => {
   if (USE_EMOGEN_PARAPLAN) {
     // Production: route Paraplan data through Emogen — no direct CRM login
     logger.info({ emogenUrl: EMOGEN_API_URL }, "[paraplan] Using Emogen proxy (no direct CRM connection)");
+    // Warm up emogen status (groups/teachers count) from /health
+    refreshEmogenStatus().catch((err) => {
+      logger.warn({ err: err?.message }, "[paraplan] Initial Emogen status fetch failed");
+    });
     fetchEmogenHours().catch((err) => {
       logger.warn({ err: err?.message }, "[paraplan] Initial Emogen hours fetch failed — will retry");
     });
-    // Refresh Emogen hours every 30 minutes
-    setInterval(() => fetchEmogenHours().catch(() => {}), 30 * 60 * 1000);
+    // Refresh Emogen hours + status every 30 minutes
+    setInterval(() => {
+      fetchEmogenHours().catch(() => {});
+      refreshEmogenStatus().catch(() => {});
+    }, 30 * 60 * 1000);
   } else if (paraplan.isConfigured()) {
     // Dev: direct Paraplan connection
     const tenantId = process.env.DEFAULT_TENANT_ID || "dev";

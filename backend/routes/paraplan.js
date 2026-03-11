@@ -7,7 +7,7 @@
 import { Router } from "express";
 import * as paraplan from "../services/paraplan/index.js";
 import * as settingsService from "../settingsService.js";
-import { USE_EMOGEN_PARAPLAN, EMOGEN_API_URL, proxyToEmogen, getEmogenHoursCache } from "../emogenClient.js";
+import { USE_EMOGEN_PARAPLAN, EMOGEN_API_URL, proxyToEmogen, getEmogenHoursCache, getEmogenStatus } from "../emogenClient.js";
 import logger from "../logger.js";
 
 const router = Router();
@@ -16,11 +16,14 @@ const router = Router();
 router.get("/status", async (req, res) => {
   if (USE_EMOGEN_PARAPLAN) {
     const cache = getEmogenHoursCache();
+    const status = getEmogenStatus();
     return res.json({
       ok: true, mode: "emogen", configured: true, initialized: true, ready: true,
       emogen_url: EMOGEN_API_URL,
+      groupCount: status?.groups || 0,
+      teacherCount: status?.teachers || 0,
       daysWithHours: cache?.hours ? Object.keys(cache.hours).length : 0,
-      updatedAt: cache?.updatedAt || null,
+      updatedAt: cache?.updatedAt || status?.lastUpdate || null,
     });
   }
   try {
