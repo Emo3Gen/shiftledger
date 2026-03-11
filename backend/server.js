@@ -46,7 +46,7 @@ import { runDevSeed } from "./devSeed.js";
 import { generateScheduleImage } from "./services/scheduleImage.js";
 import * as paraplan from "./services/paraplan/index.js";
 import { toWeekHoursTemplate } from "./services/paraplan/hoursCalculator.js";
-import { USE_EMOGEN_PARAPLAN, EMOGEN_API_URL, emogenFetch } from "./emogenClient.js";
+import { USE_EMOGEN_PARAPLAN, EMOGEN_API_URL, emogenFetch, setEmogenHoursCache } from "./emogenClient.js";
 import paraplanRouter from "./routes/paraplan.js";
 import createMiniappRouter from "./routes/miniapp.js";
 import emogenRouter from "./routes/emogen.js";
@@ -162,6 +162,7 @@ async function fetchEmogenHours() {
     const data = await r.json();
     if (data.hours) {
       _emogenHoursCache = { hours: data.hours, updatedAt: data.updatedAt || new Date().toISOString() };
+      setEmogenHoursCache(_emogenHoursCache);
       logger.info({ days: Object.keys(data.hours).length }, "[emogen] Paraplan hours cached");
     }
     return _emogenHoursCache;

@@ -13,6 +13,11 @@ export const emogenAuthHeader = EMOGEN_API_PASSWORD
 // When EMOGEN_API_URL is set, route Paraplan data through Emogen (no direct CRM login)
 export const USE_EMOGEN_PARAPLAN = !!EMOGEN_API_URL;
 
+// Shared Emogen hours cache (set by server.js, read by routes/paraplan.js)
+let _emogenHoursCache = null;
+export function setEmogenHoursCache(cache) { _emogenHoursCache = cache; }
+export function getEmogenHoursCache() { return _emogenHoursCache; }
+
 /**
  * Fetch from Emogen API with auth.
  * @param {string} path - e.g. "/api/paraplan/hours"

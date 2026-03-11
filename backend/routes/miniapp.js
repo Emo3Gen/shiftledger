@@ -25,17 +25,22 @@ function isOwnerRole(role) {
 
 // --- Helpers ---
 
+/** Format Date as YYYY-MM-DD using local timezone (avoids UTC shift from toISOString) */
+function fmtDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function getMonday(offset = 0) {
   const d = new Date();
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1) + offset * 7;
-  return new Date(d.getFullYear(), d.getMonth(), diff).toISOString().slice(0, 10);
+  return fmtDate(new Date(d.getFullYear(), d.getMonth(), diff));
 }
 
 function getTomorrow() {
   const d = new Date();
   d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
+  return fmtDate(d);
 }
 
 function formatWeekLabel(weekStartISO) {
@@ -67,9 +72,9 @@ async function loadFacts(chatId, weekStartISO) {
     .limit(500);
   if (error) throw error;
 
-  const weekEnd = new Date(weekStartISO);
+  const weekEnd = new Date(weekStartISO + "T12:00:00");
   weekEnd.setDate(weekEnd.getDate() + 6);
-  const weekEndISO = weekEnd.toISOString().slice(0, 10);
+  const weekEndISO = fmtDate(weekEnd);
 
   return (facts || []).filter((f) => {
     if (f.fact_type?.startsWith("WEEK_") || f.fact_type === "SCHEDULE_BUILT") return f.fact_payload?.week_start === weekStartISO;
@@ -198,16 +203,47 @@ export default function createMiniappRouter({ getTelegramBot }) {
   router.get("/schedule", async (req, res) => {
     try {
       const weekStartISO = req.query.week_start || getMonday();
+      const chatId = DEFAULT_CHAT_ID;
+
+      // Load facts and build schedule
       const { schedule, timesheet, facts } = await buildScheduleAndTimesheet(weekStartISO);
       const shiftFacts = facts.filter(f => f.fact_type === "SHIFT_ASSIGNMENT");
-      logger.info({ weekStart: weekStartISO, totalFacts: facts.length, shiftFacts: shiftFacts.length }, "[miniapp] GET /schedule facts");
+      logger.info({ chatId, weekStart: weekStartISO, totalFacts: facts.length, shiftFacts: shiftFacts.length }, "[miniapp] GET /schedule facts");
+
+      // If no shift facts found, check if facts exist under a different chat_id
+      let debugAltChatIds = [];
+      if (shiftFacts.length === 0) {
+        const { data: altFacts } = await supabase
+          .from("facts")
+          .select("chat_id")
+          .eq("fact_type", "SHIFT_ASSIGNMENT")
+          .limit(10);
+        const altIds = [...new Set((altFacts || []).map(f => f.chat_id))];
+        debugAltChatIds = altIds.filter(id => id !== chatId);
+        if (debugAltChatIds.length > 0) {
+          logger.warn({ chatId, altChatIds: debugAltChatIds }, "[miniapp] SHIFT_ASSIGNMENT facts found under DIFFERENT chat_id!");
+        }
+      }
+
       const slots = slotsToRich(schedule.slots);
       const empHours = {};
       for (const e of timesheet.employees) {
         empHours[e.user_id] = { hours: e.effective_hours, min: UserDirectory.getUser(e.user_id)?.min_hours_per_week || 0 };
       }
 
-      res.json({ week: formatWeekLabel(weekStartISO), week_start: weekStartISO, today_dow: getTodayDow(), slots, employee_hours: empHours });
+      const response = {
+        week: formatWeekLabel(weekStartISO), week_start: weekStartISO, today_dow: getTodayDow(),
+        slots, employee_hours: empHours,
+        _debug: {
+          chat_id: chatId,
+          total_facts: facts.length,
+          shift_facts: shiftFacts.length,
+          assigned_slots: schedule.meta?.assigned_slots_count || 0,
+          engine_slots: (schedule.slots || []).length,
+          alt_chat_ids: debugAltChatIds.length > 0 ? debugAltChatIds : undefined,
+        },
+      };
+      res.json(response);
     } catch (e) {
       logger.error({ err: e }, "[miniapp] GET /schedule error");
       res.status(500).json({ error: "Internal error" });
@@ -356,7 +392,7 @@ export default function createMiniappRouter({ getTelegramBot }) {
       if (employee_id) {
         const d = new Date(week_start + "T12:00:00");
         d.setDate(d.getDate() + DAYS.indexOf(day));
-        const dateStr = d.toISOString().slice(0, 10);
+        const dateStr = fmtDate(d);
         await supabase.from("facts").insert({
           id: randomUUID(), chat_id: chatId, event_id: `miniapp-${Date.now()}`, fact_type: "SHIFT_ASSIGNMENT",
           fact_payload: {
@@ -416,7 +452,7 @@ export default function createMiniappRouter({ getTelegramBot }) {
         const cursor = new Date(periodStart);
         cursor.setDate(cursor.getDate() - ((cursor.getDay() + 6) % 7)); // go to Monday
         while (cursor <= periodEnd) {
-          const ws = cursor.toISOString().slice(0, 10);
+          const ws = fmtDate(cursor);
           const wsEnd = new Date(cursor);
           wsEnd.setDate(wsEnd.getDate() + 6);
           if (wsEnd >= periodStart && cursor <= periodEnd) weekStarts.push(ws);
@@ -526,7 +562,7 @@ export default function createMiniappRouter({ getTelegramBot }) {
         await supabase.from("facts").insert({
           id: randomUUID(), chat_id: chatId, event_id: `miniapp-ew-${Date.now()}`,
           fact_type: "EXTRA_WORK_REQUEST",
-          fact_payload: { user_id, work_type_id, work_name: work_name || work_type_id, price: price || 0, date: date || new Date().toISOString().slice(0, 10), comment, status: "pending" },
+          fact_payload: { user_id, work_type_id, work_name: work_name || work_type_id, price: price || 0, date: date || fmtDate(new Date()), comment, status: "pending" },
           created_at: new Date().toISOString(),
         });
       } else {
@@ -534,7 +570,7 @@ export default function createMiniappRouter({ getTelegramBot }) {
         await supabase.from("facts").insert({
           id: randomUUID(), chat_id: chatId, event_id: `miniapp-ep-${Date.now()}`,
           fact_type: "EXTRA_PAY",
-          fact_payload: { user_id, amount: Number(amount), date: date || new Date().toISOString().slice(0, 10), comment },
+          fact_payload: { user_id, amount: Number(amount), date: date || fmtDate(new Date()), comment },
           created_at: new Date().toISOString(),
         });
       }
