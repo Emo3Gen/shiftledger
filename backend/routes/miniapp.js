@@ -198,7 +198,9 @@ export default function createMiniappRouter({ getTelegramBot }) {
   router.get("/schedule", async (req, res) => {
     try {
       const weekStartISO = req.query.week_start || getMonday();
-      const { schedule, timesheet } = await buildScheduleAndTimesheet(weekStartISO);
+      const { schedule, timesheet, facts } = await buildScheduleAndTimesheet(weekStartISO);
+      const shiftFacts = facts.filter(f => f.fact_type === "SHIFT_ASSIGNMENT");
+      logger.info({ weekStart: weekStartISO, totalFacts: facts.length, shiftFacts: shiftFacts.length }, "[miniapp] GET /schedule facts");
       const slots = slotsToRich(schedule.slots);
       const empHours = {};
       for (const e of timesheet.employees) {
@@ -584,6 +586,37 @@ export default function createMiniappRouter({ getTelegramBot }) {
     } catch (e) {
       logger.error({ err: e }, "[miniapp] GET /catalog error");
       res.status(500).json({ error: "Internal error" });
+    }
+  });
+
+  // ──── GROUPS (Paraplan groups config) ────
+
+  router.get("/groups", async (req, res) => {
+    try {
+      const groups = await settingsService.get("dev", "paraplan_groups");
+      res.json(groups || []);
+    } catch (e) {
+      logger.error({ err: e }, "[miniapp] GET /groups error");
+      res.status(500).json({ error: "Internal error" });
+    }
+  });
+
+  router.put("/groups/:id", async (req, res) => {
+    try {
+      if (!isOwnerRole(req.telegramUser.role)) return res.status(403).json({ ok: false, error: "Forbidden" });
+      const { id } = req.params;
+      const { requires_junior } = req.body;
+
+      const groups = await settingsService.get("dev", "paraplan_groups") || [];
+      const updated = groups.map((g) =>
+        g.paraplan_id === id ? { ...g, requires_junior: !!requires_junior } : g
+      );
+
+      await settingsService.set("dev", "paraplan_groups", updated, "Paraplan groups config");
+      res.json({ ok: true, groups: updated });
+    } catch (e) {
+      logger.error({ err: e }, "[miniapp] PUT /groups/:id error");
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
     }
   });
 

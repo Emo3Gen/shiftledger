@@ -138,6 +138,18 @@ export interface PaymentsData {
 export const getPayments = (date?: string) => apiGet<PaymentsData>(`/api/miniapp/payments${date ? `?date=${date}` : ""}`);
 export const sendPaymentsList = (date: string) => apiPost("/api/miniapp/payments/send-list", { date });
 
+// ── Groups (Paraplan config) ──
+export interface GroupConfig {
+  paraplan_id: string;
+  name: string;
+  prefix: string;
+  requires_junior: boolean;
+  required_skill_level: string | null;
+}
+export const getGroups = () => apiGet<GroupConfig[]>("/api/miniapp/groups");
+export const updateGroupJunior = (id: string, requires_junior: boolean) =>
+  apiPut(`/api/miniapp/groups/${id}`, { requires_junior });
+
 // ── Settings ──
 export const getSettings = () => apiGet<Record<string, any>>("/api/miniapp/settings");
 export const updateSetting = (key: string, value: any) => apiPut("/api/miniapp/settings", { key, value });

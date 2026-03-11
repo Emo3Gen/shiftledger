@@ -2077,6 +2077,17 @@ export const App: React.FC = () => {
                               <span style={{ minWidth: 80, fontWeight: 500 }}>{g.name}</span>
                               <span style={{ minWidth: 80, color: "#888", fontSize: "0.9em" }}>{g.age}</span>
                               {pgFirst && (
+                                <>
+                                <button
+                                  onClick={() => saveGroupField(pgFirst.paraplan_id, "requires_junior", !pgFirst.requires_junior)}
+                                  style={{
+                                    padding: "1px 6px", fontSize: "var(--font-xs)", cursor: "pointer",
+                                    background: pgFirst.requires_junior ? "#e8f5e9" : "#fff3e0",
+                                    border: `1px solid ${pgFirst.requires_junior ? "#4caf50" : "#ff9800"}`,
+                                    borderRadius: 3, color: pgFirst.requires_junior ? "#2e7d32" : "#e65100",
+                                  }}
+                                  title={pgFirst.requires_junior ? "\u0422\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044F \u043C\u043B\u0430\u0434\u0448\u0438\u0439 \u0441\u043F\u0435\u0446\u0438\u0430\u043B\u0438\u0441\u0442" : "\u041F\u043E\u043C\u043E\u0449\u043D\u0438\u043A \u043D\u0435 \u043D\u0443\u0436\u0435\u043D"}
+                                >{pgFirst.requires_junior ? "\u{1F465}" : "\u{1F464}"}</button>
                                 <select value={pgFirst.required_skill_level || "any"} style={{ fontSize: "var(--font-xs)", padding: "0 2px" }}
                                   onChange={(e) => {
                                     const val = e.target.value === "any" ? null : e.target.value;
@@ -2095,6 +2106,7 @@ export const App: React.FC = () => {
                                   <option value="experienced">{"\u043E\u043F\u044B\u0442"}</option>
                                   <option value="guru">{"\u0433\u0443\u0440\u0443"}</option>
                                 </select>
+                                </>
                               )}
                               {g.trial_price != null && (
                                 <>

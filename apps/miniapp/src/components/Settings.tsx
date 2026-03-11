@@ -2,18 +2,20 @@ import React from "react";
 import {
   getEmployees, createEmployee, updateEmployee, deleteEmployee,
   getSettings, updateSetting, getBotMode, setBotMode, getCatalog,
-  type Employee, type CatalogItem,
+  getGroups, updateGroupJunior,
+  type Employee, type CatalogItem, type GroupConfig,
 } from "../api";
 import { haptic } from "../telegram";
 import { useToast } from "../App";
 
-type Tab = "shifts" | "employees" | "catalog" | "cleanings" | "branches" | "rates" | "bot";
+type Tab = "shifts" | "employees" | "catalog" | "cleanings" | "branches" | "rates" | "groups" | "bot";
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "shifts", label: "Смены" },
   { id: "employees", label: "Сотрудники" },
   { id: "rates", label: "Ставки" },
   { id: "catalog", label: "Каталог" },
+  { id: "groups", label: "Группы" },
   { id: "cleanings", label: "Уборки" },
   { id: "branches", label: "Филиалы" },
   { id: "bot", label: "Бот" },
@@ -48,6 +50,7 @@ export const Settings: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
       {tab === "employees" && <EmployeesTab isOwner={isOwner} />}
       {tab === "rates" && <RatesTab isOwner={isOwner} />}
       {tab === "catalog" && <CatalogTab isOwner={isOwner} />}
+      {tab === "groups" && <GroupsTab isOwner={isOwner} />}
       {tab === "cleanings" && <CleaningsTab />}
       {tab === "branches" && <BranchesTab />}
       {tab === "bot" && isOwner && <BotModeTab />}
@@ -509,6 +512,79 @@ const CatalogTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
         </div>
       )}
     </>
+  );
+};
+
+/* ── Groups (Paraplan requires_junior) ── */
+
+const GroupsTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
+  const toast = useToast();
+  const [groups, setGroups] = React.useState<GroupConfig[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [toggling, setToggling] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    getGroups().then(setGroups).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const toggle = async (g: GroupConfig) => {
+    if (!isOwner || toggling) return;
+    haptic("light");
+    setToggling(g.paraplan_id);
+    const newVal = !g.requires_junior;
+    setGroups((prev) => prev.map((x) => x.paraplan_id === g.paraplan_id ? { ...x, requires_junior: newVal } : x));
+    try {
+      await updateGroupJunior(g.paraplan_id, newVal);
+      toast(newVal ? "\u{1F465} Нужен помощник" : "\u{1F464} Без помощника", "success");
+    } catch (e: any) {
+      setGroups((prev) => prev.map((x) => x.paraplan_id === g.paraplan_id ? { ...x, requires_junior: !newVal } : x));
+      toast(e.message, "error");
+    }
+    setToggling(null);
+  };
+
+  if (loading) return <div className="loading">Загрузка...</div>;
+
+  if (groups.length === 0) {
+    return <div className="card" style={{ textAlign: "center", color: "var(--tg-hint)" }}>Группы не настроены</div>;
+  }
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+      {/* Header */}
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "10px 14px", borderBottom: "1px solid rgba(255,255,255,0.06)",
+      }}>
+        <div style={{ fontSize: 12, color: "var(--tg-section-header)", fontWeight: 600 }}>ГРУППА</div>
+        <div style={{ fontSize: 12, color: "var(--tg-section-header)", fontWeight: 600 }}>ПОМОЩНИК</div>
+      </div>
+      {groups.map((g, i) => (
+        <div key={g.paraplan_id} style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "10px 14px",
+          borderBottom: i < groups.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
+          opacity: toggling === g.paraplan_id ? 0.5 : 1,
+        }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>{g.name}</div>
+            <div style={{ fontSize: 11, color: "var(--tg-hint)" }}>{g.prefix}</div>
+          </div>
+          <button
+            onClick={() => toggle(g)}
+            disabled={!isOwner || toggling !== null}
+            style={{
+              padding: "6px 12px", borderRadius: 8, border: "none", cursor: isOwner ? "pointer" : "default",
+              background: g.requires_junior ? "rgba(52,199,89,0.15)" : "rgba(255,149,0,0.15)",
+              color: g.requires_junior ? "rgba(52,199,89,1)" : "rgba(255,149,0,1)",
+              fontSize: 14, fontWeight: 600, transition: "all 0.15s",
+            }}
+          >
+            {g.requires_junior ? "\u{1F465}" : "\u{1F464}"}
+          </button>
+        </div>
+      ))}
+    </div>
   );
 };
 
