@@ -547,6 +547,14 @@ export const App: React.FC = () => {
         if (data.ok) setParaplanHours(data);
       } catch { /* ignore */ }
     })();
+    // Load groups config eagerly
+    (async () => {
+      try {
+        const res = await fetch("/api/paraplan/groups-config?tenant_id=dev");
+        const data = await res.json();
+        if (data.ok) setGroupsConfig(data.groups || []);
+      } catch { /* ignore */ }
+    })();
   }, []);
 
   // Загрузка tenants из /debug/tenants
@@ -1991,6 +1999,33 @@ export const App: React.FC = () => {
                         setGroupsLoading(false);
                       }}
                     >{groupsLoading ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430..." : "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C \u0438\u0437 \u041F\u0430\u0440\u0430\u043F\u043B\u0430\u043D\u0430"}</button>
+                    <button
+                      style={{ padding: "3px 10px", fontSize: "var(--font-xs)", cursor: "pointer", background: "#e8f5e9", border: "1px solid #4caf50", borderRadius: 4, color: "#2e7d32" }}
+                      onClick={async () => {
+                        const DEFAULTS: Record<string, { subscription_price: number | null; single_price: number; price_type: string }> = {
+                          "\u041C\u0418\u041D\u0418-1": { subscription_price: 3400, single_price: 850, price_type: "subscription" },
+                          "\u041C\u0418\u041D\u0418-2": { subscription_price: 4000, single_price: 1000, price_type: "subscription" },
+                          "\u0421\u0422\u0410\u0420\u0422-1": { subscription_price: 4000, single_price: 1000, price_type: "subscription" },
+                          "\u0421\u0422\u0410\u0420\u0422-2": { subscription_price: 4000, single_price: 1000, price_type: "subscription" },
+                          "\u041F\u041A\u0428\u041A": { subscription_price: 4000, single_price: 1000, price_type: "subscription" },
+                          "\u0413\u041A\u041F": { subscription_price: null, single_price: 1700, price_type: "single" },
+                          "\u0418\u041D\u0413\u041B\u0418\u0428": { subscription_price: 4000, single_price: 1000, price_type: "subscription" },
+                          "\u0420\u0418\u0421\u041E\u0412\u0410\u041D\u0418\u0415": { subscription_price: 4000, single_price: 1000, price_type: "subscription" },
+                        };
+                        const updated = groupsConfig.map((gc: any) => {
+                          const d = DEFAULTS[gc.prefix];
+                          if (!d) return gc;
+                          return { ...gc, subscription_price: d.subscription_price, single_price: d.single_price, price_type: d.price_type };
+                        });
+                        setGroupsConfig(updated);
+                        try {
+                          await fetch("/api/paraplan/groups-config", {
+                            method: "PUT", headers: { "content-type": "application/json" },
+                            body: JSON.stringify({ tenant_id: selectedTenant || "dev", groups: updated }),
+                          });
+                        } catch (e) { console.error(e); }
+                      }}
+                    >{"\u0417\u0430\u043F\u043E\u043B\u043D\u0438\u0442\u044C \u0446\u0435\u043D\u044B"}</button>
                     <span style={{ color: "#888" }}>{groupsConfig.length} {"\u0433\u0440\u0443\u043F\u043F"}</span>
                   </div>
 
@@ -2238,6 +2273,7 @@ export const App: React.FC = () => {
                   setParaplanRefreshing={setParaplanRefreshing}
                   setParaplanStatus={setParaplanStatus}
                   setParaplanHours={setParaplanHours}
+                  groupsConfig={groupsConfig}
                 />
               )}
             </div>

@@ -7,6 +7,7 @@ export interface ParaplanPanelProps {
   setParaplanRefreshing: (v: boolean) => void;
   setParaplanStatus: (v: any) => void;
   setParaplanHours: (v: any) => void;
+  groupsConfig?: any[];
 }
 
 const RU_DOW: Record<string, string> = { mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс" };
@@ -43,6 +44,7 @@ export const ParaplanPanel: React.FC<ParaplanPanelProps> = ({
   setParaplanRefreshing,
   setParaplanStatus,
   setParaplanHours,
+  groupsConfig = [],
 }) => {
   return (
     <div style={{ fontSize: "var(--font-xs)", padding: "8px" }}>
@@ -120,6 +122,76 @@ export const ParaplanPanel: React.FC<ParaplanPanelProps> = ({
           </table>
         </div>
       )}
+
+      {/* "Needs helper" section — only groups with requires_junior */}
+      {paraplanHours?.hours && groupsConfig.length > 0 && (() => {
+        const juniorPrefixes = new Set(
+          groupsConfig.filter((gc: any) => gc.requires_junior).map((gc: any) => gc.prefix)
+        );
+        if (juniorPrefixes.size === 0) return null;
+
+        // Build filtered schedule: only groups needing a helper
+        const helperSlots: Array<{ dow: string; slot: string; time: string; prefix: string; teacher: string; hours: number }> = [];
+
+        for (const dow of DAYS) {
+          const dayData = paraplanHours.hours[dow];
+          if (!dayData) continue;
+
+          for (const slotKey of ["morning", "evening"] as const) {
+            const slotData = dayData[slotKey];
+            if (!slotData?.groups) continue;
+            for (const g of slotData.groups) {
+              if (juniorPrefixes.has(g.prefix)) {
+                const startMin = parseInt(g.start.split(":")[0]) * 60 + parseInt(g.start.split(":")[1]);
+                const endMin = parseInt(g.end.split(":")[0]) * 60 + parseInt(g.end.split(":")[1]);
+                helperSlots.push({
+                  dow,
+                  slot: slotKey === "morning" ? "\u0423\u0442\u0440\u043E" : "\u0412\u0435\u0447\u0435\u0440",
+                  time: `${g.start}\u2013${g.end}`,
+                  prefix: g.prefix,
+                  teacher: g.teacher || "\u2014",
+                  hours: Math.round((endMin - startMin) / 60 * 10) / 10,
+                });
+              }
+            }
+          }
+        }
+
+        if (helperSlots.length === 0) return null;
+
+        const totalSlots = helperSlots.length;
+        const totalHours = Math.round(helperSlots.reduce((s, h) => s + h.hours, 0) * 10) / 10;
+        // Count unique dow+slot combos that need helper
+        const uniqueShifts = new Set(helperSlots.map(h => `${h.dow}|${h.slot}`)).size;
+
+        return (
+          <div style={{ marginTop: 8 }}>
+            <strong>{"\u{1F465}"} Нужен помощник ({totalSlots} занятий, {uniqueShifts} смен, {totalHours}ч):</strong>
+            <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 4, fontSize: "var(--font-xs)" }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid #ddd" }}>
+                  <th style={{ textAlign: "left", padding: "2px 6px" }}>День</th>
+                  <th style={{ textAlign: "left", padding: "2px 6px" }}>Смена</th>
+                  <th style={{ textAlign: "left", padding: "2px 6px" }}>Время</th>
+                  <th style={{ textAlign: "left", padding: "2px 6px" }}>Группа</th>
+                  <th style={{ textAlign: "left", padding: "2px 6px" }}>Педагог</th>
+                </tr>
+              </thead>
+              <tbody>
+                {helperSlots.map((h, i) => (
+                  <tr key={i} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                    <td style={{ padding: "2px 6px", fontWeight: "bold" }}>{RU_DOW[h.dow]}</td>
+                    <td style={{ padding: "2px 6px", color: h.slot === "\u0423\u0442\u0440\u043E" ? "#f57c00" : "#1976d2" }}>{h.slot}</td>
+                    <td style={{ padding: "2px 6px" }}>{h.time}</td>
+                    <td style={{ padding: "2px 6px", fontWeight: 500 }}>{h.prefix}</td>
+                    <td style={{ padding: "2px 6px", color: "#666" }}>{h.teacher}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
 
       {!paraplanStatus?.configured && (
         <div style={{ color: "#999", padding: 8 }}>
