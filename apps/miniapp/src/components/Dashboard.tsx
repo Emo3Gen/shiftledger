@@ -1,6 +1,7 @@
 import React from "react";
-import { getDashboard, type DashboardData } from "../api";
-import { haptic } from "../telegram";
+import { getDashboard, getBotMode, setBotMode, type DashboardData } from "../api";
+import { haptic, hapticNotify } from "../telegram";
+import { useToast } from "../App";
 
 type Screen = "dashboard" | "schedule" | "payments" | "payroll" | "settings";
 
@@ -18,13 +19,22 @@ const STATE_CONFIG: Record<string, { icon: string; label: string; color: string;
   CLOSED: { icon: "\u26AA", label: "Неделя закрыта", color: "var(--tg-hint)", bg: "rgba(255,255,255,0.06)" },
 };
 
+const BOT_MODES = [
+  { id: "manual", icon: "\u{1F507}", label: "Тишина", color: "var(--tg-hint)", bg: "rgba(255,255,255,0.08)" },
+  { id: "auto", icon: "\u{1F916}", label: "Авто", color: "rgba(52,199,89,1)", bg: "rgba(52,199,89,0.12)" },
+  { id: "debug", icon: "\u{1F50D}", label: "Отладка", color: "rgba(255,204,0,1)", bg: "rgba(255,204,0,0.12)" },
+];
+
 export const Dashboard: React.FC<{
   isOwner: boolean;
   onNavigate: (s: Screen) => void;
 }> = ({ isOwner, onNavigate }) => {
+  const toast = useToast();
   const [data, setData] = React.useState<DashboardData | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [botMode, setBotModeState] = React.useState<string>("manual");
+  const [modeLoading, setModeLoading] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -35,6 +45,24 @@ export const Dashboard: React.FC<{
   }, []);
 
   React.useEffect(() => { load(); }, [load]);
+
+  React.useEffect(() => {
+    if (isOwner) getBotMode().then((d) => setBotModeState(d.mode)).catch(() => {});
+  }, [isOwner]);
+
+  const changeBotMode = async (mode: string) => {
+    if (mode === botMode || modeLoading) return;
+    haptic("medium");
+    setModeLoading(true);
+    try {
+      const r = await setBotMode(mode);
+      setBotModeState(r.mode);
+      hapticNotify("success");
+      const label = BOT_MODES.find((m) => m.id === r.mode)?.label || r.mode;
+      toast(`Режим: ${label}`, "success");
+    } catch (e: any) { hapticNotify("error"); toast(e.message, "error"); }
+    setModeLoading(false);
+  };
 
   if (loading) return <div className="loading">Загрузка...</div>;
   if (error) return <div className="error-box">{error}</div>;
@@ -81,6 +109,36 @@ export const Dashboard: React.FC<{
           <div className="kpi-label">Нужна оплата</div>
         </div>
       </div>
+
+      {/* Bot mode toggle */}
+      {isOwner && (
+        <div className="card">
+          <div className="card-title">Режим бота</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+            {BOT_MODES.map((m) => {
+              const active = botMode === m.id;
+              return (
+                <button key={m.id} disabled={modeLoading}
+                  onClick={() => changeBotMode(m.id)}
+                  style={{
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                    gap: 4, padding: "12px 6px", borderRadius: 10, border: "none", cursor: "pointer",
+                    background: active ? m.bg : "rgba(255,255,255,0.04)",
+                    color: active ? m.color : "var(--tg-hint)",
+                    fontFamily: "inherit", fontSize: 12, fontWeight: active ? 700 : 500,
+                    opacity: modeLoading ? 0.5 : 1,
+                    outline: active ? `2px solid ${m.color}` : "2px solid transparent",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  <span style={{ fontSize: 22 }}>{m.icon}</span>
+                  <span>{m.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Quick actions */}
       <div className="card">
