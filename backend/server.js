@@ -98,6 +98,7 @@ function saveCronState(state) {
 }
 
 const app = express();
+app.set('trust proxy', 1);
 
 // Structured request logging (pino)
 app.use(requestLogger);
