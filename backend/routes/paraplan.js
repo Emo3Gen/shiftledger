@@ -85,6 +85,12 @@ router.post("/refresh", async (req, res) => {
   }
 });
 
+// GET /schedule
+router.get("/schedule", async (req, res) => {
+  if (USE_EMOGEN_PARAPLAN) return proxyToEmogen(req, res, "/api/paraplan/schedule");
+  res.json({ ok: false, error: "Direct Paraplan schedule not implemented" });
+});
+
 // GET /groups-config
 router.get("/groups-config", async (req, res) => {
   try {

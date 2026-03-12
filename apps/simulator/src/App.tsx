@@ -358,6 +358,7 @@ export const App: React.FC = () => {
   const [settingsTab, setSettingsTab] = React.useState<"shifts" | "staff" | "rates" | "branches" | "catalog" | "cleaning" | "groups">("shifts");
   const [groupsConfig, setGroupsConfig] = React.useState<any[]>([]);
   const [groupsLoading, setGroupsLoading] = React.useState(false);
+  const [paraplanSchedule, setParaplanSchedule] = React.useState<any[]>([]);
   const [emogenPrices, setEmogenPrices] = React.useState<{ groups: any[]; meta: any } | null>(null);
   const [emogenLoading, setEmogenLoading] = React.useState(false);
   const [emogenError, setEmogenError] = React.useState<string | null>(null);
@@ -553,6 +554,14 @@ export const App: React.FC = () => {
         const res = await fetch("/api/paraplan/groups-config?tenant_id=dev");
         const data = await res.json();
         if (data.ok) setGroupsConfig(data.groups || []);
+      } catch { /* ignore */ }
+    })();
+    // Load paraplan schedule
+    (async () => {
+      try {
+        const res = await fetch("/api/paraplan/schedule");
+        const data = await res.json();
+        if (data.ok) setParaplanSchedule(data.schedule || []);
       } catch { /* ignore */ }
     })();
   }, []);
@@ -1992,9 +2001,12 @@ export const App: React.FC = () => {
                       onClick={async () => {
                         setGroupsLoading(true);
                         try {
-                          const res = await fetch("/api/paraplan/sync-groups", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant_id: selectedTenant || "dev" }) });
-                          const data = await res.json();
-                          if (data.ok) setGroupsConfig(data.groups || []);
+                          const [syncRes, schedRes] = await Promise.all([
+                            fetch("/api/paraplan/sync-groups", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant_id: selectedTenant || "dev" }) }).then(r => r.json()),
+                            fetch("/api/paraplan/schedule").then(r => r.json()).catch(() => null),
+                          ]);
+                          if (syncRes.ok) setGroupsConfig(syncRes.groups || []);
+                          if (schedRes?.ok) setParaplanSchedule(schedRes.schedule || []);
                         } catch (e) { console.error(e); }
                         setGroupsLoading(false);
                       }}
@@ -2159,21 +2171,6 @@ export const App: React.FC = () => {
                                   }}
                                   onBlur={(e) => { const val = Number(e.target.value) || null; saveGroupField(pgFirst.paraplan_id, "single_price", val); }}
                                 />
-                                <label style={{ color: "#666", fontSize: "0.85em" }}>{"\u0421\u043A\u0438\u0434\u043A\u0430%:"}</label>
-                                <input type="number" value={pgFirst.discount_pct || ""} min="0" max="100" style={{ width: 40, fontSize: "var(--font-xs)", padding: "1px 3px", textAlign: "right" }}
-                                  onChange={(e) => {
-                                    const val = Number(e.target.value) || null;
-                                    setGroupsConfig(groupsConfig.map((gc: any) => gc.prefix === g.name ? { ...gc, discount_pct: val } : gc));
-                                  }}
-                                  onBlur={(e) => { const val = Number(e.target.value) || null; saveGroupField(pgFirst.paraplan_id, "discount_pct", val); }}
-                                />
-                                {pgFirst.discount_pct > 0 && (pgFirst.subscription_price || pgFirst.single_price) && (
-                                  <span style={{ color: "#888", fontSize: "0.8em" }}>
-                                    {pgFirst.subscription_price ? `${pgFirst.subscription_price}\u2192${Math.round(pgFirst.subscription_price * (1 - pgFirst.discount_pct / 100))}\u20BD` : ""}
-                                    {pgFirst.subscription_price && pgFirst.single_price ? " " : ""}
-                                    {pgFirst.single_price ? `${pgFirst.single_price}\u2192${Math.round(pgFirst.single_price * (1 - pgFirst.discount_pct / 100))}\u20BD` : ""}
-                                  </span>
-                                )}
                                 </>
                               )}
                               {g.trial_price != null && (
@@ -2245,6 +2242,47 @@ export const App: React.FC = () => {
                       );
                     })()}
                   </div>
+
+                  {/* Расписание по дням */}
+                  {paraplanSchedule.length > 0 && (
+                    <div style={{ marginTop: 12 }}>
+                      <strong>Расписание по дням:</strong>
+                      <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 4, fontSize: "var(--font-xs)" }}>
+                        <thead>
+                          <tr style={{ borderBottom: "1px solid #ddd", background: "#f9f9f9" }}>
+                            <th style={{ textAlign: "left", padding: "3px 6px" }}>День</th>
+                            <th style={{ textAlign: "left", padding: "3px 6px" }}>Смена</th>
+                            <th style={{ textAlign: "left", padding: "3px 6px" }}>Время</th>
+                            <th style={{ textAlign: "left", padding: "3px 6px" }}>Группа</th>
+                            <th style={{ textAlign: "left", padding: "3px 6px" }}>Педагог</th>
+                            <th style={{ textAlign: "center", padding: "3px 6px" }}>Сложность</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {paraplanSchedule.map((s: any, i: number) => {
+                            const gc = groupsConfig.find((g: any) => g.prefix?.toLowerCase() === s.group_name?.toLowerCase());
+                            const isJunior = gc?.requires_junior ?? false;
+                            const startH = parseInt(s.time_start?.split(":")[0] || "0");
+                            const shift = startH < 14 ? "Утро" : "Вечер";
+                            const RU_DOW: Record<string, string> = { mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс" };
+                            const prevS = paraplanSchedule[i - 1];
+                            const showDay = !prevS || prevS.day_of_week !== s.day_of_week;
+                            const showShift = showDay || (parseInt(prevS?.time_start?.split(":")[0] || "0") < 14) !== (startH < 14);
+                            return (
+                              <tr key={i} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                                <td style={{ padding: "2px 6px", fontWeight: showDay ? "bold" : "normal", color: showDay ? "#333" : "#ccc" }}>{showDay ? RU_DOW[s.day_of_week] || s.day_of_week : ""}</td>
+                                <td style={{ padding: "2px 6px", color: showShift ? "#555" : "#ccc" }}>{showShift ? shift : ""}</td>
+                                <td style={{ padding: "2px 6px" }}>{s.time_start}{"\u2013"}{s.time_end}</td>
+                                <td style={{ padding: "2px 6px", fontWeight: 500 }}>{s.group_name}</td>
+                                <td style={{ padding: "2px 6px", color: "#666" }}>{s.teacher || "\u2014"}</td>
+                                <td style={{ textAlign: "center", padding: "2px 6px" }}>{isJunior ? "\uD83D\uDD34 Сложная" : "\uD83D\uDFE2 Простая"}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
                 );
               })()}
