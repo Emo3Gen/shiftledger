@@ -85,6 +85,31 @@ router.post("/refresh", async (req, res) => {
   }
 });
 
+// GET /slot-overrides
+router.get("/slot-overrides", async (req, res) => {
+  try {
+    const tenantId = req.query.tenant_id || "dev";
+    const saved = await settingsService.get(tenantId, "paraplan_slot_overrides");
+    res.json({ ok: true, slot_overrides: saved || {} });
+  } catch (e) {
+    logger.error({ err: e }, "GET /api/paraplan/slot-overrides error");
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// PUT /slot-overrides
+router.put("/slot-overrides", async (req, res) => {
+  try {
+    const tenantId = req.body.tenant_id || "dev";
+    const { slot_overrides } = req.body;
+    await settingsService.set(tenantId, "paraplan_slot_overrides", slot_overrides || {}, "Slot-level complexity overrides");
+    res.json({ ok: true, slot_overrides });
+  } catch (e) {
+    logger.error({ err: e }, "PUT /api/paraplan/slot-overrides error");
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // GET /schedule
 router.get("/schedule", async (req, res) => {
   if (USE_EMOGEN_PARAPLAN) return proxyToEmogen(req, res, "/api/paraplan/schedule");

@@ -3,12 +3,12 @@ import React from "react";
 // UserDirectory for displaying employee names
 export const UserDirectory = {
   users: new Map<string, { id: string; displayName: string; ratePerHour: number; role: string; minHours: number }>([
-    ["u1", { id: "u1", displayName: "Иса", ratePerHour: 280, role: "junior", minHours: 22 }],
-    ["u2", { id: "u2", displayName: "Дарина", ratePerHour: 280, role: "junior", minHours: 20 }],
+    ["u1", { id: "u1", displayName: "Иса", ratePerHour: 280, role: "junior", minHours: 0 }],
+    ["u2", { id: "u2", displayName: "Дарина", ratePerHour: 280, role: "junior", minHours: 0 }],
     ["u3", { id: "u3", displayName: "Ксюша", ratePerHour: 280, role: "junior", minHours: 0 }],
     ["u4", { id: "u4", displayName: "Карина", ratePerHour: 280, role: "junior", minHours: 20 }],
-    ["isa", { id: "u1", displayName: "Иса", ratePerHour: 280, role: "junior", minHours: 22 }],
-    ["daria", { id: "u2", displayName: "Дарина", ratePerHour: 280, role: "junior", minHours: 20 }],
+    ["isa", { id: "u1", displayName: "Иса", ratePerHour: 280, role: "junior", minHours: 0 }],
+    ["daria", { id: "u2", displayName: "Дарина", ratePerHour: 280, role: "junior", minHours: 0 }],
     ["ksu", { id: "u3", displayName: "Ксюша", ratePerHour: 280, role: "junior", minHours: 0 }],
     ["karina", { id: "u4", displayName: "Карина", ratePerHour: 280, role: "junior", minHours: 20 }],
   ]),

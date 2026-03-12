@@ -301,7 +301,10 @@ export const App: React.FC = () => {
   const [reminders, setReminders] = React.useState<Map<string, NodeJS.Timeout>>(new Map());
   const [escalations, setEscalations] = React.useState<Map<string, NodeJS.Timeout>>(new Map());
   const [pendingUsers, setPendingUsers] = React.useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = React.useState<"schedule" | "timesheet" | "empty">("schedule");
+  const [activeTab, setActiveTab] = React.useState<"schedule" | "timesheet" | "empty">(() => {
+    const saved = localStorage.getItem("sl_active_tab");
+    return (saved as any) || "schedule";
+  });
   const [expandedEmpIdx, setExpandedEmpIdx] = React.useState<number | null>(null);
   
   // ActiveTasks: неблокирующие задачи вместо эскалаций
@@ -355,17 +358,21 @@ export const App: React.FC = () => {
   const [helpOpen, setHelpOpen] = React.useState(false);
 
   // Settings section
-  const [settingsTab, setSettingsTab] = React.useState<"shifts" | "staff" | "rates" | "branches" | "catalog" | "cleaning" | "groups">("shifts");
+  const [settingsTab, setSettingsTab] = React.useState<"shifts" | "staff" | "rates" | "branches" | "catalog" | "cleaning" | "groups">(() => {
+    const saved = localStorage.getItem("sl_settings_tab");
+    return (saved as any) || "shifts";
+  });
   const [groupsConfig, setGroupsConfig] = React.useState<any[]>([]);
   const [groupsLoading, setGroupsLoading] = React.useState(false);
   const [paraplanSchedule, setParaplanSchedule] = React.useState<any[]>([]);
-  const [schedCollapsed, setSchedCollapsed] = React.useState(false);
+  const [schedCollapsed, setSchedCollapsed] = React.useState(() => localStorage.getItem("sl_sched_collapsed") === "true");
   const [schedDayCollapsed, setSchedDayCollapsed] = React.useState<Record<string, boolean>>(() => {
     try { return JSON.parse(localStorage.getItem("sched_day_collapsed") || "{}"); } catch { return {}; }
   });
-  const [schedFilterTeacher, setSchedFilterTeacher] = React.useState("");
-  const [schedFilterDay, setSchedFilterDay] = React.useState("");
-  const [schedFilterGroup, setSchedFilterGroup] = React.useState("");
+  const [schedFilterTeacher, setSchedFilterTeacher] = React.useState(() => localStorage.getItem("sl_sched_filter_teacher") || "");
+  const [schedFilterDay, setSchedFilterDay] = React.useState(() => localStorage.getItem("sl_sched_filter_day") || "");
+  const [schedFilterGroup, setSchedFilterGroup] = React.useState(() => localStorage.getItem("sl_sched_filter_group") || "");
+  const [slotOverrides, setSlotOverrides] = React.useState<Record<string, { requires_junior: boolean }>>({});
   const [instructionOpen, setInstructionOpen] = React.useState(false);
   const [instructionTab, setInstructionTab] = React.useState("quickstart");
   const [emogenPrices, setEmogenPrices] = React.useState<{ groups: any[]; meta: any } | null>(null);
@@ -565,15 +572,26 @@ export const App: React.FC = () => {
         if (data.ok) setGroupsConfig(data.groups || []);
       } catch { /* ignore */ }
     })();
-    // Load paraplan schedule
+    // Load paraplan schedule + slot overrides
     (async () => {
       try {
-        const res = await fetch("/api/paraplan/schedule");
-        const data = await res.json();
-        if (data.ok) setParaplanSchedule(data.schedule || []);
+        const [schedRes, overRes] = await Promise.all([
+          fetch("/api/paraplan/schedule").then(r => r.json()).catch(() => null),
+          fetch("/api/paraplan/slot-overrides?tenant_id=dev").then(r => r.json()).catch(() => null),
+        ]);
+        if (schedRes?.ok) setParaplanSchedule(schedRes.schedule || []);
+        if (overRes?.ok) setSlotOverrides(overRes.slot_overrides || {});
       } catch { /* ignore */ }
     })();
   }, []);
+
+  // Persist UI state to localStorage
+  React.useEffect(() => { localStorage.setItem("sl_settings_tab", settingsTab); }, [settingsTab]);
+  React.useEffect(() => { localStorage.setItem("sl_sched_filter_teacher", schedFilterTeacher); }, [schedFilterTeacher]);
+  React.useEffect(() => { localStorage.setItem("sl_sched_filter_day", schedFilterDay); }, [schedFilterDay]);
+  React.useEffect(() => { localStorage.setItem("sl_sched_filter_group", schedFilterGroup); }, [schedFilterGroup]);
+  React.useEffect(() => { localStorage.setItem("sl_sched_collapsed", String(schedCollapsed)); }, [schedCollapsed]);
+  React.useEffect(() => { localStorage.setItem("sl_active_tab", activeTab); }, [activeTab]);
 
   // Загрузка tenants из /debug/tenants
   React.useEffect(() => {
@@ -2406,11 +2424,27 @@ export const App: React.FC = () => {
                                 <tbody>
                                   {items.map((s: any, i: number) => {
                                     const gc = groupsConfig.find((g: any) => g.prefix?.toLowerCase() === s.group_name?.toLowerCase());
-                                    const isJunior = gc?.requires_junior ?? false;
+                                    const slotKey = `${s.group_name}_${RU_DOW[s.day_of_week] || s.day_of_week}_${s.time_start}`;
+                                    const override = slotOverrides[slotKey];
+                                    const isJunior = override !== undefined ? override.requires_junior : (gc?.requires_junior ?? false);
+                                    const isOverridden = override !== undefined;
                                     const startH = parseInt(s.time_start?.split(":")[0] || "0");
                                     const shift = startH < 14 ? "Утро" : "Вечер";
                                     const prevS = items[i - 1];
                                     const showShift = !prevS || (parseInt(prevS.time_start?.split(":")[0] || "0") < 14) !== (startH < 14);
+                                    const toggleSlotComplexity = async () => {
+                                      const next = { ...slotOverrides };
+                                      const groupDefault = gc?.requires_junior ?? false;
+                                      const newVal = !isJunior;
+                                      if (newVal === groupDefault) { delete next[slotKey]; } else { next[slotKey] = { requires_junior: newVal }; }
+                                      setSlotOverrides(next);
+                                      try {
+                                        await fetch("/api/paraplan/slot-overrides", {
+                                          method: "PUT", headers: { "content-type": "application/json" },
+                                          body: JSON.stringify({ tenant_id: selectedTenant || "dev", slot_overrides: next }),
+                                        });
+                                      } catch (e) { console.error("Save slot override error:", e); }
+                                    };
                                     return (
                                       <tr key={i} style={{ borderBottom: "1px solid #f0f0f0" }}>
                                         <td style={{ padding: "2px 6px", width: 45, color: showShift ? "#555" : "#ccc" }}>{showShift ? shift : ""}</td>
@@ -2419,9 +2453,10 @@ export const App: React.FC = () => {
                                         <td style={{ padding: "2px 6px", color: "#666" }}>{s.teacher || "\u2014"}</td>
                                         <td style={{ textAlign: "center", padding: "2px 6px", width: 90 }}>
                                           {gc ? (
-                                            <button onClick={() => saveGroupField(gc.paraplan_id, "requires_junior", !isJunior)}
-                                              style={{ padding: "1px 6px", fontSize: "var(--font-xs)", cursor: "pointer", border: "none", borderRadius: 3,
+                                            <button onClick={toggleSlotComplexity}
+                                              style={{ padding: "1px 6px", fontSize: "var(--font-xs)", cursor: "pointer", border: isOverridden ? "2px dashed #999" : "none", borderRadius: 3,
                                                 background: isJunior ? "#ffebee" : "#e8f5e9", color: isJunior ? "#c62828" : "#2e7d32" }}
+                                              title={isOverridden ? `Переопределено (группа по умолч: ${gc.requires_junior ? "сложная" : "простая"})` : "Клик для изменения"}
                                             >{isJunior ? "\uD83D\uDD34 Сложн." : "\uD83D\uDFE2 Прост."}</button>
                                           ) : <span style={{ color: "#ccc" }}>{"\u2014"}</span>}
                                         </td>
@@ -3367,8 +3402,10 @@ export const App: React.FC = () => {
                         if (!slot.user_id) continue;
                         hoursByUser.set(slot.user_id, (hoursByUser.get(slot.user_id) || 0) + (slot.hours || 0));
                       }
-                      const allUsers = UserDirectory.getAllUsers();
-                      const entries = allUsers
+                      const empSource = apiEmployees.length > 0
+                        ? apiEmployees.filter((e: any) => e.is_active).map((e: any) => ({ id: e.id, displayName: e.name, minHours: e.min_hours_per_week || 0 }))
+                        : UserDirectory.getAllUsers();
+                      const entries = empSource
                         .filter(u => hoursByUser.has(u.id) || u.minHours > 0)
                         .map(u => ({
                           id: u.id,

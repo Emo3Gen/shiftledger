@@ -580,7 +580,6 @@ const GroupsTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
       </div>
       {groups.map((g, i) => {
         const isExpanded = expanded === g.paraplan_id;
-        const disc = g.discount_pct || 0;
         const isSingleOnly = g.price_type === "single";
         return (
         <div key={g.paraplan_id} style={{
@@ -635,21 +634,6 @@ const GroupsTab: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
                   onBlur={(e) => savePriceField(g, "single_price", e.target.value)}
                   style={{ ...fieldStyle, width: "100%", fontSize: 13, padding: "6px 8px" }} />
               </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 10, color: "var(--tg-hint)", marginBottom: 2 }}>Скидка %</div>
-                <input type="number" placeholder="0" min="0" max="100"
-                  value={getDraft(g.paraplan_id, "discount_pct", g.discount_pct)}
-                  onChange={(e) => setDraft(g.paraplan_id, "discount_pct", e.target.value)}
-                  onBlur={(e) => savePriceField(g, "discount_pct", e.target.value)}
-                  style={{ ...fieldStyle, width: "100%", fontSize: 13, padding: "6px 8px" }} />
-              </div>
-            </div>
-          )}
-          {isExpanded && isOwner && disc > 0 && (g.subscription_price || g.single_price) && (
-            <div style={{ padding: "0 14px 10px", fontSize: 12, color: "var(--tg-hint)" }}>
-              {g.subscription_price ? `${g.subscription_price} \u2192 ${Math.round(g.subscription_price * (1 - disc / 100))}\u20BD` : ""}
-              {g.subscription_price && g.single_price ? " \u00B7 " : ""}
-              {g.single_price ? `${g.single_price} \u2192 ${Math.round(g.single_price * (1 - disc / 100))}\u20BD` : ""}
             </div>
           )}
         </div>
