@@ -2275,7 +2275,20 @@ export const App: React.FC = () => {
                                 <td style={{ padding: "2px 6px" }}>{s.time_start}{"\u2013"}{s.time_end}</td>
                                 <td style={{ padding: "2px 6px", fontWeight: 500 }}>{s.group_name}</td>
                                 <td style={{ padding: "2px 6px", color: "#666" }}>{s.teacher || "\u2014"}</td>
-                                <td style={{ textAlign: "center", padding: "2px 6px" }}>{isJunior ? "\uD83D\uDD34 Сложная" : "\uD83D\uDFE2 Простая"}</td>
+                                <td style={{ textAlign: "center", padding: "2px 6px" }}>
+                                  {gc ? (
+                                    <button
+                                      onClick={() => saveGroupField(gc.paraplan_id, "requires_junior", !isJunior)}
+                                      style={{
+                                        padding: "1px 6px", fontSize: "var(--font-xs)", cursor: "pointer", border: "none", borderRadius: 3,
+                                        background: isJunior ? "#ffebee" : "#e8f5e9",
+                                        color: isJunior ? "#c62828" : "#2e7d32",
+                                      }}
+                                    >{isJunior ? "\uD83D\uDD34 Сложная" : "\uD83D\uDFE2 Простая"}</button>
+                                  ) : (
+                                    <span style={{ color: "#ccc" }}>{"\u2014"}</span>
+                                  )}
+                                </td>
                               </tr>
                             );
                           })}
