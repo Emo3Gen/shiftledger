@@ -1,6 +1,6 @@
 // env.js loads dotenv from __dirname (works in Railway regardless of CWD).
 // Railway injects env vars into process.env directly; dotenv never overwrites them.
-import "./env.js";
+import { envName } from "./env.js";
 
 // --- Validate required env vars ---
 const REQUIRED_ENV = [
