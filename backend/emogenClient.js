@@ -61,12 +61,16 @@ export async function refreshEmogenStatus() {
  */
 export async function proxyToEmogen(req, res, emogenPath) {
   try {
-    const r = await emogenFetch(emogenPath);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 12000);
+    const r = await emogenFetch(emogenPath, { method: req.method, signal: ctrl.signal });
+    clearTimeout(timer);
     const data = await r.json();
     if (!r.ok) return res.status(r.status).json(data);
     res.json(data);
   } catch (e) {
     logger.warn({ err: e, path: emogenPath }, "Emogen proxy error");
-    res.status(502).json({ ok: false, error: "Emogen API unreachable", detail: e?.message });
+    const detail = e?.name === "AbortError" ? "Emogen timeout (12s)" : e?.message;
+    res.status(502).json({ ok: false, error: "Emogen API unreachable", detail });
   }
 }

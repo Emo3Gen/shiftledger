@@ -93,7 +93,10 @@ export const ParaplanPanel: React.FC<ParaplanPanelProps> = ({
           onClick={async () => {
             setParaplanRefreshing(true);
             try {
-              const res = await fetch("/api/paraplan/refresh", { method: "POST" });
+              const ctrl = new AbortController();
+              const timer = setTimeout(() => ctrl.abort(), 15000);
+              const res = await fetch("/api/paraplan/refresh", { method: "POST", signal: ctrl.signal });
+              clearTimeout(timer);
               const data = await res.json();
               if (data.ok) {
                 const [statusRes, hoursRes] = await Promise.all([
@@ -102,9 +105,15 @@ export const ParaplanPanel: React.FC<ParaplanPanelProps> = ({
                 ]);
                 if (statusRes.ok) setParaplanStatus(statusRes);
                 if (hoursRes.ok) setParaplanHours(hoursRes);
+              } else {
+                alert(`Ошибка обновления: ${data.error || res.statusText}`);
               }
-            } catch (e) { console.error("Paraplan refresh error", e); }
-            setParaplanRefreshing(false);
+            } catch (e: any) {
+              console.error("Paraplan refresh error", e);
+              alert(e.name === "AbortError" ? "Таймаут запроса (15сек)" : `Ошибка: ${e.message}`);
+            } finally {
+              setParaplanRefreshing(false);
+            }
           }}
         >
           {paraplanRefreshing ? "Обновление..." : "Обновить из Параплана"}
