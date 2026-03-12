@@ -1,8 +1,6 @@
-import dotenv from "dotenv";
-
-const envName = process.env.APP_ENV || "dev";
-dotenv.config({ path: `.env.${envName}` });
-dotenv.config({ path: ".env" }); // also load base .env (for shared vars)
+// env.js loads dotenv from __dirname (works in Railway regardless of CWD).
+// Railway injects env vars into process.env directly; dotenv never overwrites them.
+import "./env.js";
 
 // --- Validate required env vars ---
 const REQUIRED_ENV = [
