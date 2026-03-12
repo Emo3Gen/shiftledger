@@ -359,6 +359,15 @@ export const App: React.FC = () => {
   const [groupsConfig, setGroupsConfig] = React.useState<any[]>([]);
   const [groupsLoading, setGroupsLoading] = React.useState(false);
   const [paraplanSchedule, setParaplanSchedule] = React.useState<any[]>([]);
+  const [schedCollapsed, setSchedCollapsed] = React.useState(false);
+  const [schedDayCollapsed, setSchedDayCollapsed] = React.useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(localStorage.getItem("sched_day_collapsed") || "{}"); } catch { return {}; }
+  });
+  const [schedFilterTeacher, setSchedFilterTeacher] = React.useState("");
+  const [schedFilterDay, setSchedFilterDay] = React.useState("");
+  const [schedFilterGroup, setSchedFilterGroup] = React.useState("");
+  const [instructionOpen, setInstructionOpen] = React.useState(false);
+  const [instructionTab, setInstructionTab] = React.useState("quickstart");
   const [emogenPrices, setEmogenPrices] = React.useState<{ groups: any[]; meta: any } | null>(null);
   const [emogenLoading, setEmogenLoading] = React.useState(false);
   const [emogenError, setEmogenError] = React.useState<string | null>(null);
@@ -1353,6 +1362,86 @@ export const App: React.FC = () => {
         <SettingsDrawer vis={vis} onToggle={toggleVis} onPreset={applyPreset} onShowAll={showAll} scale={uiScale} onScale={changeScale} />
       </div>
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
+
+      {/* Instruction modal */}
+      {instructionOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setInstructionOpen(false)}>
+          <div style={{ background: "#fff", borderRadius: 8, width: "min(700px, 90vw)", maxHeight: "80vh", overflow: "auto", padding: 20 }}
+            onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h2 style={{ margin: 0 }}>{"\uD83D\uDCD6"} Инструкция</h2>
+              <button onClick={() => setInstructionOpen(false)} style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer" }}>{"\u2715"}</button>
+            </div>
+            <div style={{ display: "flex", gap: 4, marginBottom: 16, flexWrap: "wrap" }}>
+              {([["quickstart", "Быстрый старт"], ["build", "Сборка графика"], ["modes", "Режимы бота"], ["colors", "Цвета и иконки"], ["faq", "FAQ"]] as const).map(([id, label]) => (
+                <button key={id} onClick={() => setInstructionTab(id)}
+                  style={{ padding: "4px 12px", border: "none", borderRadius: 4, cursor: "pointer", fontSize: "0.9em",
+                    background: instructionTab === id ? "#1976d2" : "#f0f0f0", color: instructionTab === id ? "#fff" : "#333" }}>{label}</button>
+              ))}
+            </div>
+            {instructionTab === "quickstart" && (
+              <div style={{ lineHeight: 1.6 }}>
+                <p><strong>Шаг 1.</strong> <em>Начать сбор</em> — открывает неделю, бот рассылает сотрудникам запрос на доступность</p>
+                <p><strong>Шаг 2.</strong> <em>Предложить график</em> — автоназначение по правилам (сложные группы, мин.часы, равномерно)</p>
+                <p><strong>Шаг 3.</strong> Проверить вручную — кликнуть на ячейку графика для изменения</p>
+                <p><strong>Шаг 4.</strong> <em>Зафиксировать</em> — закрывает редактирование, считает зарплаты</p>
+                <p><strong>Шаг 5.</strong> <em>Опубликовать</em> — отправляет PNG-картинку в Telegram группу</p>
+              </div>
+            )}
+            {instructionTab === "build" && (
+              <div style={{ lineHeight: 1.6 }}>
+                <p><strong>Тестовый режим:</strong> выберите сотрудника в dropdown слева, напишите доступность от его имени.</p>
+                <p>Примеры сообщений:</p>
+                <ul>
+                  <li>"Я в пн утро и вечер, вт только утро"</li>
+                  <li>"Доступна: пн, ср, пт вечер"</li>
+                  <li>"Не могу в субботу"</li>
+                </ul>
+                <p><strong>Боевой режим:</strong> сотрудники пишут боту в Telegram сами. Доступность парсится автоматически.</p>
+                <p><strong>Алгоритм сборки (3 прохода):</strong></p>
+                <ol>
+                  <li>Сложные группы — назначает только опытных (skill_level = experienced/guru)</li>
+                  <li>Минимальные часы — приоритет сотрудникам с min_hours {"> 0"}</li>
+                  <li>Равномерное распределение — выравнивает часы между всеми</li>
+                </ol>
+              </div>
+            )}
+            {instructionTab === "modes" && (
+              <div style={{ lineHeight: 1.6 }}>
+                <p>{"\uD83D\uDD90"} <strong>Ручной</strong> — бот молчит в группе. Публикация только вручную из панели. <em>(рекомендуется)</em></p>
+                <p>{"\uD83E\uDD16"} <strong>Авто</strong> — бот публикует график и оплаты автоматически по расписанию</p>
+                <p>{"\uD83D\uDD0D"} <strong>Отладка</strong> — перехватывает отправки в группу, шлёт в личку директора с пометкой [DEBUG]</p>
+                <hr style={{ margin: "12px 0" }} />
+                <p>{"\uD83D\uDD07"} <strong>Emogen тихий режим</strong> — выключает ответы Emogen-бота (VK/Telegram), не влияет на ShiftLedger</p>
+              </div>
+            )}
+            {instructionTab === "colors" && (
+              <div style={{ lineHeight: 1.6 }}>
+                <p>{"\uD83D\uDFE2"} Зелёный — подтверждён</p>
+                <p>{"\uD83D\uDFE1"} Жёлтый — ожидает подтверждения</p>
+                <p>{"\uD83D\uDD35"} Синий — замена</p>
+                <p>{"\uD83D\uDD34"} Красный — пусто (не назначен)</p>
+                <p>{"\uD83D\uDFE0"} Оранжевый — требует внимания (нет опытного специалиста)</p>
+                <p>{"\uD83E\uDDF9"} — уборка запланирована</p>
+                <p>{"\u26A0\uFE0F"} — конфликт или проблема</p>
+              </div>
+            )}
+            {instructionTab === "faq" && (
+              <div style={{ lineHeight: 1.6 }}>
+                <p><strong>Как изменить назначение?</strong><br/>Кликните на ячейку графика — откроется модальное окно выбора сотрудника.</p>
+                <p><strong>Почему слот оранжевый?</strong><br/>Нет опытного специалиста для сложной группы (requires_junior=true).</p>
+                <p><strong>Как добавить сотрудника?</strong><br/>Настройки → Сотрудники → кнопка "+" внизу таблицы.</p>
+                <p><strong>Как изменить ставку?</strong><br/>Настройки → Сотрудники → колонка "Ставка" → ввести число.</p>
+                <p><strong>Что значит "Начать сбор"?</strong><br/>Открывает новую неделю и рассылает запрос доступности через бот.</p>
+                <p><strong>Можно откатить фиксацию?</strong><br/>Нет. Используйте "Обнулить неделю" и пересоберите заново.</p>
+                <p><strong>Как протестировать без публикации?</strong><br/>Кнопка "Тест" отправляет картинку в личку директора.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Toast notification */}
       {toast && (
         <div style={{
@@ -2244,58 +2333,112 @@ export const App: React.FC = () => {
                   </div>
 
                   {/* Расписание по дням */}
-                  {paraplanSchedule.length > 0 && (
+                  {paraplanSchedule.length > 0 && (() => {
+                    const RU_DOW: Record<string, string> = { mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс" };
+                    const DOW_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+                    const filtered = paraplanSchedule.filter((s: any) => {
+                      if (schedFilterTeacher && s.teacher !== schedFilterTeacher) return false;
+                      if (schedFilterDay && s.day_of_week !== schedFilterDay) return false;
+                      if (schedFilterGroup && s.group_name !== schedFilterGroup) return false;
+                      return true;
+                    });
+                    const teachers = [...new Set(paraplanSchedule.map((s: any) => s.teacher).filter(Boolean))].sort();
+                    const groups = [...new Set(paraplanSchedule.map((s: any) => s.group_name).filter(Boolean))].sort();
+                    const byDay: Record<string, any[]> = {};
+                    for (const s of filtered) {
+                      if (!byDay[s.day_of_week]) byDay[s.day_of_week] = [];
+                      byDay[s.day_of_week].push(s);
+                    }
+                    const hasFilter = schedFilterTeacher || schedFilterDay || schedFilterGroup;
+                    const toggleDay = (dow: string) => {
+                      const next = { ...schedDayCollapsed, [dow]: !schedDayCollapsed[dow] };
+                      setSchedDayCollapsed(next);
+                      localStorage.setItem("sched_day_collapsed", JSON.stringify(next));
+                    };
+                    return (
                     <div style={{ marginTop: 12 }}>
-                      <strong>Расписание по дням:</strong>
-                      <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 4, fontSize: "var(--font-xs)" }}>
-                        <thead>
-                          <tr style={{ borderBottom: "1px solid #ddd", background: "#f9f9f9" }}>
-                            <th style={{ textAlign: "left", padding: "3px 6px" }}>День</th>
-                            <th style={{ textAlign: "left", padding: "3px 6px" }}>Смена</th>
-                            <th style={{ textAlign: "left", padding: "3px 6px" }}>Время</th>
-                            <th style={{ textAlign: "left", padding: "3px 6px" }}>Группа</th>
-                            <th style={{ textAlign: "left", padding: "3px 6px" }}>Педагог</th>
-                            <th style={{ textAlign: "center", padding: "3px 6px" }}>Сложность</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {paraplanSchedule.map((s: any, i: number) => {
-                            const gc = groupsConfig.find((g: any) => g.prefix?.toLowerCase() === s.group_name?.toLowerCase());
-                            const isJunior = gc?.requires_junior ?? false;
-                            const startH = parseInt(s.time_start?.split(":")[0] || "0");
-                            const shift = startH < 14 ? "Утро" : "Вечер";
-                            const RU_DOW: Record<string, string> = { mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс" };
-                            const prevS = paraplanSchedule[i - 1];
-                            const showDay = !prevS || prevS.day_of_week !== s.day_of_week;
-                            const showShift = showDay || (parseInt(prevS?.time_start?.split(":")[0] || "0") < 14) !== (startH < 14);
-                            return (
-                              <tr key={i} style={{ borderBottom: "1px solid #f0f0f0" }}>
-                                <td style={{ padding: "2px 6px", fontWeight: showDay ? "bold" : "normal", color: showDay ? "#333" : "#ccc" }}>{showDay ? RU_DOW[s.day_of_week] || s.day_of_week : ""}</td>
-                                <td style={{ padding: "2px 6px", color: showShift ? "#555" : "#ccc" }}>{showShift ? shift : ""}</td>
-                                <td style={{ padding: "2px 6px" }}>{s.time_start}{"\u2013"}{s.time_end}</td>
-                                <td style={{ padding: "2px 6px", fontWeight: 500 }}>{s.group_name}</td>
-                                <td style={{ padding: "2px 6px", color: "#666" }}>{s.teacher || "\u2014"}</td>
-                                <td style={{ textAlign: "center", padding: "2px 6px" }}>
-                                  {gc ? (
-                                    <button
-                                      onClick={() => saveGroupField(gc.paraplan_id, "requires_junior", !isJunior)}
-                                      style={{
-                                        padding: "1px 6px", fontSize: "var(--font-xs)", cursor: "pointer", border: "none", borderRadius: 3,
-                                        background: isJunior ? "#ffebee" : "#e8f5e9",
-                                        color: isJunior ? "#c62828" : "#2e7d32",
-                                      }}
-                                    >{isJunior ? "\uD83D\uDD34 Сложная" : "\uD83D\uDFE2 Простая"}</button>
-                                  ) : (
-                                    <span style={{ color: "#ccc" }}>{"\u2014"}</span>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}
+                        onClick={() => setSchedCollapsed(!schedCollapsed)}>
+                        <span style={{ fontSize: 10, color: "#888", display: "inline-block", transform: schedCollapsed ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>{"\u25BC"}</span>
+                        <strong>Расписание по дням ({filtered.length})</strong>
+                        {!schedCollapsed && (
+                          <>
+                          <button style={{ padding: "1px 6px", fontSize: "var(--font-xs)", cursor: "pointer", background: "#f5f5f5", border: "1px solid #ccc", borderRadius: 3 }}
+                            onClick={(e) => { e.stopPropagation(); const all: Record<string,boolean> = {}; DOW_ORDER.forEach(d => all[d] = true); setSchedDayCollapsed(all); localStorage.setItem("sched_day_collapsed", JSON.stringify(all)); }}>Свернуть все</button>
+                          <button style={{ padding: "1px 6px", fontSize: "var(--font-xs)", cursor: "pointer", background: "#f5f5f5", border: "1px solid #ccc", borderRadius: 3 }}
+                            onClick={(e) => { e.stopPropagation(); setSchedDayCollapsed({}); localStorage.setItem("sched_day_collapsed", "{}"); }}>Развернуть все</button>
+                          </>
+                        )}
+                      </div>
+                      {!schedCollapsed && (
+                        <>
+                        {/* Filters */}
+                        <div style={{ display: "flex", gap: 6, marginTop: 6, marginBottom: 4, flexWrap: "wrap", alignItems: "center" }}>
+                          <select value={schedFilterDay} onChange={(e) => setSchedFilterDay(e.target.value)} style={{ fontSize: "var(--font-xs)", padding: "1px 4px" }}>
+                            <option value="">Все дни</option>
+                            {DOW_ORDER.filter(d => byDay[d] || !hasFilter).map(d => <option key={d} value={d}>{RU_DOW[d]}</option>)}
+                          </select>
+                          <select value={schedFilterTeacher} onChange={(e) => setSchedFilterTeacher(e.target.value)} style={{ fontSize: "var(--font-xs)", padding: "1px 4px" }}>
+                            <option value="">Все педагоги</option>
+                            {teachers.map(t => <option key={t} value={t}>{t}</option>)}
+                          </select>
+                          <select value={schedFilterGroup} onChange={(e) => setSchedFilterGroup(e.target.value)} style={{ fontSize: "var(--font-xs)", padding: "1px 4px" }}>
+                            <option value="">Все группы</option>
+                            {groups.map(g => <option key={g} value={g}>{g}</option>)}
+                          </select>
+                          {hasFilter && <button style={{ padding: "1px 6px", fontSize: "var(--font-xs)", cursor: "pointer", background: "#fff3e0", border: "1px solid #ffcc80", borderRadius: 3 }}
+                            onClick={() => { setSchedFilterTeacher(""); setSchedFilterDay(""); setSchedFilterGroup(""); }}>{"\u2715 Сбросить"}</button>}
+                        </div>
+                        {/* Table by day */}
+                        {DOW_ORDER.filter(d => byDay[d]).map(dow => {
+                          const items = byDay[dow];
+                          const dayCollapsed = schedDayCollapsed[dow];
+                          return (
+                          <div key={dow} style={{ marginBottom: 2 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 6px", background: "#f5f7fa", cursor: "pointer", userSelect: "none", borderBottom: "1px solid #e0e0e0" }}
+                              onClick={() => toggleDay(dow)}>
+                              <span style={{ fontSize: 9, color: "#888", display: "inline-block", transform: dayCollapsed ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>{"\u25BC"}</span>
+                              <strong>{RU_DOW[dow]}</strong>
+                              <span style={{ color: "#888", fontSize: "0.85em" }}>{items.length} {items.length === 1 ? "занятие" : items.length < 5 ? "занятия" : "занятий"}</span>
+                            </div>
+                            {!dayCollapsed && (
+                              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "var(--font-xs)" }}>
+                                <tbody>
+                                  {items.map((s: any, i: number) => {
+                                    const gc = groupsConfig.find((g: any) => g.prefix?.toLowerCase() === s.group_name?.toLowerCase());
+                                    const isJunior = gc?.requires_junior ?? false;
+                                    const startH = parseInt(s.time_start?.split(":")[0] || "0");
+                                    const shift = startH < 14 ? "Утро" : "Вечер";
+                                    const prevS = items[i - 1];
+                                    const showShift = !prevS || (parseInt(prevS.time_start?.split(":")[0] || "0") < 14) !== (startH < 14);
+                                    return (
+                                      <tr key={i} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                                        <td style={{ padding: "2px 6px", width: 45, color: showShift ? "#555" : "#ccc" }}>{showShift ? shift : ""}</td>
+                                        <td style={{ padding: "2px 6px", width: 90 }}>{s.time_start}{"\u2013"}{s.time_end}</td>
+                                        <td style={{ padding: "2px 6px", fontWeight: 500 }}>{s.group_name}</td>
+                                        <td style={{ padding: "2px 6px", color: "#666" }}>{s.teacher || "\u2014"}</td>
+                                        <td style={{ textAlign: "center", padding: "2px 6px", width: 90 }}>
+                                          {gc ? (
+                                            <button onClick={() => saveGroupField(gc.paraplan_id, "requires_junior", !isJunior)}
+                                              style={{ padding: "1px 6px", fontSize: "var(--font-xs)", cursor: "pointer", border: "none", borderRadius: 3,
+                                                background: isJunior ? "#ffebee" : "#e8f5e9", color: isJunior ? "#c62828" : "#2e7d32" }}
+                                            >{isJunior ? "\uD83D\uDD34 Сложн." : "\uD83D\uDFE2 Прост."}</button>
+                                          ) : <span style={{ color: "#ccc" }}>{"\u2014"}</span>}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                          );
+                        })}
+                        </>
+                      )}
                     </div>
-                  )}
+                    );
+                  })()}
                 </div>
                 );
               })()}
@@ -2873,7 +3016,7 @@ export const App: React.FC = () => {
                  publishStatus === "success" ? "Опубликовано" :
                  publishStatus === "error" ? "Ошибка" :
                  "Опубликовать в Telegram"}
-              </button>
+              </button><InfoTip text="Отправляет PNG-картинку графика в группу Telegram" />
               <button
                 type="button"
                 title="Отправить PNG в личку (тест)"
@@ -2911,7 +3054,7 @@ export const App: React.FC = () => {
                  testPublishStatus === "success" ? "✅" :
                  testPublishStatus === "error" ? "❌" :
                  "🧪 Тест"}
-              </button>
+              </button><InfoTip text="Отправляет в личку директора для проверки перед публикацией" />
               <button
                 type="button"
                 title="Отправить список оплат на завтра в Telegram"
@@ -2955,7 +3098,7 @@ export const App: React.FC = () => {
                  paymentsStatus === "success" ? "Отправлено" :
                  paymentsStatus === "error" ? "Ошибка" :
                  "📋 Оплаты на завтра"}
-              </button>
+              </button><InfoTip text="Список кто должен заплатить — данные из Параплана" />
               <button
                 type="button"
                 title="Отправить оплаты в личку (тест)"
@@ -3588,7 +3731,15 @@ export const App: React.FC = () => {
             )}
           </ToggleSection>
           <ToggleSection id="schedule_controls" vis={vis} collapsed={collapsed} onHide={hideSection} onToggleCollapse={toggleCollapse}>
-            <h3>Управление графиком <InfoTip text="Начать сбор → Собрать график → Закрыть неделю. Дата = понедельник недели" /></h3>
+            <h3>Управление графиком <InfoTip text="Начать сбор → Собрать график → Закрыть неделю. Дата = понедельник недели" />
+              <button onClick={() => setInstructionOpen(true)} style={{ marginLeft: 8, padding: "1px 6px", fontSize: "var(--font-xs)", cursor: "pointer", background: "#f0f4ff", border: "1px solid #c8d6f0", borderRadius: 3, verticalAlign: "middle" }}>{"\uD83D\uDCD6 Инструкция"}</button>
+            </h3>
+            {/* Bot mode + Emogen controls */}
+            <BotModePanel
+              botMode={botMode} botModeLoading={botModeLoading} changeBotMode={changeBotMode}
+              emogenSilent={emogenSilent} emogenStatusErr={emogenStatusErr} emogenToggling={emogenToggling}
+              setEmogenSilent={setEmogenSilent} setEmogenToggling={setEmogenToggling} fetchEmogenStatus={fetchEmogenStatus}
+            />
             <div style={{ marginBottom: "8px" }}>
               <input
                 type="text"
@@ -3637,7 +3788,7 @@ export const App: React.FC = () => {
                 style={{ backgroundColor: "#007bff", color: "#fff", border: "none", borderRadius: 4, padding: "4px 12px", cursor: "pointer" }}
               >
                 {actionLoading === "propose" ? "Сборка..." : "Предложить график"}
-              </button>
+              </button><InfoTip text="Автоназначение: сложные группы → мин.часы → равномерно" />
               <button
                 type="button"
                 title="Фиксирует график и считает зарплаты"
@@ -3659,7 +3810,7 @@ export const App: React.FC = () => {
                 style={{ backgroundColor: "#28a745", color: "#fff", border: "none", borderRadius: 4, padding: "4px 12px", cursor: "pointer" }}
               >
                 {actionLoading === "lock" ? "Фиксация..." : "Зафиксировать"}
-              </button>
+              </button><InfoTip text="Закрывает редактирование. График становится активным" />
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: "8px" }}>
               <button
@@ -3677,7 +3828,7 @@ export const App: React.FC = () => {
                 style={{ fontSize: "0.8em" }}
               >
                 {actionLoading === "open" ? "..." : "Начать сбор"}
-              </button>
+              </button><InfoTip text="Открывает неделю. Бот рассылает сотрудникам запрос на доступность" />
               <button
                 type="button"
                 title="Удалить все факты и события недели, создать WEEK_OPEN заново"
@@ -3704,7 +3855,7 @@ export const App: React.FC = () => {
                 style={{ fontSize: "0.8em", color: "#dc3545" }}
               >
                 {actionLoading === "reset" ? "..." : "Обнулить неделю"}
-              </button>
+              </button><InfoTip text="Удаляет все назначения текущей недели. Необратимо!" />
               <button
                 type="button"
                 title="Рассчитать зарплаты за неделю"
