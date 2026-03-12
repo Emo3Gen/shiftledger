@@ -724,12 +724,7 @@ export const App: React.FC = () => {
     });
   }, []);
 
-  React.useEffect(() => {
-    if (settingsTab !== "groups") return;
-    fetchEmogenStatus();
-  }, [settingsTab, fetchEmogenStatus]);
-
-  // Load bot mode when groups tab is selected
+  // Load bot mode
   const fetchBotMode = React.useCallback(() => {
     fetch("/api/bot-mode").then(r => {
       if (!r.ok) throw new Error(`${r.status}`);
@@ -738,10 +733,11 @@ export const App: React.FC = () => {
       .catch(() => setBotMode(null));
   }, []);
 
+  // Load emogen + bot mode on mount (shown on main panel)
   React.useEffect(() => {
-    if (settingsTab !== "groups") return;
+    fetchEmogenStatus();
     fetchBotMode();
-  }, [settingsTab, fetchBotMode]);
+  }, [fetchEmogenStatus, fetchBotMode]);
 
   const changeBotMode = async (mode: string) => {
     setBotModeLoading(true);
@@ -2406,6 +2402,37 @@ export const App: React.FC = () => {
                           </select>
                           {hasFilter && <button style={{ padding: "1px 6px", fontSize: "var(--font-xs)", cursor: "pointer", background: "#fff3e0", border: "1px solid #ffcc80", borderRadius: 3 }}
                             onClick={() => { setSchedFilterTeacher(""); setSchedFilterDay(""); setSchedFilterGroup(""); }}>{"\u2715 Сбросить"}</button>}
+                          {/* Bulk complexity */}
+                          <button style={{ padding: "1px 6px", fontSize: "var(--font-xs)", cursor: "pointer", background: "#ffebee", border: "1px solid #ef9a9a", borderRadius: 3, color: "#c62828" }}
+                            onClick={async () => {
+                              const next = { ...slotOverrides };
+                              let count = 0;
+                              for (const s of filtered) {
+                                const gc = groupsConfig.find((g: any) => g.prefix?.toLowerCase() === s.group_name?.toLowerCase());
+                                if (!gc) continue;
+                                const key = `${s.group_name}_${RU_DOW[s.day_of_week] || s.day_of_week}_${s.time_start}`;
+                                if (gc.requires_junior) { delete next[key]; } else { next[key] = { requires_junior: true }; }
+                                count++;
+                              }
+                              setSlotOverrides(next);
+                              try { await fetch("/api/paraplan/slot-overrides", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant_id: selectedTenant || "dev", slot_overrides: next }) }); } catch {}
+                              showToast(`${count} занятий → Сложные`, "ok");
+                            }}>{"\uD83D\uDD34 Все сложные"}</button>
+                          <button style={{ padding: "1px 6px", fontSize: "var(--font-xs)", cursor: "pointer", background: "#e8f5e9", border: "1px solid #a5d6a7", borderRadius: 3, color: "#2e7d32" }}
+                            onClick={async () => {
+                              const next = { ...slotOverrides };
+                              let count = 0;
+                              for (const s of filtered) {
+                                const gc = groupsConfig.find((g: any) => g.prefix?.toLowerCase() === s.group_name?.toLowerCase());
+                                if (!gc) continue;
+                                const key = `${s.group_name}_${RU_DOW[s.day_of_week] || s.day_of_week}_${s.time_start}`;
+                                if (!gc.requires_junior) { delete next[key]; } else { next[key] = { requires_junior: false }; }
+                                count++;
+                              }
+                              setSlotOverrides(next);
+                              try { await fetch("/api/paraplan/slot-overrides", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ tenant_id: selectedTenant || "dev", slot_overrides: next }) }); } catch {}
+                              showToast(`${count} занятий → Простые`, "ok");
+                            }}>{"\uD83D\uDFE2 Все простые"}</button>
                         </div>
                         {/* Table by day */}
                         {DOW_ORDER.filter(d => byDay[d]).map(dow => {
