@@ -74,6 +74,8 @@ export interface SlotData {
   morning_problem: boolean; evening_problem: boolean;
   morning_available: Array<{ id: string; name: string }>;
   evening_available: Array<{ id: string; name: string }>;
+  morning_unavailable: Array<{ id: string; name: string }>;
+  evening_unavailable: Array<{ id: string; name: string }>;
 }
 export interface ScheduleData {
   week: string; week_start: string; today_dow?: string;

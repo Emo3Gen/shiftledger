@@ -97,6 +97,7 @@ function slotsToRich(engineSlots) {
       cleaning: false, morning_status: "EMPTY", evening_status: "EMPTY",
       morning_problem: false, evening_problem: false,
       morning_available: [], evening_available: [],
+      morning_unavailable: [], evening_unavailable: [],
     };
   }
   for (const slot of (engineSlots || [])) {
@@ -109,6 +110,10 @@ function slotsToRich(engineSlots) {
     day[`${pfx}_status`] = slot.user_id ? (slot.status || "ASSIGNED") : "EMPTY";
     day[`${pfx}_problem`] = !!(slot.is_problematic || slot.has_problem);
     day[`${pfx}_available`] = (slot.available_user_ids || []).map((uid) => ({
+      id: uid,
+      name: UserDirectory.getDisplayName(uid) || uid,
+    }));
+    day[`${pfx}_unavailable`] = (slot.unavailable_user_ids || []).map((uid) => ({
       id: uid,
       name: UserDirectory.getDisplayName(uid) || uid,
     }));

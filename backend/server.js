@@ -442,41 +442,9 @@ async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id,
       }
     }
 
-    // 2a. After SHIFT_UNAVAILABILITY: generate system message for each unavailable slot with an assignment
-    for (const f of factsPreview) {
-      if (f.fact_type !== "SHIFT_UNAVAILABILITY") continue;
-      const { dow, from, to } = f.fact_payload || {};
-      if (!dow || !from || !to) continue;
-
-      const unavailUserId = inserted.user_id;
-      const normalizedUnavailUserId = UserDirectory.normalizeUserId(unavailUserId);
-
-      // Check if there's an existing SHIFT_ASSIGNMENT for this slot assigned to this user
-      const { data: existingAssignments } = await supabase
-        .from("facts")
-        .select("*")
-        .eq("chat_id", inserted.chat_id)
-        .eq("fact_type", "SHIFT_ASSIGNMENT")
-        .order("created_at", { ascending: false })
-        .limit(200);
-
-      const slotKey = `${dow}|${from}|${to}`;
-      const matchingAssignment = (existingAssignments || []).find((a) => {
-        const p = a.fact_payload || {};
-        return `${p.dow}|${p.from}|${p.to}` === slotKey &&
-          UserDirectory.normalizeUserId(p.assigned_user_id) === normalizedUnavailUserId;
-      });
-
-      if (matchingAssignment) {
-        const displayName = UserDirectory.getDisplayName(normalizedUnavailUserId);
-        const dayLabel = DOW_RU_MAP[dow] || dow;
-        const slotLabel = getSlotLabel(from, to);
-        await insertSystemEvent(
-          inserted.chat_id,
-          `⚠️ ${displayName} не может ${dayLabel} ${slotLabel}. Кто сможет подменить?`
-        );
-      }
-    }
+    // 2a. SHIFT_UNAVAILABILITY: just record the fact, no replacement triggering.
+    // The schedule engine will handle NEEDS_REPLACEMENT status automatically.
+    // Replacements only happen via explicit "я смогу" (SHIFT_REPLACEMENT facts).
 
     // Pre-scan: detect ambiguity for generic SHIFT_AVAILABILITY (both morning+evening = no specific time)
     const BOTH_SLOTS_CHECK = [{ from: "10:00", to: "13:00" }, { from: "18:00", to: "21:00" }];
@@ -602,104 +570,9 @@ async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id,
       }
     }
 
-    // 2b. After SHIFT_AVAILABILITY: auto-promote to SHIFT_REPLACEMENT
-    // ONLY if the slot has an assigned user who declared unavailability (= true NEEDS_REPLACEMENT)
-    for (const f of factsPreview) {
-      if (f.fact_type !== "SHIFT_AVAILABILITY") continue;
-      if (f.fact_payload?.availability !== "can") continue;
-      const { dow, from, to } = f.fact_payload || {};
-      if (!dow || !from || !to) continue;
-
-      // Skip ambiguous and clean-only days (handled by pre-scan above)
-      if (ambiguousDays.has(dow) || cleanOnlyDays.has(dow)) continue;
-
-      const availUserId = inserted.user_id;
-      const normalizedAvailUserId = UserDirectory.normalizeUserId(availUserId);
-      const slotKey = `${dow}|${from}|${to}`;
-
-      // Load all chat facts to check assignment + unavailability state
-      const { data: allChatFacts } = await supabase
-        .from("facts")
-        .select("*")
-        .eq("chat_id", inserted.chat_id)
-        .order("created_at", { ascending: false })
-        .limit(500);
-
-      // Step 1: Find the latest SHIFT_ASSIGNMENT for this slot
-      const assignmentFact = (allChatFacts || []).find((af) => {
-        if (af.fact_type !== "SHIFT_ASSIGNMENT") return false;
-        const p = af.fact_payload || {};
-        return `${p.dow}|${p.from}|${p.to}` === slotKey;
-      });
-
-      if (!assignmentFact) continue; // No assignment on this slot — nothing to replace
-
-      const assignedUserId = UserDirectory.normalizeUserId(
-        assignmentFact.fact_payload?.assigned_user_id || assignmentFact.user_id
-      );
-
-      // Step 2: The person offering availability must be DIFFERENT from the assigned user
-      if (normalizedAvailUserId === assignedUserId) continue;
-
-      // Step 3: The assigned user must have a SHIFT_UNAVAILABILITY for this slot (newer than assignment)
-      const unavailFact = (allChatFacts || []).find((uf) => {
-        if (uf.fact_type !== "SHIFT_UNAVAILABILITY") return false;
-        const p = uf.fact_payload || {};
-        if (`${p.dow}|${p.from}|${p.to}` !== slotKey) return false;
-        const unavailUser = UserDirectory.normalizeUserId(uf.user_id);
-        return unavailUser === assignedUserId; // Must be the ASSIGNED user who's unavailable
-      });
-
-      if (!unavailFact) continue; // Assigned user didn't declare unavailability
-
-      // Step 4: Unavailability must be newer than assignment
-      const unavailTime = new Date(unavailFact.created_at || 0).getTime();
-      const assignTime = new Date(assignmentFact.created_at || 0).getTime();
-      if (unavailTime <= assignTime) continue;
-
-      // Step 5: Check if already resolved by a SHIFT_REPLACEMENT
-      const existingReplacement = (allChatFacts || []).find((rf) => {
-        if (rf.fact_type !== "SHIFT_REPLACEMENT") return false;
-        const p = rf.fact_payload || {};
-        return `${p.dow}|${p.from}|${p.to}` === slotKey;
-      });
-
-      if (existingReplacement) continue; // Already resolved
-
-      // All checks passed — auto-promote to SHIFT_REPLACEMENT
-      const replacementPayload = { dow, from, to, user_id: normalizedAvailUserId };
-      const replHash = createHash("sha256").update(
-        `auto_replacement|${eventId}|${JSON.stringify(replacementPayload)}`
-      ).digest("hex");
-
-      const { error: replErr } = await supabase.from("facts").upsert([{
-        event_id: eventId,
-        trace_id: inserted.trace_id,
-        chat_id: inserted.chat_id,
-        user_id: normalizedAvailUserId,
-        fact_type: "SHIFT_REPLACEMENT",
-        fact_payload: replacementPayload,
-        confidence: 1.0,
-        status: "parsed",
-        parser_version: "v0",
-        fact_hash: replHash,
-      }], { onConflict: "fact_hash" });
-
-      if (replErr) {
-        logger.error({ err: replErr }, "Failed to auto-promote AVAILABILITY to REPLACEMENT");
-      } else {
-        const replacementName = UserDirectory.getDisplayName(normalizedAvailUserId);
-        const originalName = UserDirectory.getDisplayName(assignedUserId);
-        const dayLabel = DOW_RU_MAP[dow] || dow;
-        const slotLabel = getSlotLabel(from, to);
-        await insertSystemEvent(
-          inserted.chat_id,
-          `✅ ${replacementName} заменяет ${originalName} в ${dayLabel} ${slotLabel}`
-        );
-        logger.info({ slot: slotKey, replacement: normalizedAvailUserId, original: assignedUserId },
-          "Auto-promoted AVAILABILITY to REPLACEMENT");
-      }
-    }
+    // 2b. Auto-promotion of SHIFT_AVAILABILITY to SHIFT_REPLACEMENT is DISABLED.
+    // Replacements only happen via explicit "я смогу" (SHIFT_REPLACEMENT facts from parser).
+    // The schedule engine handles NEEDS_REPLACEMENT status from SHIFT_UNAVAILABILITY automatically.
 
     // 2c. After explicit SHIFT_REPLACEMENT: create confirmation message
     for (const f of factsPreview) {

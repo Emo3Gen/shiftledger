@@ -46,6 +46,7 @@ interface ModalState {
   status: string;
   problem: boolean;
   available: Array<{ id: string; name: string }>;
+  unavailable: Array<{ id: string; name: string }>;
 }
 
 export const Schedule: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
@@ -100,6 +101,7 @@ export const Schedule: React.FC<{ isOwner: boolean }> = ({ isOwner }) => {
       status: slot === "morning" ? ds.morning_status : ds.evening_status,
       problem: slot === "morning" ? ds.morning_problem : ds.evening_problem,
       available: slot === "morning" ? ds.morning_available : ds.evening_available,
+      unavailable: slot === "morning" ? (ds.morning_unavailable || []) : (ds.evening_unavailable || []),
     });
   };
 
@@ -333,10 +335,12 @@ const SlotModal: React.FC<{
   const onTouchEnd = () => { if (dragY > 100) close(); setDragY(0); dragStart.current = null; };
 
   const availIds = new Set(modal.available.map((a) => a.id));
+  const unavailIds = new Set(modal.unavailable.map((a) => a.id));
   const sorted = [...employees].sort((a, b) => {
-    const aa = availIds.has(a.id) ? 0 : 1;
-    const ba = availIds.has(b.id) ? 0 : 1;
-    return aa - ba;
+    // Sort: available first, then neutral, then unavailable
+    const scoreA = availIds.has(a.id) ? 0 : unavailIds.has(a.id) ? 2 : 1;
+    const scoreB = availIds.has(b.id) ? 0 : unavailIds.has(b.id) ? 2 : 1;
+    return scoreA - scoreB;
   });
 
   return (
@@ -392,7 +396,9 @@ const SlotModal: React.FC<{
           {sorted.map((emp) => {
             const isSelected = emp.id === modal.currentId;
             const isAvail = availIds.has(emp.id);
+            const isUnavail = unavailIds.has(emp.id);
             const h = employeeHours?.[emp.id];
+            const dotColor = isAvail ? "rgba(52,199,89,0.8)" : isUnavail ? "rgba(255,59,48,0.7)" : "rgba(255,255,255,0.15)";
             return (
               <button key={emp.id} disabled={saving}
                 onClick={() => { haptic("light"); onAssign(emp.id, modal.slot === "morning" ? cleaning : undefined); }}
@@ -400,16 +406,17 @@ const SlotModal: React.FC<{
                   display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
                   padding: "11px 0", background: "none", border: "none",
                   borderBottom: "1px solid rgba(255,255,255,0.06)", cursor: "pointer",
-                  color: "var(--tg-text)", fontSize: 15, opacity: saving ? 0.4 : 1,
+                  color: "var(--tg-text)", fontSize: 15, opacity: saving || isUnavail ? 0.4 : 1,
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{
                     width: 8, height: 8, borderRadius: 4, flexShrink: 0,
-                    background: isAvail ? "rgba(52,199,89,0.8)" : "rgba(255,255,255,0.15)",
+                    background: dotColor,
                   }} />
                   <span style={{ fontWeight: isSelected ? 700 : 400 }}>{emp.name}</span>
                   {isSelected && <span style={{ color: "var(--tg-link)", fontSize: 13 }}>{"\u2713"}</span>}
+                  {isUnavail && <span style={{ fontSize: 11, color: "rgba(255,59,48,0.7)" }}>не может</span>}
                 </div>
                 <div style={{ textAlign: "right", fontSize: 12, color: "var(--tg-hint)" }}>
                   {h && <div>{h.hours.toFixed(1)}/{h.min}ч</div>}

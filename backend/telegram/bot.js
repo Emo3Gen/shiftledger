@@ -94,6 +94,7 @@ const WELCOME_TEXT = `Привет! Я бот ShiftLedger для управле�
 /schedule или "расписание" — график на неделю
 /status или "статус" — статус недели
 /pay или "зарплата" — моя зарплата
+/availability или "доступность" — моя доступность
 /help или "помощь" — справка
 /as Имя — играть за сотрудника (тест)`;
 
@@ -117,6 +118,7 @@ const HELP_TEXT = `<b>Как пользоваться</b>
 <b>Команды:</b>
 /schedule или "расписание" — график на неделю
 /status — статус недели
+/availability или "доступность" — моя доступность
 /help или "помощь" — эта справка`;
 
 const DOW_RU = { mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс" };
@@ -393,6 +395,70 @@ export function createBot(ingestFn, scheduleFn, weekStateFn, timesheetFn, employ
     }
   });
 
+  // /availability or /доступность — show current availability template & declared facts
+  bot.command("availability", async (ctx) => {
+    try {
+      const devOvr = IS_DEV ? devRoleOverrides.get(String(ctx.from.id)) : null;
+      const resolved = devOvr || await resolveEmployee(ctx.from.id, employeeService);
+      if (!resolved) {
+        await ctx.reply("Сотрудник не найден в системе.", replyOptions(ctx));
+        return;
+      }
+      const userId = resolved.employeeId;
+      const schedule = await scheduleFn(String(ctx.chat.id));
+      const slots = schedule?.slots || [];
+      const DOW_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+      const available = [];
+      const unavailable = [];
+
+      for (const dow of DOW_ORDER) {
+        const daySlots = slots.filter(s => s.dow === dow);
+        const morningSlot = daySlots.find(s => s.slot_name === "Утро" || s.slot_name === "morning");
+        const eveningSlot = daySlots.find(s => s.slot_name === "Вечер" || s.slot_name === "evening");
+
+        const mAvail = morningSlot?.available_user_ids?.includes(userId);
+        const eAvail = eveningSlot?.available_user_ids?.includes(userId);
+        const mUnavail = morningSlot?.unavailable_user_ids?.includes(userId);
+        const eUnavail = eveningSlot?.unavailable_user_ids?.includes(userId);
+
+        const dayLabel = DOW_RU[dow] || dow;
+
+        if (mUnavail && eUnavail) {
+          unavailable.push(dayLabel);
+        } else if (mUnavail) {
+          unavailable.push(`${dayLabel} утро`);
+          if (eAvail) available.push(`${dayLabel} вечер`);
+        } else if (eUnavail) {
+          unavailable.push(`${dayLabel} вечер`);
+          if (mAvail) available.push(`${dayLabel} утро`);
+        } else if (mAvail && eAvail) {
+          available.push(`${dayLabel} весь день`);
+        } else if (mAvail) {
+          available.push(`${dayLabel} утро`);
+        } else if (eAvail) {
+          available.push(`${dayLabel} вечер`);
+        }
+      }
+
+      let text = `<b>Доступность: ${resolved.employeeName}</b>\n`;
+      if (available.length > 0) {
+        text += `\n✅ Доступна: ${available.join(", ")}`;
+      }
+      if (unavailable.length > 0) {
+        text += `\n✖ Не могу: ${unavailable.join(", ")}`;
+      }
+      if (available.length === 0 && unavailable.length === 0) {
+        text += "\nДанных пока нет.";
+      }
+      text += `\n\n<i>Шаблон для ввода:</i>\nмогу пн утро, вт весь день\nне могу чт, пт`;
+      await ctx.reply(text, replyOptions(ctx, { parse_mode: "HTML" }));
+    } catch (err) {
+      logger.error({ err }, "telegram /availability error");
+      await ctx.reply("Ошибка загрузки доступности", replyOptions(ctx));
+    }
+  });
+
   // Dev-only command: /as ИмяСотрудника — switch identity for testing
   bot.command("as", async (ctx) => {
     if (!IS_DEV) {
@@ -462,6 +528,47 @@ export function createBot(ingestFn, scheduleFn, weekStateFn, timesheetFn, employ
       }
       if (text === "помощь") {
         await ctx.reply(HELP_TEXT, replyOptions(ctx, { parse_mode: "HTML" }));
+        return;
+      }
+      if (text === "доступность") {
+        try {
+          const devOvrAvail = IS_DEV ? devRoleOverrides.get(String(ctx.from.id)) : null;
+          const resolvedAvail = devOvrAvail || await resolveEmployee(ctx.from.id, employeeService);
+          if (!resolvedAvail) {
+            await ctx.reply("Сотрудник не найден в системе.", replyOptions(ctx));
+            return;
+          }
+          const avUserId = resolvedAvail.employeeId;
+          const avSchedule = await scheduleFn(String(ctx.chat.id));
+          const avSlots = avSchedule?.slots || [];
+          const DOW_ORD = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+          const avail = [], unavail = [];
+          for (const dow of DOW_ORD) {
+            const ds = avSlots.filter(s => s.dow === dow);
+            const mS = ds.find(s => s.slot_name === "Утро" || s.slot_name === "morning");
+            const eS = ds.find(s => s.slot_name === "Вечер" || s.slot_name === "evening");
+            const mA = mS?.available_user_ids?.includes(avUserId);
+            const eA = eS?.available_user_ids?.includes(avUserId);
+            const mU = mS?.unavailable_user_ids?.includes(avUserId);
+            const eU = eS?.unavailable_user_ids?.includes(avUserId);
+            const dl = DOW_RU[dow] || dow;
+            if (mU && eU) { unavail.push(dl); }
+            else if (mU) { unavail.push(`${dl} утро`); if (eA) avail.push(`${dl} вечер`); }
+            else if (eU) { unavail.push(`${dl} вечер`); if (mA) avail.push(`${dl} утро`); }
+            else if (mA && eA) { avail.push(`${dl} весь день`); }
+            else if (mA) { avail.push(`${dl} утро`); }
+            else if (eA) { avail.push(`${dl} вечер`); }
+          }
+          let avText = `<b>Доступность: ${resolvedAvail.employeeName}</b>\n`;
+          if (avail.length > 0) avText += `\n✅ Доступна: ${avail.join(", ")}`;
+          if (unavail.length > 0) avText += `\n✖ Не могу: ${unavail.join(", ")}`;
+          if (avail.length === 0 && unavail.length === 0) avText += "\nДанных пока нет.";
+          avText += `\n\n<i>Шаблон для ввода:</i>\nмогу пн утро, вт весь день\nне могу чт, пт`;
+          await ctx.reply(avText, replyOptions(ctx, { parse_mode: "HTML" }));
+        } catch (err) {
+          logger.error({ err }, "telegram доступность error");
+          await ctx.reply("Ошибка загрузки доступности", replyOptions(ctx));
+        }
         return;
       }
       if (text === "зарплата") {

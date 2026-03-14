@@ -144,6 +144,7 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
   // MUST run BEFORE SHIFT_AVAILABILITY so that freed-up slots collect candidates
   const unavailableBySlot = new Map(); // key: "dow|from|to", value: Set of user_ids who can't work
   const needsReplacementBySlot = new Map(); // key: "dow|from|to", value: { original_user_id, unavail_created_at }
+  const debugSkipped = []; // Debug: track why employees were skipped
   for (const fact of filteredFacts) {
     if (fact.fact_type !== "SHIFT_UNAVAILABILITY") continue;
 
@@ -205,7 +206,14 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
     if (userId) {
       const normalizedUserId = UserDirectory.normalizeUserId(userId);
       const unavailUsers = unavailableBySlot.get(slotKey);
-      if (!(unavailUsers && unavailUsers.has(normalizedUserId))) {
+      if (unavailUsers && unavailUsers.has(normalizedUserId)) {
+        debugSkipped.push({
+          user_id: normalizedUserId,
+          user_name: UserDirectory.getDisplayName(normalizedUserId),
+          slot: slotKey,
+          reason: "UNAVAILABLE fact exists for this slot",
+        });
+      } else {
         if (!allAvailableBySlot.has(slotKey)) {
           allAvailableBySlot.set(slotKey, new Set());
         }
@@ -381,7 +389,23 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
   // gap-to-minimum and availability scarcity as tiebreakers.
   const slotsForSeniors = [];
   for (const slot of availableSlots) {
-    const juniorCandidates = slot.candidates.filter((u) => !seniorUsers.has(u));
+    // Safety: filter out any UNAVAILABLE users that may have slipped through
+    const unavailForSlot = unavailableBySlot.get(slot.slotKey);
+    const safeCandidates = unavailForSlot
+      ? slot.candidates.filter((u) => {
+          if (unavailForSlot.has(u)) {
+            debugSkipped.push({
+              user_id: u,
+              user_name: UserDirectory.getDisplayName(u),
+              slot: slot.slotKey,
+              reason: "UNAVAILABLE safety check (auto-assign)",
+            });
+            return false;
+          }
+          return true;
+        })
+      : slot.candidates;
+    const juniorCandidates = safeCandidates.filter((u) => !seniorUsers.has(u));
     if (juniorCandidates.length === 0) {
       slotsForSeniors.push(slot);
       continue;
@@ -481,8 +505,13 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
   });
 
   for (const slot of remainingSlots) {
+    // Safety: filter out UNAVAILABLE users for senior candidates too
+    const unavailForSeniorSlot = unavailableBySlot.get(slot.slotKey);
     const seniorCandidates = seniorReserveEnabled
-      ? slot.candidates.filter((u) => seniorUsers.has(u))
+      ? slot.candidates.filter((u) => {
+          if (unavailForSeniorSlot && unavailForSeniorSlot.has(u)) return false;
+          return seniorUsers.has(u);
+        })
       : [];
     if (seniorCandidates.length > 0) {
       // Use senior as last resort
@@ -882,6 +911,7 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
         problem_reasons: problemReasons,
         skill_mismatch: skillMismatch,
         available_user_ids: Array.from(allAvailableBySlot.get(`${dow}|${slotType.from}|${slotType.to}`) || []),
+        unavailable_user_ids: Array.from(unavailableBySlot.get(`${dow}|${slotType.from}|${slotType.to}`) || []),
       });
     }
   }
@@ -1064,6 +1094,9 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
     conflicts,
     slots,
     cleaning_assignments: cleaningAssignments,
+    debug: {
+      skipped: debugSkipped,
+    },
     meta: {
       facts_count: filteredFacts.length,
       slots_count: allSlots.size,
