@@ -392,4 +392,189 @@ describe("scheduleEngineV0", () => {
     expect(wedEvening.reason).toContain("Ксюша");
     expect(wedEvening.reason).toContain("Иса");
   });
+
+  describe("stress tests", () => {
+    test("all employees unavailable → no assignments, no crash", () => {
+      // All 4 employees (u1–u4) send SHIFT_UNAVAILABILITY for every slot of the week
+      const dows = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+      const slots = [
+        { from: "10:00", to: "13:00" },
+        { from: "18:00", to: "21:00" },
+      ];
+      const users = ["u1", "u2", "u3", "u4"];
+      const facts = [];
+      for (const user_id of users) {
+        for (const dow of dows) {
+          for (const { from, to } of slots) {
+            facts.push(
+              makeFact({
+                fact_type: "SHIFT_UNAVAILABILITY",
+                user_id,
+                fact_payload: { dow, from, to, availability: "cannot" },
+              })
+            );
+          }
+        }
+      }
+      let result;
+      expect(() => {
+        result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+      }).not.toThrow();
+      expect(result.assignments).toEqual([]);
+    });
+
+    test("availability then unavailability for same slot → user not assigned", () => {
+      // u1 first says available, then says unavailable for mon morning
+      const facts = [
+        makeFact({
+          user_id: "u1",
+          fact_payload: { dow: "mon", from: "10:00", to: "13:00", availability: "can" },
+          created_at: "2025-01-05T09:00:00Z",
+        }),
+        makeFact({
+          fact_type: "SHIFT_UNAVAILABILITY",
+          user_id: "u1",
+          fact_payload: { dow: "mon", from: "10:00", to: "13:00", availability: "cannot" },
+          created_at: "2025-01-05T11:00:00Z", // Later timestamp — takes priority
+        }),
+      ];
+      const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+      const monMorningU1 = result.assignments.find(
+        (a) => a.dow === "mon" && a.from === "10:00" && a.user_id === "u1"
+      );
+      expect(monMorningU1).toBeUndefined();
+    });
+
+    test("edge case: zero-length slot (from === to)", () => {
+      // A slot where from and to are the same — engine must not crash
+      const facts = [
+        makeFact({
+          user_id: "u1",
+          fact_payload: { dow: "mon", from: "10:00", to: "10:00", availability: "can" },
+        }),
+      ];
+      let result;
+      expect(() => {
+        result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+      }).not.toThrow();
+      // Result must be a valid object
+      expect(result).toBeDefined();
+      expect(Array.isArray(result.assignments)).toBe(true);
+    });
+
+    test("edge case: overnight slot (from > to across midnight)", () => {
+      // A slot spanning midnight (22:00 to 02:00) — engine must not crash
+      // Document the actual behavior: it may or may not produce an assignment
+      const facts = [
+        makeFact({
+          user_id: "u1",
+          fact_payload: { dow: "mon", from: "22:00", to: "02:00", availability: "can" },
+        }),
+      ];
+      let result;
+      expect(() => {
+        result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+      }).not.toThrow();
+      expect(result).toBeDefined();
+      expect(Array.isArray(result.assignments)).toBe(true);
+    });
+
+    test("edge case: invalid time format in slot", () => {
+      // Fact has non-time strings for from/to — engine must not crash
+      const facts = [
+        makeFact({
+          user_id: "u1",
+          fact_payload: { dow: "mon", from: "abc", to: "xyz", availability: "can" },
+        }),
+      ];
+      let result;
+      expect(() => {
+        result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+      }).not.toThrow();
+      expect(result).toBeDefined();
+      expect(Array.isArray(result.assignments)).toBe(true);
+    });
+
+    test("100 facts from 10 users → completes within 100ms", () => {
+      // 10 virtual employees, each available for all 14 standard slots (7 days × 2)
+      const dows = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+      const slots = [
+        { from: "10:00", to: "13:00" },
+        { from: "18:00", to: "21:00" },
+      ];
+      const facts = [];
+      for (let i = 1; i <= 10; i++) {
+        for (const dow of dows) {
+          for (const { from, to } of slots) {
+            facts.push(
+              makeFact({
+                user_id: `stress_user_${i}`,
+                fact_payload: { dow, from, to, availability: "can" },
+              })
+            );
+          }
+        }
+      }
+      // Total: 10 users × 7 days × 2 slots = 140 facts (>100)
+      expect(facts.length).toBeGreaterThanOrEqual(100);
+
+      const start = Date.now();
+      const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+      const elapsed = Date.now() - start;
+
+      expect(elapsed).toBeLessThan(100);
+      expect(result).toBeDefined();
+      expect(Array.isArray(result.assignments)).toBe(true);
+    });
+
+    test("duplicate availability facts → single assignment per slot", () => {
+      // u1 sends the exact same availability for mon morning 5 times
+      const facts = Array.from({ length: 5 }, (_, i) =>
+        makeFact({
+          user_id: "u1",
+          fact_payload: { dow: "mon", from: "10:00", to: "13:00", availability: "can" },
+          created_at: `2025-01-05T10:0${i}:00Z`,
+        })
+      );
+      const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+      const monMorningAssignments = result.assignments.filter(
+        (a) => a.dow === "mon" && a.from === "10:00" && a.to === "13:00"
+      );
+      // Must be exactly 1 assignment for the slot, not 5
+      expect(monMorningAssignments).toHaveLength(1);
+      expect(monMorningAssignments[0].user_id).toBe("u1");
+    });
+  });
+
+  test("rebalance does not assign unavailable user to slot", () => {
+    // u1 and u4 are both available for mon morning and tue morning.
+    // u4 also marks itself unavailable for tue morning.
+    // u4 has minHours=20, so rebalance may try to push u4 into tue morning —
+    // but it must NOT because u4 is unavailable for that slot.
+    const facts = [
+      // u1 available mon morning
+      makeFact({ user_id: "u1", fact_payload: { dow: "mon", from: "10:00", to: "13:00", availability: "can" } }),
+      // u4 available mon morning
+      makeFact({ user_id: "u4", fact_payload: { dow: "mon", from: "10:00", to: "13:00", availability: "can" } }),
+      // u1 available tue morning
+      makeFact({ user_id: "u1", fact_payload: { dow: "tue", from: "10:00", to: "13:00", availability: "can" } }),
+      // u4 available tue morning (SHIFT_AVAILABILITY first, then overridden by unavailability)
+      makeFact({ user_id: "u4", fact_payload: { dow: "tue", from: "10:00", to: "13:00", availability: "can" } }),
+      // u4 marks unavailability for tue morning (later timestamp → takes priority)
+      makeFact({
+        fact_type: "SHIFT_UNAVAILABILITY",
+        user_id: "u4",
+        fact_payload: { dow: "tue", from: "10:00", to: "13:00", availability: "cannot" },
+        created_at: "2025-01-05T12:00:00Z",
+      }),
+    ];
+    const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+    const tueMorningAssignment = result.assignments.find(
+      (a) => a.dow === "tue" && a.from === "10:00" && a.to === "13:00"
+    );
+    // u4 must NOT be assigned to tue morning — they are unavailable
+    if (tueMorningAssignment) {
+      expect(tueMorningAssignment.user_id).not.toBe("u4");
+    }
+  });
 });

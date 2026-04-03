@@ -473,6 +473,10 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
       if (currentHours >= minHours) break;
       if (!slot.candidates.includes(empId)) continue;
 
+      // Do not assign to a slot where this employee marked themselves unavailable
+      const unavailForSlot = unavailableBySlot.get(slot.slotKey);
+      if (unavailForSlot && unavailForSlot.has(empId)) continue;
+
       const assignIdx = assignments.findIndex(
         (a) => a.dow === slot.dow && a.from === slot.from && a.to === slot.to
       );
