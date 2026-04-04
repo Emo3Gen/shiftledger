@@ -7,7 +7,7 @@
 import { Router } from "express";
 import * as paraplan from "../services/paraplan/index.js";
 import * as settingsService from "../settingsService.js";
-import { USE_EMOGEN_PARAPLAN, EMOGEN_API_URL, proxyToEmogen, getEmogenHoursCache, getEmogenStatus } from "../emogenClient.js";
+import { USE_EMOGEN_PARAPLAN, EMOGEN_API_URL, emogenFetch, proxyToEmogen, getEmogenHoursCache, getEmogenStatus } from "../emogenClient.js";
 import logger from "../logger.js";
 
 const router = Router();
@@ -73,7 +73,22 @@ router.get("/groups", async (req, res) => {
 
 // POST /refresh
 router.post("/refresh", async (req, res) => {
-  if (USE_EMOGEN_PARAPLAN) return proxyToEmogen(req, res, "/api/paraplan/refresh");
+  if (USE_EMOGEN_PARAPLAN) {
+    // Refresh takes ~30s (300ms per group × 40+ groups) — use longer timeout than default proxy
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 60_000);
+      const r = await emogenFetch("/api/paraplan/refresh", { method: "POST", signal: ctrl.signal });
+      clearTimeout(timer);
+      const data = await r.json();
+      if (!r.ok) return res.status(r.status).json(data);
+      return res.json(data);
+    } catch (e) {
+      const detail = e?.name === "AbortError" ? "Emogen timeout (60s)" : e?.message;
+      logger.warn({ err: e }, "Emogen refresh error");
+      return res.status(502).json({ ok: false, error: "Emogen API unreachable", detail });
+    }
+  }
   try {
     const tenantId = req.query.tenant_id || "dev";
     const savedConfig = await settingsService.get(tenantId, "paraplan_groups");
@@ -168,16 +183,36 @@ router.put("/groups-config", async (req, res) => {
 
 // POST /sync-groups
 router.post("/sync-groups", async (req, res) => {
-  if (USE_EMOGEN_PARAPLAN) return proxyToEmogen(req, res, "/api/paraplan/sync-groups");
+  const tenantId = req.body?.tenant_id || "dev";
+
   try {
-    const tenantId = req.body.tenant_id || "dev";
-    if (!paraplan.isReady()) {
-      return res.status(400).json({ ok: false, error: "Paraplan not ready" });
+    let freshGroups;
+
+    if (USE_EMOGEN_PARAPLAN) {
+      // Fetch groups from Emogen sync-groups endpoint
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 12000);
+      const r = await emogenFetch("/api/paraplan/sync-groups", { method: "POST", signal: ctrl.signal });
+      clearTimeout(timer);
+      const data = await r.json();
+      if (!r.ok || !data.ok) {
+        return res.status(r.status || 502).json(data);
+      }
+      freshGroups = (data.groups || []).map((g) => ({
+        id: g.paraplan_id,
+        name: g.name,
+        prefix: g.prefix,
+        lessons: g.lessons || [],
+      }));
+    } else {
+      if (!paraplan.isReady()) {
+        return res.status(400).json({ ok: false, error: "Paraplan not ready" });
+      }
+      await paraplan.refresh();
+      freshGroups = paraplan.getGroups();
     }
 
-    await paraplan.refresh();
-    const freshGroups = paraplan.getGroups();
-
+    // Merge with existing settings (preserve requires_junior, required_skill_level)
     const existing = await settingsService.get(tenantId, "paraplan_groups") || [];
     const existingMap = new Map(existing.map((g) => [g.paraplan_id, g]));
 
@@ -191,10 +226,11 @@ router.post("/sync-groups", async (req, res) => {
     }));
 
     await settingsService.set(tenantId, "paraplan_groups", config, "Paraplan groups config (synced)");
-    res.json({ ok: true, groups: config, synced: freshGroups.length });
+    res.json({ ok: true, groups: config, synced: config.length });
   } catch (e) {
     logger.error({ err: e }, "POST /api/paraplan/sync-groups error");
-    res.status(500).json({ ok: false, error: String(e?.message || e) });
+    const detail = e?.name === "AbortError" ? "Emogen timeout (12s)" : String(e?.message || e);
+    res.status(500).json({ ok: false, error: detail });
   }
 });
 
