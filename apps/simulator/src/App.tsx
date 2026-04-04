@@ -27,6 +27,8 @@ const ALL_SECTIONS = [
   { id: "confirm_facts", label: "Подтверждение факта" },
   { id: "paraplan", label: "Параплан" },
   { id: "settings", label: "Настройки" },
+  { id: "activity_log", label: "Лог действий" },
+  { id: "emogen_dialogs", label: "Диалоги Emogen" },
 ] as const;
 
 type SectionId = typeof ALL_SECTIONS[number]["id"];
@@ -416,6 +418,32 @@ export const App: React.FC = () => {
   const [paraplanHours, setParaplanHours] = React.useState<any>(null);
   const [paraplanRefreshing, setParaplanRefreshing] = React.useState(false);
 
+  // Activity log
+  const [activityLog, setActivityLog] = React.useState<{ ts: string; user: string; action: string; details?: string | null }[]>([]);
+  const logActivity = React.useCallback(async (action: string, details?: string) => {
+    const user = "Семён";
+    try {
+      await fetch("/api/activity-log", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ user, action, details: details || null }),
+      });
+    } catch {}
+  }, []);
+  const fetchActivityLog = React.useCallback(async () => {
+    try {
+      const r = await fetch("/api/activity-log?limit=20");
+      if (r.ok) { const d = await r.json(); setActivityLog(d.entries || []); }
+    } catch {}
+  }, []);
+
+  // Emogen bot dialogs
+  const [emogenDialogs, setEmogenDialogs] = React.useState<any[]>([]);
+  const [emogenDialogsErr, setEmogenDialogsErr] = React.useState<string | null>(null);
+  const [emogenDialogMessages, setEmogenDialogMessages] = React.useState<any[]>([]);
+  const [emogenSelectedPeer, setEmogenSelectedPeer] = React.useState<string | null>(null);
+  const [emogenDialogsLoading, setEmogenDialogsLoading] = React.useState(false);
+
   // Visibility, collapse & scale
   const [vis, setVis] = React.useState<Record<string, boolean>>(loadVisibility);
   const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>(loadCollapsed);
@@ -593,6 +621,37 @@ export const App: React.FC = () => {
   React.useEffect(() => { localStorage.setItem("sl_sched_collapsed", String(schedCollapsed)); }, [schedCollapsed]);
   React.useEffect(() => { localStorage.setItem("sl_active_tab", activeTab); }, [activeTab]);
 
+  // Activity log: fetch on mount + poll every 10s
+  React.useEffect(() => {
+    fetchActivityLog();
+    const iv = setInterval(fetchActivityLog, 10_000);
+    return () => clearInterval(iv);
+  }, [fetchActivityLog]);
+
+  // Emogen dialogs: fetch on mount + poll every 30s
+  React.useEffect(() => {
+    const load = async () => {
+      try {
+        setEmogenDialogsLoading(true);
+        const r = await fetch("/api/emogen/dialogs/recent?limit=10");
+        if (r.ok) {
+          const d = await r.json();
+          setEmogenDialogs(d.dialogs || d.items || d || []);
+          setEmogenDialogsErr(null);
+        } else {
+          setEmogenDialogsErr(`HTTP ${r.status}`);
+        }
+      } catch (e: any) {
+        setEmogenDialogsErr(e?.message || "Ошибка");
+      } finally {
+        setEmogenDialogsLoading(false);
+      }
+    };
+    load();
+    const iv = setInterval(load, 30_000);
+    return () => clearInterval(iv);
+  }, []);
+
   // Загрузка tenants из /debug/tenants
   React.useEffect(() => {
     (async () => {
@@ -741,6 +800,7 @@ export const App: React.FC = () => {
 
   const changeBotMode = async (mode: string) => {
     setBotModeLoading(true);
+    logActivity("Режим бота", mode);
     try {
       const r = await fetch("/api/bot-mode", {
         method: "POST",
@@ -770,6 +830,7 @@ export const App: React.FC = () => {
 
   const saveSetting = async (key: string, value: any) => {
     try {
+      logActivity("Настройка", `${key} = ${JSON.stringify(value).slice(0, 60)}`);
       await fetch(`/api/settings/${encodeURIComponent(key)}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
@@ -1151,6 +1212,7 @@ export const App: React.FC = () => {
         setLastError(null);
         const factsCount = json.facts_count ?? json.facts?.length ?? 0;
         showToast(`Отправлено (${factsCount} факт${factsCount === 1 ? "" : factsCount < 5 ? "а" : "ов"})`, "ok");
+        logActivity("Чат", `"${text.slice(0, 40)}${text.length > 40 ? "..." : ""}" → ${factsCount} фактов`);
       } else {
         setLastError(`Send failed: ${json.error || "unknown error"}`);
         showToast(`Ошибка: ${json.error || "unknown"}`, "err");
@@ -1515,6 +1577,15 @@ export const App: React.FC = () => {
                 + Tenant
               </button>
             </div>}
+            {!collapsed["tenants"] && selectedTenant && (
+              <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>
+                {selectedTenant === "dev" ? "\uD83D\uDCF1 Telegram-чат сотрудников" :
+                 selectedTenant === "emu" ? "\uD83D\uDDA5 Симулятор / отладка" : ""}
+                {selectedChatId && selectedChatId.startsWith("-") && (
+                  <span style={{ marginLeft: 8, color: "#1976d2" }}>\uD83D\uDCF1 Telegram</span>
+                )}
+              </div>
+            )}
           </div>
         )}
         {vis["dialogs"] !== false && (
@@ -1555,6 +1626,64 @@ export const App: React.FC = () => {
                     </div>
                   </li>
                 ))}
+              </ul>
+            </>}
+          </div>
+        )}
+        {vis["emogen_dialogs"] !== false && (
+          <div className="pane-content" style={{ position: "relative", borderTop: "1px solid #ddd" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+              <div onClick={() => toggleCollapse("emogen_dialogs")} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 4, userSelect: "none" }}>
+                <span style={{ fontSize: 10, color: "#999" }}>{collapsed["emogen_dialogs"] ? "\u25B6" : "\u25BC"}</span>
+                <h3 style={{ margin: 0 }}>Диалоги бота <InfoTip text="Последние диалоги Emogen бота с родителями" /></h3>
+              </div>
+              {!collapsed["emogen_dialogs"] && <span style={{ fontSize: 11, color: "#999" }}>{emogenDialogsLoading ? "..." : emogenDialogs.length}</span>}
+            </div>
+            {!collapsed["emogen_dialogs"] && <>
+              {emogenDialogsErr && <div style={{ fontSize: "0.8em", color: "#c00", marginBottom: 4 }}>{emogenDialogsErr}</div>}
+              {emogenDialogs.length === 0 && !emogenDialogsErr && <div className="empty" style={{ fontSize: "0.85em" }}>Нет диалогов</div>}
+              <ul className="dialog-list" style={{ maxHeight: 250, overflowY: "auto" }}>
+                {emogenDialogs.map((d: any) => {
+                  const peerId = d.peer_id || d.peerId || d.id;
+                  const name = d.name || d.first_name || `#${peerId}`;
+                  const lastMsg = d.last_message || d.lastMessage || d.text || "";
+                  const ts = d.last_ts || d.lastTs || d.timestamp;
+                  return (
+                    <li
+                      key={peerId}
+                      className={peerId === emogenSelectedPeer ? "dialog-item selected" : "dialog-item"}
+                      onClick={async () => {
+                        setEmogenSelectedPeer(peerId);
+                        logActivity("Emogen диалог", name);
+                        try {
+                          const r = await fetch(`/api/emogen/dialogs/${encodeURIComponent(peerId)}/messages?limit=50`);
+                          if (r.ok) {
+                            const data = await r.json();
+                            const msgs = data.messages || data.items || data || [];
+                            setEmogenDialogMessages(msgs);
+                            // Show in center chat pane via events
+                            const mapped = msgs.map((m: any) => ({
+                              id: m.id || m.message_id || Math.random(),
+                              user_id: m.from_bot ? "bot" : String(peerId),
+                              text: m.text || m.body || "",
+                              received_at: m.timestamp || m.ts || m.date,
+                              role: m.from_bot ? "system" : "user",
+                            }));
+                            setEvents(mapped);
+                          }
+                        } catch (e) {
+                          console.error("Failed to load emogen dialog", e);
+                        }
+                      }}
+                    >
+                      <div className="dialog-title">{name}</div>
+                      <div className="dialog-meta">
+                        <span>{lastMsg.length > 40 ? lastMsg.slice(0, 40) + "..." : lastMsg}</span>
+                        {ts && <span>{new Date(ts).toLocaleString("ru-RU", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}</span>}
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             </>}
           </div>
@@ -3004,6 +3133,28 @@ export const App: React.FC = () => {
             )}
             </section>
           </ToggleSection>
+          <ToggleSection id="activity_log" vis={vis} collapsed={collapsed} onHide={hideSection} onToggleCollapse={toggleCollapse}>
+            <h3>Лог действий <InfoTip text="Последние действия пользователей в панели. Обновляется каждые 10 сек" /></h3>
+            {activityLog.length === 0 ? (
+              <div className="empty" style={{ fontSize: "0.85em", color: "#999" }}>Нет действий</div>
+            ) : (
+              <div style={{ fontSize: "0.8em", maxHeight: 300, overflowY: "auto" }}>
+                {activityLog.map((entry, i) => {
+                  const t = new Date(entry.ts);
+                  const hh = String(t.getHours()).padStart(2, "0");
+                  const mm = String(t.getMinutes()).padStart(2, "0");
+                  return (
+                    <div key={i} style={{ padding: "2px 0", borderBottom: "1px solid #f0f0f0", lineHeight: 1.4 }}>
+                      <span style={{ color: "#888", marginRight: 6 }}>{hh}:{mm}</span>
+                      <strong>{entry.user}</strong>
+                      <span style={{ color: "#555" }}> {entry.action}</span>
+                      {entry.details && <span style={{ color: "#999", marginLeft: 4, fontSize: "0.9em" }}>{entry.details}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </ToggleSection>
           <ToggleSection id="schedule_v0" vis={vis} collapsed={collapsed} onHide={hideSection} onToggleCollapse={toggleCollapse}>
             <h3>Schedule v0 <InfoTip text="Пересчитать — обновить график. Эталонная неделя — загрузить тестовые данные" /></h3>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: "8px" }}>
@@ -3024,6 +3175,7 @@ export const App: React.FC = () => {
                   const weekStart = monday.toISOString().split("T")[0]; // YYYY-MM-DD
 
                   try {
+                    logActivity("Пересчитать график", `неделя ${weekStart}`);
                     const res = await fetch(
                       `/debug/schedule?tenant_id=${encodeURIComponent(
                         selectedTenant,
@@ -3056,6 +3208,7 @@ export const App: React.FC = () => {
                     return;
                   }
                   setPublishStatus("publishing");
+                  logActivity("Опубликовать в Telegram", `неделя ${weekStartISO}`);
                   try {
                     const res = await fetch("/api/schedule/publish", {
                       method: "POST",
@@ -3134,6 +3287,7 @@ export const App: React.FC = () => {
                     return;
                   }
                   setPaymentsStatus("sending");
+                  logActivity("Отправить оплаты", "в Telegram");
                   try {
                     const tomorrow = new Date();
                     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -3327,7 +3481,7 @@ export const App: React.FC = () => {
             <div style={{ display: "flex", gap: "4px", marginBottom: "8px", borderBottom: "1px solid #ddd" }}>
               <button
                 type="button"
-                onClick={() => setActiveTab("schedule")}
+                onClick={() => { setActiveTab("schedule"); logActivity("Вкладка", "График"); }}
                 style={{
                   padding: "4px 8px",
                   border: "none",
@@ -3341,7 +3495,7 @@ export const App: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => setActiveTab("timesheet")}
+                onClick={() => { setActiveTab("timesheet"); logActivity("Вкладка", "Табель"); }}
                 style={{
                   padding: "4px 8px",
                   border: "none",
@@ -3822,6 +3976,7 @@ export const App: React.FC = () => {
                   if (!selectedChatId) { showToast("Выберите chat", "err"); return; }
                   setActionLoading("propose");
                   console.log("[PROPOSE] Предложить график", { chat_id: selectedChatId, week_start: weekStartISO });
+                  logActivity("Собрать график", `неделя ${weekStartISO}`);
                   try {
                     // 1. Open week
                     await debugSend(`OPEN_WEEK ${weekStartISO}`, "admin");

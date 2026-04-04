@@ -57,6 +57,7 @@ function replyOptions(ctx, extra = {}) {
 export function buildIngestPayload(ctx) {
   return {
     tenant_id: process.env.DEFAULT_TENANT_ID || "dev",
+    source: "telegram",
     channel: "telegram",
     chat_id: String(ctx.chat.id),
     user_id: String(ctx.from.id),

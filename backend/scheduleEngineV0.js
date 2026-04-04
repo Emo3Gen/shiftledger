@@ -412,13 +412,25 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
     }
 
     const requiredSkill = getSlotSkillReq(slot.dow, slot.from);
-    juniorCandidates.sort((a, b) => {
-      // 0. Skill level match: matching candidates first
-      if (requiredSkill) {
-        const matchA = meetsSkillReq(a, requiredSkill) ? 0 : 1;
-        const matchB = meetsSkillReq(b, requiredSkill) ? 0 : 1;
-        if (matchA !== matchB) return matchA - matchB;
+
+    // Hard constraint: if slot requires a skill level, EXCLUDE candidates who don't meet it.
+    // Fall back to all juniors only if NO qualified candidate exists (better than a gap).
+    let qualifiedJuniors = juniorCandidates;
+    if (requiredSkill) {
+      const qualified = juniorCandidates.filter((u) => meetsSkillReq(u, requiredSkill));
+      if (qualified.length > 0) {
+        qualifiedJuniors = qualified;
+      } else {
+        debugSkipped.push({
+          user_id: "ALL",
+          user_name: "all juniors",
+          slot: slot.slotKey,
+          reason: `No junior meets skill requirement "${requiredSkill}" — using best available`,
+        });
       }
+    }
+
+    qualifiedJuniors.sort((a, b) => {
       const hoursA = assignedHoursByUser.get(a) || 0;
       const hoursB = assignedHoursByUser.get(b) || 0;
       // 1. Fewer assigned hours = higher priority
@@ -436,7 +448,7 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
       return a.localeCompare(b);
     });
 
-    const selectedUserId = juniorCandidates[0];
+    const selectedUserId = qualifiedJuniors[0];
     assignedHoursByUser.set(
       selectedUserId,
       (assignedHoursByUser.get(selectedUserId) || 0) + slot.hours,
@@ -477,6 +489,10 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
       const unavailForSlot = unavailableBySlot.get(slot.slotKey);
       if (unavailForSlot && unavailForSlot.has(empId)) continue;
 
+      // Do not swap into a slot that requires a skill level this employee doesn't meet
+      const requiredSkillForSlot = getSlotSkillReq(slot.dow, slot.from);
+      if (requiredSkillForSlot && !meetsSkillReq(empId, requiredSkillForSlot)) continue;
+
       const assignIdx = assignments.findIndex(
         (a) => a.dow === slot.dow && a.from === slot.from && a.to === slot.to
       );
@@ -484,6 +500,9 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
 
       const currentAssignee = assignments[assignIdx].user_id;
       if (currentAssignee === empId) continue;
+
+      // Do not swap out a qualified employee for an unqualified one
+      if (requiredSkillForSlot && meetsSkillReq(currentAssignee, requiredSkillForSlot) && !meetsSkillReq(empId, requiredSkillForSlot)) continue;
 
       const assigneeHours = assignedHoursByUser.get(currentAssignee) || 0;
       const assigneeMin = minHoursRequirements.get(currentAssignee) || 0;

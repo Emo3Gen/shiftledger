@@ -2623,7 +2623,64 @@ app.post("/api/bot-mode", (req, res) => {
 
 import { sendPaymentsList } from "./paymentsService.js";
 
-logger.debug("Route modules registered (paraplan, emogen, payments)");
+// ── Activity Log: in-memory ring buffer ──────────────────────────────────────
+const ACTIVITY_LOG_MAX = 100;
+const activityLog = []; // newest first
+
+app.get("/api/activity-log", (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 20, ACTIVITY_LOG_MAX);
+  res.json({ ok: true, entries: activityLog.slice(0, limit) });
+});
+
+app.post("/api/activity-log", (req, res) => {
+  const { user, action, details } = req.body || {};
+  if (!action) return res.status(400).json({ error: "action required" });
+  const entry = {
+    ts: new Date().toISOString(),
+    user: user || "unknown",
+    action,
+    details: details || null,
+  };
+  activityLog.unshift(entry);
+  if (activityLog.length > ACTIVITY_LOG_MAX) activityLog.length = ACTIVITY_LOG_MAX;
+  res.json({ ok: true });
+});
+
+// ── Emogen Dialogs proxy ─────────────────────────────────────────────────────
+app.get("/api/emogen/dialogs/recent", async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+    const r = await fetch(`${EMOGEN_API_URL}/api/dialogs/recent?limit=${limit}`, {
+      headers: { Authorization: emogenAuthHeader },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return res.status(r.status).json({ error: `Emogen API: ${r.status}` });
+    const data = await r.json();
+    res.json(data);
+  } catch (e) {
+    logger.warn({ err: e }, "Emogen dialogs/recent unreachable");
+    res.status(502).json({ error: "Emogen API unreachable", detail: e?.message });
+  }
+});
+
+app.get("/api/emogen/dialogs/:peerId/messages", async (req, res) => {
+  try {
+    const peerId = encodeURIComponent(req.params.peerId);
+    const limit = parseInt(req.query.limit) || 50;
+    const r = await fetch(`${EMOGEN_API_URL}/api/dialogs/${peerId}/messages?limit=${limit}`, {
+      headers: { Authorization: emogenAuthHeader },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return res.status(r.status).json({ error: `Emogen API: ${r.status}` });
+    const data = await r.json();
+    res.json(data);
+  } catch (e) {
+    logger.warn({ err: e }, "Emogen dialog messages unreachable");
+    res.status(502).json({ error: "Emogen API unreachable", detail: e?.message });
+  }
+});
+
+logger.debug("Route modules registered (paraplan, emogen, payments, activity-log)");
 
 // SPA fallback: serve index.html for unmatched routes (no auth, must be after all API routes)
 // Miniapp SPA fallback
@@ -2756,13 +2813,30 @@ UserDirectory.syncFromDB(employeeService).then(async () => {
 
     // Start Telegram bot if token is configured
     if (process.env.TELEGRAM_BOT_TOKEN) {
+      // In-memory dedup for Telegram messages (SL-009)
+      const _recentMsgIds = new Set();
       const botIngest = async (payload) => {
+        // Deduplicate by message_id (webhook retries, polling restarts)
+        if (payload.message_id) {
+          const msgKey = `${payload.chat_id}:${payload.message_id}`;
+          if (_recentMsgIds.has(msgKey)) {
+            logger.debug({ msgKey }, "botIngest: duplicate message_id, skipping");
+            return { facts_preview: [], facts: [] };
+          }
+          _recentMsgIds.add(msgKey);
+          if (_recentMsgIds.size > 200) {
+            _recentMsgIds.delete(_recentMsgIds.values().next().value);
+          }
+        }
+        // Pass message_id into meta so DB-level dedup can work too
+        const meta = { ...(payload.meta || {}) };
+        if (payload.message_id) meta.message_id = payload.message_id;
         return ingestInternal({
           source: "telegram",
           chat_id: payload.chat_id,
           user_id: payload.user_id,
           text: payload.text,
-          meta: payload.meta,
+          meta,
           tenant_id: payload.tenant_id,
           traceId: undefined,
         });

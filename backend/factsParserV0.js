@@ -44,6 +44,16 @@ function sameWeekdayBerlin(isoString, targetIndex) {
   return addDaysBerlin(isoString, diff);
 }
 
+// Get Monday (week_start) for a given YYYY-MM-DD date string.
+function getWeekStartForDate(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr + "T12:00:00Z");
+  let day = d.getUTCDay(); // 0=Sun, 1=Mon...
+  if (day === 0) day = 7;
+  d.setUTCDate(d.getUTCDate() - (day - 1));
+  return d.toISOString().split("T")[0];
+}
+
 function parseTimeWindow(text) {
   const re = /с\s*(\d{1,2})(?:[:\.](\d{2}))?\s*до\s*(\d{1,2})(?:[:\.](\d{2}))?/i;
   const m = text.match(re);
@@ -1000,7 +1010,8 @@ function parseMultiLineSchedule(text, receivedAt) {
     const dow = RU_DOW_MAP[dayToken];
     if (!dow) continue;
     const dowIndex = DOW_MAP[dow];
-    const date = nextWeekdayBerlin(receivedAt, dowIndex);
+    const date = sameWeekdayBerlin(receivedAt, dowIndex);
+    const week_start = getWeekStartForDate(date);
 
     // Determine if unavailable
     const isUnavail = !content || content === "—" || content === "-" || content === "–"
@@ -1010,7 +1021,7 @@ function parseMultiLineSchedule(text, receivedAt) {
       for (const slot of BOTH_SLOTS) {
         results.push({
           fact_type: "SHIFT_UNAVAILABILITY",
-          fact_payload: { date, dow, from: slot.from, to: slot.to, availability: "cannot", notes: text },
+          fact_payload: { week_start, date, dow, from: slot.from, to: slot.to, availability: "cannot", notes: text },
           confidence: 0.85,
         });
       }
@@ -1026,20 +1037,20 @@ function parseMultiLineSchedule(text, receivedAt) {
       for (const slot of BOTH_SLOTS) {
         results.push({
           fact_type: "SHIFT_AVAILABILITY",
-          fact_payload: { date, dow, from: slot.from, to: slot.to, availability: "can", notes: text },
+          fact_payload: { week_start, date, dow, from: slot.from, to: slot.to, availability: "can", notes: text },
           confidence: 0.85,
         });
       }
     } else if (hasMorning) {
       results.push({
         fact_type: "SHIFT_AVAILABILITY",
-        fact_payload: { date, dow, from: "10:00", to: "13:00", availability: "can", notes: text },
+        fact_payload: { week_start, date, dow, from: "10:00", to: "13:00", availability: "can", notes: text },
         confidence: 0.85,
       });
     } else if (hasEvening) {
       results.push({
         fact_type: "SHIFT_AVAILABILITY",
-        fact_payload: { date, dow, from: "18:00", to: "21:00", availability: "can", notes: text },
+        fact_payload: { week_start, date, dow, from: "18:00", to: "21:00", availability: "can", notes: text },
         confidence: 0.85,
       });
     } else {
@@ -1048,7 +1059,7 @@ function parseMultiLineSchedule(text, receivedAt) {
       if (time) {
         results.push({
           fact_type: "SHIFT_AVAILABILITY",
-          fact_payload: { date, dow, from: time.from, to: time.to, availability: "can", notes: text },
+          fact_payload: { week_start, date, dow, from: time.from, to: time.to, availability: "can", notes: text },
           confidence: 0.85,
         });
       } else {
@@ -1056,7 +1067,7 @@ function parseMultiLineSchedule(text, receivedAt) {
         for (const slot of BOTH_SLOTS) {
           results.push({
             fact_type: "SHIFT_AVAILABILITY",
-            fact_payload: { date, dow, from: slot.from, to: slot.to, availability: "can", notes: text },
+            fact_payload: { week_start, date, dow, from: slot.from, to: slot.to, availability: "can", notes: text },
             confidence: 0.6,
           });
         }
@@ -1093,11 +1104,12 @@ function parseAllDaysExcept(text, receivedAt) {
   for (let i = 0; i < ALL_DOWS.length; i++) {
     const dow = ALL_DOWS[i];
     const date = nextWeekdayBerlin(receivedAt, i);
+    const week_start = getWeekStartForDate(date);
     if (excludedDows.has(dow)) {
       for (const slot of BOTH_SLOTS) {
         results.push({
           fact_type: "SHIFT_UNAVAILABILITY",
-          fact_payload: { date, dow, from: slot.from, to: slot.to, availability: "cannot", notes: text },
+          fact_payload: { week_start, date, dow, from: slot.from, to: slot.to, availability: "cannot", notes: text },
           confidence: 0.8,
         });
       }
@@ -1105,7 +1117,7 @@ function parseAllDaysExcept(text, receivedAt) {
       for (const slot of BOTH_SLOTS) {
         results.push({
           fact_type: "SHIFT_AVAILABILITY",
-          fact_payload: { date, dow, from: slot.from, to: slot.to, availability: "can", notes: text },
+          fact_payload: { week_start, date, dow, from: slot.from, to: slot.to, availability: "can", notes: text },
           confidence: 0.8,
         });
       }
@@ -1184,11 +1196,13 @@ function parseRussianNL(text, receivedAt) {
     for (const dayInfo of days) {
       const time = segTime || globalTime;
       const date = nextWeekdayBerlin(receivedAt, dayInfo.dowIndex);
+      const week_start = getWeekStartForDate(date);
 
       if (time) {
         results.push({
           fact_type: factType,
           fact_payload: {
+            week_start,
             date,
             dow: dayInfo.dow,
             from: time.from,
@@ -1204,6 +1218,7 @@ function parseRussianNL(text, receivedAt) {
           results.push({
             fact_type: factType,
             fact_payload: {
+              week_start,
               date,
               dow: dayInfo.dow,
               from: slot.from,
@@ -1435,10 +1450,12 @@ function fuzzyMatchIntent(text, receivedAt) {
 
     for (const dow of foundDays) {
       const date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+      const week_start = getWeekStartForDate(date);
       if (foundTime) {
         results.push({
           fact_type: factType,
           fact_payload: {
+            week_start,
             date,
             dow,
             from: foundTime.from,
@@ -1454,6 +1471,7 @@ function fuzzyMatchIntent(text, receivedAt) {
           results.push({
             fact_type: factType,
             fact_payload: {
+              week_start,
               date,
               dow,
               from: slot.from,
@@ -1934,9 +1952,11 @@ export function parseEventToFacts(event) {
     const time = dowInfo ? extractTime(lower) : null;
     if (dowInfo && time) {
       const date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+      const week_start = getWeekStartForDate(date);
       results.push({
         fact_type: "SHIFT_UNAVAILABILITY",
         fact_payload: {
+          week_start,
           date,
           dow: dowInfo.dow,
           from: time.from,

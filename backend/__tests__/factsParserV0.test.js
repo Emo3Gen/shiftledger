@@ -922,4 +922,64 @@ describe("factsParserV0", () => {
       expect(facts[0].fact_payload.reason).toBe("не пришли дети");
     });
   });
+
+  // --- SL-011: Multiline schedule week_start ---
+  describe("parseMultiLineSchedule week_start (SL-011)", () => {
+    test("сообщение в четверг → week_start текущей недели", () => {
+      const text = "пн - утро\nвт - вечер\nпт - не могу";
+      // четверг 02.04.2026 → week_start = 2026-03-30 (пн)
+      const facts = parseEventToFacts({
+        text,
+        received_at: "2026-04-02T10:00:00Z",
+        chat_id: "test",
+        user_id: "u2",
+        meta: {},
+      });
+      const avail = facts.filter(f =>
+        f.fact_type === "SHIFT_AVAILABILITY" || f.fact_type === "SHIFT_UNAVAILABILITY"
+      );
+      expect(avail.length).toBeGreaterThanOrEqual(2);
+      avail.forEach(f => {
+        expect(f.fact_payload.week_start).toBe("2026-03-30");
+      });
+    });
+
+    test("сообщение в понедельник → week_start той же недели", () => {
+      const text = "пн - утро\nвт - вечер";
+      // понедельник 30.03.2026
+      const facts = parseEventToFacts({
+        text,
+        received_at: "2026-03-30T10:00:00Z",
+        chat_id: "test",
+        user_id: "u1",
+        meta: {},
+      });
+      const avail = facts.filter(f =>
+        f.fact_type === "SHIFT_AVAILABILITY" || f.fact_type === "SHIFT_UNAVAILABILITY"
+      );
+      expect(avail.length).toBeGreaterThanOrEqual(2);
+      avail.forEach(f => {
+        expect(f.fact_payload.week_start).toBe("2026-03-30");
+      });
+    });
+
+    test("сообщение в пятницу, упомянут пн → week_start текущей недели, не следующей", () => {
+      const text = "пн - утро\nвт - утро\nср - утро\nчт - не могу\nпт - не могу";
+      // пятница 04.04.2026 → week_start = 2026-03-30
+      const facts = parseEventToFacts({
+        text,
+        received_at: "2026-04-04T10:00:00Z",
+        chat_id: "test",
+        user_id: "u2",
+        meta: {},
+      });
+      const avail = facts.filter(f =>
+        f.fact_type === "SHIFT_AVAILABILITY" || f.fact_type === "SHIFT_UNAVAILABILITY"
+      );
+      expect(avail.length).toBeGreaterThanOrEqual(5);
+      avail.forEach(f => {
+        expect(f.fact_payload.week_start).toBe("2026-03-30");
+      });
+    });
+  });
 });
