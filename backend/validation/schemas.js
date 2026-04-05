@@ -78,6 +78,14 @@ export const ConfirmUserBodySchema = z.object({
   chat_id: z.string().min(1).max(200),
 });
 
+// --- POST /debug/reset-week, /api/reset-week ---
+export const ResetWeekSchema = z.object({
+  chat_id: z.string().min(1).max(200).optional(),
+  week_start: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "week_start is required. Format: YYYY-MM-DD"),
+});
+
 // --- GET /facts ---
 export const FactsQuerySchema = z.object({
   chat_id: z.string().min(1).optional(),

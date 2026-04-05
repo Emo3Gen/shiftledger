@@ -65,6 +65,7 @@ import {
   DialogsQuerySchema,
   DialogParamsSchema,
   DialogQuerySchema,
+  ResetWeekSchema,
 } from "./validation/schemas.js";
 
 // In-memory pending clarifications for ambiguous replacements (cleaning vs shift)
@@ -1434,11 +1435,10 @@ app.post("/debug/seed", async (req, res) => {
 /**
  * POST /debug/reset-week — delete all facts and events for a specific week
  */
-app.post("/debug/reset-week", async (req, res) => {
+app.post("/debug/reset-week", validateBody(ResetWeekSchema), async (req, res) => {
   try {
-    const chatId = req.body.chat_id || req.query.chat_id || "dev_seed_chat";
-    const weekStart = req.body.week_start || req.query.week_start;
-    if (!weekStart) return res.status(400).json({ error: "week_start required" });
+    const chatId = req.body.chat_id || "dev_seed_chat";
+    const weekStart = req.body.week_start;
 
     // Calculate week end (Monday + 6 days = Sunday)
     const wsDate = new Date(weekStart + "T00:00:00Z");
@@ -1473,16 +1473,18 @@ app.post("/debug/reset-week", async (req, res) => {
     // Invalidate facts cache for this chat (SL-023)
     _factsCache.delete(chatId);
 
-    // Delete events for this chat (simple approach: delete events whose text references the week)
+    // Delete events only within the week date range (SL-024: was deleting ALL events!)
     const { data: eventsDeleted, error: evErr } = await supabase
       .from("events")
       .delete()
       .eq("chat_id", chatId)
+      .gte("received_at", weekStart + "T00:00:00Z")
+      .lte("received_at", weDate.toISOString())
       .select("id");
     if (evErr) logger.error({ err: evErr }, "reset-week: events delete error");
 
-    logger.info("POST /debug/reset-week: deleted %d facts, %d events", factsDeleted, (eventsDeleted || []).length);
-    res.json({ ok: true, facts_deleted: factsDeleted, events_deleted: (eventsDeleted || []).length });
+    logger.info("POST /debug/reset-week: deleted %d facts, %d events for week %s..%s", factsDeleted, (eventsDeleted || []).length, weekStart, weekEnd);
+    res.json({ ok: true, facts_deleted: factsDeleted, events_deleted: (eventsDeleted || []).length, week_start: weekStart });
   } catch (e) {
     logger.error({ err: e }, "POST /debug/reset-week error");
     res.status(500).json({ ok: false, error: String(e?.message || e) });
@@ -1493,11 +1495,10 @@ app.post("/debug/reset-week", async (req, res) => {
  * POST /api/reset-week — reset week data and create WEEK_OPEN for fresh start
  * Body/query: { week_start: "2026-03-09", chat_id?: string }
  */
-app.post("/api/reset-week", async (req, res) => {
+app.post("/api/reset-week", validateBody(ResetWeekSchema), async (req, res) => {
   try {
-    const chatId = req.body.chat_id || req.query.chat_id || "dev_seed_chat";
-    const weekStart = req.body.week_start || req.query.week_start;
-    if (!weekStart) return res.status(400).json({ error: "week_start required (YYYY-MM-DD)" });
+    const chatId = req.body.chat_id || "dev_seed_chat";
+    const weekStart = req.body.week_start;
 
     const wsDate = new Date(weekStart + "T00:00:00Z");
     const weDate = new Date(wsDate);
@@ -1595,6 +1596,19 @@ app.get("/debug/cache-status", async (req, res) => {
     cutoffDate: cutoff.toISOString(),
     sampleFact: facts[0] || null,
   });
+});
+
+// SL-026: Invalidate in-memory facts cache (no DB changes)
+app.post("/api/cache/invalidate", (req, res) => {
+  const chatId = req.body?.chat_id || req.query?.chat_id;
+  if (!chatId) {
+    return res.status(400).json({ error: "chat_id required" });
+  }
+  const had = _factsCache.has(chatId);
+  const size = _factsCache.get(chatId)?.size || 0;
+  _factsCache.delete(chatId);
+  logger.info({ chatId, had, size }, "[facts-cache] invalidated via API");
+  res.json({ ok: true, chatId, had, evicted: size });
 });
 
 app.get("/debug/weeks", async (req, res) => {

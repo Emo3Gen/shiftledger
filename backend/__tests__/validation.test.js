@@ -5,6 +5,7 @@ import {
   FactsQuerySchema,
   EventsQuerySchema,
   ParseEventParamsSchema,
+  ResetWeekSchema,
 } from "../validation/schemas.js";
 import { validateBody, validateQuery, validateParams } from "../middleware/validate.js";
 
@@ -170,6 +171,58 @@ describe("Zod validation schemas", () => {
       middleware(req, res, () => { nextCalled = true; });
       expect(nextCalled).toBe(false);
       expect(res._status).toBe(400);
+    });
+  });
+
+  describe("ResetWeekSchema (SL-024)", () => {
+    test("valid reset-week payload passes", () => {
+      const result = ResetWeekSchema.safeParse({
+        chat_id: "-1002789466545",
+        week_start: "2026-04-06",
+      });
+      expect(result.success).toBe(true);
+    });
+
+    test("missing week_start → validation error", () => {
+      const result = ResetWeekSchema.safeParse({
+        chat_id: "-1002789466545",
+      });
+      expect(result.success).toBe(false);
+    });
+
+    test("empty body (no week_start) → validation error", () => {
+      const result = ResetWeekSchema.safeParse({});
+      expect(result.success).toBe(false);
+    });
+
+    test("invalid week_start format → validation error", () => {
+      const result = ResetWeekSchema.safeParse({
+        week_start: "2026/04/06",
+      });
+      expect(result.success).toBe(false);
+    });
+
+    test("week_start without chat_id → passes (chat_id is optional, defaults in handler)", () => {
+      const result = ResetWeekSchema.safeParse({
+        week_start: "2026-04-06",
+      });
+      expect(result.success).toBe(true);
+    });
+
+    test("validateBody(ResetWeekSchema) rejects missing week_start with 400", () => {
+      const middleware = validateBody(ResetWeekSchema);
+      const req = { body: { chat_id: "test_chat" } };
+      const res = {
+        _status: null,
+        _json: null,
+        status(code) { this._status = code; return this; },
+        json(data) { this._json = data; return this; },
+      };
+      let nextCalled = false;
+      middleware(req, res, () => { nextCalled = true; });
+      expect(nextCalled).toBe(false);
+      expect(res._status).toBe(400);
+      expect(res._json.error).toBe("Validation error");
     });
   });
 });
