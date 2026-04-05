@@ -81,13 +81,13 @@ function saveCollapsed(c: Record<string, boolean>) {
 }
 
 const KNOWN_CHATS: Record<string, string> = {
-  "-1002789466545": "Telegram — сотрудники",
-  "dev_seed_chat": "Эмулятор",
+  "-1002789466545": "Чат сотрудников",
+  "dev_seed_chat": "Тестовые данные",
 };
 function formatChatId(chatId: string): string {
   if (KNOWN_CHATS[chatId]) return KNOWN_CHATS[chatId];
-  if (chatId.startsWith("tg_")) return `Telegram (${chatId.replace("tg_", "")})`;
-  if (chatId.startsWith("-100")) return `TG ${chatId.slice(-6)}`;
+  if (chatId.startsWith("-")) return `Telegram (${chatId})`;
+  if (chatId.startsWith("chat_")) return "Тест-сессия";
   return chatId;
 }
 
@@ -672,8 +672,10 @@ export const App: React.FC = () => {
         const t: Tenant[] = data.tenants ?? [];
         setTenants(t);
         if (t.length > 0) {
-          // Prefer "emu" (main) tenant, fall back to first
-          const preferred = t.find(x => x.tenant_id === "emu") || t[0];
+          // Prefer "dev" (боевой режим), then "emu", fall back to first
+          const preferred = t.find(x => x.tenant_id === "dev")
+            || t.find(x => x.tenant_id === "emu")
+            || t[0];
           setSelectedTenant(preferred.tenant_id);
         }
       } catch (e) {
@@ -1559,7 +1561,7 @@ export const App: React.FC = () => {
               >
                 {tenants.map((t) => (
                   <option key={t.tenant_id} value={t.tenant_id}>
-                    {t.tenant_id === "dev" ? "dev — Telegram-чат" : t.tenant_id === "emu" ? "emu — Симулятор" : t.tenant_id}
+                    {t.tenant_id === "dev" ? "\uD83D\uDFE2 Боевой режим" : t.tenant_id === "emu" ? "\uD83D\uDD27 Режим отладки" : t.tenant_id}
                   </option>
                 ))}
               </select>
@@ -1588,13 +1590,21 @@ export const App: React.FC = () => {
                 + Tenant
               </button>
             </div>}
-            {!collapsed["tenants"] && selectedTenant && (
-              <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>
-                {selectedTenant === "dev" ? "\uD83D\uDCF1 Telegram-чат сотрудников" :
-                 selectedTenant === "emu" ? "\uD83D\uDDA5 Симулятор / отладка" : ""}
-                {selectedChatId && selectedChatId.startsWith("-") && (
-                  <span style={{ marginLeft: 8, color: "#1976d2" }}>\uD83D\uDCF1 Telegram</span>
-                )}
+            {!collapsed["tenants"] && (
+              <div style={{ fontSize: 11, color: "#888", marginTop: 3, lineHeight: 1.5 }}>
+                {"\uD83D\uDFE2"} <b>Боевой режим</b> — реальный чат сотрудников<br/>
+                {"\uD83D\uDD27"} <b>Режим отладки</b> — симулятор, безопасно для тестов
+              </div>
+            )}
+            {!collapsed["tenants"] && selectedChatId && (
+              <div style={{ fontSize: 11, color: "#888", marginTop: 3 }}>
+                {selectedChatId === "-1002789466545"
+                  ? "Telegram-группа «График младшие»"
+                  : selectedChatId?.startsWith("chat_")
+                  ? "Временная тест-сессия симулятора"
+                  : selectedChatId === "dev_seed_chat"
+                  ? "Предзагруженные тестовые данные"
+                  : ""}
               </div>
             )}
           </div>

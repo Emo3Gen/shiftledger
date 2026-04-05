@@ -1108,7 +1108,8 @@ app.get("/debug/tenants", async (req, res) => {
 
     if (error) throw error;
 
-    const tenantSet = new Set();
+    const STATIC_TENANTS = ["dev", "emu"];
+    const tenantSet = new Set(STATIC_TENANTS);
     for (const row of data || []) {
       const tenantId = row.meta?.tenant_id || "dev";
       if (tenantId) {
@@ -1116,7 +1117,8 @@ app.get("/debug/tenants", async (req, res) => {
       }
     }
 
-    const tenants = Array.from(tenantSet).slice(0, 50);
+    const ALLOWED = new Set(["dev", "emu"]);
+    const tenants = Array.from(tenantSet).filter(t => ALLOWED.has(t)).sort();
     res.status(200).json({ tenants: tenants.map((t) => ({ tenant_id: t })) });
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e) });
@@ -1170,7 +1172,24 @@ app.get("/debug/dialogs", validateQuery(DialogsQuerySchema), async (req, res) =>
       if (map.size >= 50) break;
     }
 
-    res.status(200).json({ dialogs: Array.from(map.values()) });
+    const dialogs = Array.from(map.values());
+
+    // Для боевого режима: всегда показывать TG-чат сотрудников
+    if (tenant_id === "dev") {
+      const TG = "-1002789466545";
+      if (!dialogs.find(d => d.chat_id === TG)) {
+        const { data: last } = await supabase.from("facts")
+          .select("created_at").eq("chat_id", TG)
+          .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        dialogs.unshift({
+          chat_id: TG,
+          last_ts: last?.created_at || new Date().toISOString(),
+          last_text: "Чат сотрудников",
+        });
+      }
+    }
+
+    res.status(200).json({ dialogs });
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e) });
   }
