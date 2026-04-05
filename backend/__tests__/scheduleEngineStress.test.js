@@ -8,17 +8,20 @@ const SLOTS = [
 ];
 
 function makeFact(overrides) {
+  const { fact_payload, ...rest } = overrides || {};
   return {
     fact_type: "SHIFT_AVAILABILITY",
     user_id: "u1",
     fact_payload: {
+      week_start: WEEK_START,
       dow: "mon",
       from: "10:00",
       to: "13:00",
       availability: "can",
+      ...fact_payload,
     },
     created_at: "2025-01-05T10:00:00Z",
-    ...overrides,
+    ...rest,
   };
 }
 

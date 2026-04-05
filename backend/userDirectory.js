@@ -72,6 +72,7 @@ export const UserDirectory = {
     ["u2", { id: "u2", slug: "daria", displayName: "Дарина", ratePerHour: 280, role: "junior", minHours: 20, autoSchedule: true, branch: "Архангельск" }],
     ["u3", { id: "u3", slug: "ksu", displayName: "Ксюша", ratePerHour: 280, role: "junior", minHours: 0, autoSchedule: true, branch: "Архангельск" }],
     ["u4", { id: "u4", slug: "karina", displayName: "Карина", ratePerHour: 280, role: "junior", minHours: 20, autoSchedule: true, branch: "Архангельск" }],
+    ["u5", { id: "u5", slug: "alena", displayName: "Алёна", ratePerHour: 0, role: "director", minHours: 0, autoSchedule: false, branch: "Архангельск" }],
     // System users
     ["senior1", { id: "senior1", slug: "senior1", displayName: "Старший 1", ratePerHour: 350, role: "senior", minHours: 0, autoSchedule: true, branch: "Архангельск" }],
     ["owner1", { id: "owner1", slug: "owner1", displayName: "Владелец", ratePerHour: 0, role: "owner", minHours: 0, autoSchedule: true, branch: "Архангельск" }],

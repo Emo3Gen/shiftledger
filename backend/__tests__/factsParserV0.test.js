@@ -982,4 +982,33 @@ describe("factsParserV0", () => {
       });
     });
   });
+
+  // --- SL-020: parseRussianNL и fuzzyMatchIntent имеют week_start ---
+  describe("parseRussianNL/fuzzyMatch week_start (SL-020)", () => {
+    test("'могу пн утро' из вторника → week_start текущей недели", () => {
+      const facts = parseEventToFacts({
+        text: "могу пн утро",
+        received_at: "2026-04-07T10:00:00Z", // вторник → week_start = 2026-04-06
+        chat_id: "test", user_id: "u1", meta: {},
+      });
+      const avail = facts.filter(f => f.fact_type === "SHIFT_AVAILABILITY");
+      expect(avail.length).toBeGreaterThanOrEqual(1);
+      avail.forEach(f => {
+        expect(f.fact_payload.week_start).toBe("2026-04-06");
+      });
+    });
+
+    test("'не могу вт вечер' из четверга → week_start текущей недели", () => {
+      const facts = parseEventToFacts({
+        text: "не могу вт вечер",
+        received_at: "2026-04-09T10:00:00Z", // четверг → week_start = 2026-04-06
+        chat_id: "test", user_id: "u2", meta: {},
+      });
+      const unavail = facts.filter(f => f.fact_type === "SHIFT_UNAVAILABILITY");
+      expect(unavail.length).toBeGreaterThanOrEqual(1);
+      unavail.forEach(f => {
+        expect(f.fact_payload.week_start).toBe("2026-04-06");
+      });
+    });
+  });
 });

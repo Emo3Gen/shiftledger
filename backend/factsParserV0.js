@@ -1195,7 +1195,7 @@ function parseRussianNL(text, receivedAt) {
 
     for (const dayInfo of days) {
       const time = segTime || globalTime;
-      const date = nextWeekdayBerlin(receivedAt, dayInfo.dowIndex);
+      const date = sameWeekdayBerlin(receivedAt, dayInfo.dowIndex);
       const week_start = getWeekStartForDate(date);
 
       if (time) {
@@ -1449,7 +1449,7 @@ function fuzzyMatchIntent(text, receivedAt) {
     const availability = isNeg ? 'cannot' : 'can';
 
     for (const dow of foundDays) {
-      const date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+      const date = sameWeekdayBerlin(receivedAt, DOW_MAP[dow]);
       const week_start = getWeekStartForDate(date);
       if (foundTime) {
         results.push({

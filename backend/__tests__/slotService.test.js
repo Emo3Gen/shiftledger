@@ -108,7 +108,7 @@ describe("buildDraftSchedule with custom slotTypes", () => {
       {
         fact_type: "SHIFT_AVAILABILITY",
         user_id: "u1",
-        fact_payload: { dow: "mon", from: "09:00", to: "15:00", availability: "can" },
+        fact_payload: { week_start: "2025-01-06", dow: "mon", from: "09:00", to: "15:00", availability: "can" },
         created_at: "2025-01-05T10:00:00Z",
       },
     ];

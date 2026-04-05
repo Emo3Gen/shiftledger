@@ -44,12 +44,26 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
   const slotSkillReqs = settings?.["schedule.slot_skill_requirements"] || {}; // "dow|morning" → skill_level
   const SKILL_ORDER = { beginner: 0, experienced: 1, guru: 2 };
 
-  // Pre-filter: only use facts that belong to the requested week
-  // Facts without week_start are included (backwards compatibility)
+  // Pre-filter: only use facts that belong to the requested week (SL-020)
+  const SCHEDULING_TYPES = new Set([
+    "SHIFT_AVAILABILITY", "SHIFT_UNAVAILABILITY", "SHIFT_ASSIGNMENT",
+    "SHIFT_UNASSIGNMENT", "SHIFT_REPLACEMENT", "SHIFT_GAP",
+  ]);
   const filteredFacts = (facts || []).filter(f => {
     const ws = f.fact_payload?.week_start;
-    if (!ws) return true; // No week_start — include (legacy facts)
-    return ws === weekStartISO;
+    if (ws) return ws === weekStartISO;
+
+    // Facts with date but no week_start: check date falls within the week
+    const date = f.fact_payload?.date;
+    if (date && weekStartISO) {
+      const weekEnd = new Date(weekStartISO + "T00:00:00Z");
+      weekEnd.setUTCDate(weekEnd.getUTCDate() + 6);
+      return date >= weekStartISO && date <= weekEnd.toISOString().split("T")[0];
+    }
+
+    // No week_start and no date: exclude scheduling facts, include system facts
+    if (SCHEDULING_TYPES.has(f.fact_type)) return false;
+    return true;
   });
 
   // Step 0: Collect SHIFT_REPLACEMENT facts (replacement overrides)

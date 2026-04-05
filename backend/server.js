@@ -1607,8 +1607,8 @@ app.get("/debug/schedule", validateQuery(ScheduleQuerySchema), async (req, res) 
       sample_by_type,
       availability_values,
       slots_extracted_count,
-      paraplan_ready: paraplan.isReady(),
-      paraplan_updated_at: paraplan.getLastUpdate(),
+      paraplan_ready: paraplan.isReady() || (USE_EMOGEN_PARAPLAN && !!_emogenHoursCache?.hours),
+      paraplan_updated_at: paraplan.getLastUpdate() || _emogenHoursCache?.updatedAt || null,
     };
 
     res.json(schedule);
