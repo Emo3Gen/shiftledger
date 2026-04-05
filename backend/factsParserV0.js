@@ -44,6 +44,20 @@ function sameWeekdayBerlin(isoString, targetIndex) {
   return addDaysBerlin(isoString, diff);
 }
 
+// Smart weekday resolution: past days → next week, today/future → same week (SL-022).
+// Used for availability/scheduling messages where people mean upcoming days.
+function smartWeekdayBerlin(isoString, targetIndex) {
+  const date = new Date(isoString);
+  let currentDay = date.getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  if (currentDay === 0) currentDay = 7; // Sun=7
+  const currentDayIndex = currentDay - 1; // 0=Mon, ..., 6=Sun
+
+  if (targetIndex < currentDayIndex) {
+    return nextWeekdayBerlin(isoString, targetIndex);
+  }
+  return sameWeekdayBerlin(isoString, targetIndex);
+}
+
 // Get Monday (week_start) for a given YYYY-MM-DD date string.
 function getWeekStartForDate(dateStr) {
   if (!dateStr) return null;
@@ -1010,7 +1024,7 @@ function parseMultiLineSchedule(text, receivedAt) {
     const dow = RU_DOW_MAP[dayToken];
     if (!dow) continue;
     const dowIndex = DOW_MAP[dow];
-    const date = sameWeekdayBerlin(receivedAt, dowIndex);
+    const date = smartWeekdayBerlin(receivedAt, dowIndex);
     const week_start = getWeekStartForDate(date);
 
     // Determine if unavailable
@@ -1195,7 +1209,7 @@ function parseRussianNL(text, receivedAt) {
 
     for (const dayInfo of days) {
       const time = segTime || globalTime;
-      const date = sameWeekdayBerlin(receivedAt, dayInfo.dowIndex);
+      const date = smartWeekdayBerlin(receivedAt, dayInfo.dowIndex);
       const week_start = getWeekStartForDate(date);
 
       if (time) {
@@ -1449,7 +1463,7 @@ function fuzzyMatchIntent(text, receivedAt) {
     const availability = isNeg ? 'cannot' : 'can';
 
     for (const dow of foundDays) {
-      const date = sameWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+      const date = smartWeekdayBerlin(receivedAt, DOW_MAP[dow]);
       const week_start = getWeekStartForDate(date);
       if (foundTime) {
         results.push({

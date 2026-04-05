@@ -923,91 +923,88 @@ describe("factsParserV0", () => {
     });
   });
 
-  // --- SL-011: Multiline schedule week_start ---
-  describe("parseMultiLineSchedule week_start (SL-011)", () => {
-    test("сообщение в четверг → week_start текущей недели", () => {
-      const text = "пн - утро\nвт - вечер\nпт - не могу";
-      // четверг 02.04.2026 → week_start = 2026-03-30 (пн)
+  // --- SL-022: smartWeekdayBerlin — прошедшие дни → следующая неделя ---
+  describe("smartWeekdayBerlin — умное определение недели (SL-022)", () => {
+    test("пн из пятницы → следующий пн", () => {
       const facts = parseEventToFacts({
-        text,
-        received_at: "2026-04-02T10:00:00Z",
-        chat_id: "test",
-        user_id: "u2",
-        meta: {},
-      });
-      const avail = facts.filter(f =>
-        f.fact_type === "SHIFT_AVAILABILITY" || f.fact_type === "SHIFT_UNAVAILABILITY"
-      );
-      expect(avail.length).toBeGreaterThanOrEqual(2);
-      avail.forEach(f => {
-        expect(f.fact_payload.week_start).toBe("2026-03-30");
-      });
-    });
-
-    test("сообщение в понедельник → week_start той же недели", () => {
-      const text = "пн - утро\nвт - вечер";
-      // понедельник 30.03.2026
-      const facts = parseEventToFacts({
-        text,
-        received_at: "2026-03-30T10:00:00Z",
-        chat_id: "test",
-        user_id: "u1",
-        meta: {},
-      });
-      const avail = facts.filter(f =>
-        f.fact_type === "SHIFT_AVAILABILITY" || f.fact_type === "SHIFT_UNAVAILABILITY"
-      );
-      expect(avail.length).toBeGreaterThanOrEqual(2);
-      avail.forEach(f => {
-        expect(f.fact_payload.week_start).toBe("2026-03-30");
-      });
-    });
-
-    test("сообщение в пятницу, упомянут пн → week_start текущей недели, не следующей", () => {
-      const text = "пн - утро\nвт - утро\nср - утро\nчт - не могу\nпт - не могу";
-      // пятница 04.04.2026 → week_start = 2026-03-30
-      const facts = parseEventToFacts({
-        text,
-        received_at: "2026-04-04T10:00:00Z",
-        chat_id: "test",
-        user_id: "u2",
-        meta: {},
-      });
-      const avail = facts.filter(f =>
-        f.fact_type === "SHIFT_AVAILABILITY" || f.fact_type === "SHIFT_UNAVAILABILITY"
-      );
-      expect(avail.length).toBeGreaterThanOrEqual(5);
-      avail.forEach(f => {
-        expect(f.fact_payload.week_start).toBe("2026-03-30");
-      });
-    });
-  });
-
-  // --- SL-020: parseRussianNL и fuzzyMatchIntent имеют week_start ---
-  describe("parseRussianNL/fuzzyMatch week_start (SL-020)", () => {
-    test("'могу пн утро' из вторника → week_start текущей недели", () => {
-      const facts = parseEventToFacts({
-        text: "могу пн утро",
-        received_at: "2026-04-07T10:00:00Z", // вторник → week_start = 2026-04-06
+        text: "пн - утро\nвт - вечер",
+        received_at: "2026-04-03T10:00:00Z", // пятница 03.04
         chat_id: "test", user_id: "u1", meta: {},
       });
-      const avail = facts.filter(f => f.fact_type === "SHIFT_AVAILABILITY");
-      expect(avail.length).toBeGreaterThanOrEqual(1);
+      const mon = facts.find(f => f.fact_payload?.dow === "mon");
+      expect(mon.fact_payload.date).toBe("2026-04-06"); // следующий пн
+      expect(mon.fact_payload.week_start).toBe("2026-04-06");
+    });
+
+    test("сб из пятницы → эта суббота", () => {
+      const facts = parseEventToFacts({
+        text: "сб - вечер",
+        received_at: "2026-04-03T10:00:00Z", // пятница 03.04
+        chat_id: "test", user_id: "u1", meta: {},
+      });
+      const sat = facts.find(f => f.fact_payload?.dow === "sat");
+      expect(sat.fact_payload.date).toBe("2026-04-04"); // эта суббота
+      expect(sat.fact_payload.week_start).toBe("2026-03-30");
+    });
+
+    test("пн из среды (NL) → следующий пн", () => {
+      const facts = parseEventToFacts({
+        text: "могу пн утро",
+        received_at: "2026-04-08T10:00:00Z", // среда
+        chat_id: "test", user_id: "u1", meta: {},
+      });
+      const mon = facts.find(f => f.fact_payload?.dow === "mon");
+      expect(mon.fact_payload.date).toBe("2026-04-13"); // следующий пн
+      expect(mon.fact_payload.week_start).toBe("2026-04-13");
+    });
+
+    test("пт из среды (NL) → эта пятница", () => {
+      const facts = parseEventToFacts({
+        text: "могу пт вечер",
+        received_at: "2026-04-08T10:00:00Z", // среда
+        chat_id: "test", user_id: "u1", meta: {},
+      });
+      const fri = facts.find(f => f.fact_payload?.dow === "fri");
+      expect(fri.fact_payload.date).toBe("2026-04-10"); // эта пятница
+      expect(fri.fact_payload.week_start).toBe("2026-04-06");
+    });
+
+    test("чт из четверга → этот четверг (сегодня)", () => {
+      const facts = parseEventToFacts({
+        text: "могу чт утро",
+        received_at: "2026-04-09T10:00:00Z", // четверг
+        chat_id: "test", user_id: "u1", meta: {},
+      });
+      const thu = facts.find(f => f.fact_payload?.dow === "thu");
+      expect(thu.fact_payload.date).toBe("2026-04-09"); // сегодня
+    });
+
+    test("сообщение в понедельник → все дни текущей недели", () => {
+      const facts = parseEventToFacts({
+        text: "пн - утро\nвт - вечер\nпт - не могу",
+        received_at: "2026-03-30T10:00:00Z", // понедельник
+        chat_id: "test", user_id: "u1", meta: {},
+      });
+      const avail = facts.filter(f =>
+        f.fact_type === "SHIFT_AVAILABILITY" || f.fact_type === "SHIFT_UNAVAILABILITY"
+      );
+      expect(avail.length).toBeGreaterThanOrEqual(2);
       avail.forEach(f => {
-        expect(f.fact_payload.week_start).toBe("2026-04-06");
+        expect(f.fact_payload.week_start).toBe("2026-03-30");
       });
     });
 
-    test("'не могу вт вечер' из четверга → week_start текущей недели", () => {
+    test("не могу вт из четверга → следующий вт", () => {
       const facts = parseEventToFacts({
         text: "не могу вт вечер",
-        received_at: "2026-04-09T10:00:00Z", // четверг → week_start = 2026-04-06
+        received_at: "2026-04-09T10:00:00Z", // четверг
         chat_id: "test", user_id: "u2", meta: {},
       });
       const unavail = facts.filter(f => f.fact_type === "SHIFT_UNAVAILABILITY");
       expect(unavail.length).toBeGreaterThanOrEqual(1);
       unavail.forEach(f => {
-        expect(f.fact_payload.week_start).toBe("2026-04-06");
+        expect(f.fact_payload.date).toBe("2026-04-14"); // следующий вт
+        expect(f.fact_payload.week_start).toBe("2026-04-13");
       });
     });
   });
