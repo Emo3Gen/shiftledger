@@ -1009,19 +1009,45 @@ describe("factsParserV0", () => {
       });
     });
 
-    test("все дни кроме X → все дни следующей недели", () => {
+    test("parseAllDaysExcept: могу все дни кроме вс → следующая неделя (SL-030)", () => {
+      // понедельник 31.03.2026, неделя 30.03
       const facts = parseEventToFacts({
         text: "Могу все дни, кроме воскресения",
-        received_at: "2026-04-01T10:00:00Z", // среда 01.04, неделя 30.03
+        received_at: "2026-03-31T10:00:00Z",
         chat_id: "test", user_id: "u4", meta: {},
       });
       const avail = facts.filter(f => f.fact_type === "SHIFT_AVAILABILITY");
-      expect(avail.length).toBeGreaterThanOrEqual(1);
-      // parseAllDaysExcept uses nextWeekdayBerlin — already always next occurrence
-      // Just verify they all land in a future week
+      // Все дни должны быть на неделю 06.04
       avail.forEach(f => {
-        expect(f.fact_payload.date > "2026-04-01").toBe(true);
+        expect(f.fact_payload.week_start).toBe("2026-04-06");
       });
+      // Воскресенье должно быть недоступно
+      const sun = facts.filter(f => f.fact_type === "SHIFT_UNAVAILABILITY" && f.fact_payload.dow === "sun");
+      expect(sun.length).toBeGreaterThan(0);
+      expect(sun[0].fact_payload.week_start).toBe("2026-04-06");
+    });
+
+    test("AVAIL без week_start → следующая неделя (SL-030)", () => {
+      // пятница 03.04.2026, неделя 30.03
+      const facts = parseEventToFacts({
+        text: "AVAIL mon 10-13",
+        received_at: "2026-04-03T10:00:00Z",
+        chat_id: "test", user_id: "u1", meta: {},
+      });
+      expect(facts[0]?.fact_type).toBe("SHIFT_AVAILABILITY");
+      expect(facts[0]?.fact_payload.date).toBe("2026-04-06"); // следующий пн
+      expect(facts[0]?.fact_payload.week_start).toBe(null); // command без week_start → null
+    });
+
+    test("AVAIL с week_start → дата по week_start (не меняется)", () => {
+      const facts = parseEventToFacts({
+        text: "AVAIL 2026-04-06 mon 10-13",
+        received_at: "2026-04-03T10:00:00Z",
+        chat_id: "test", user_id: "u1", meta: {},
+      });
+      expect(facts[0]?.fact_type).toBe("SHIFT_AVAILABILITY");
+      expect(facts[0]?.fact_payload.date).toBe("2026-04-06");
+      expect(facts[0]?.fact_payload.week_start).toBe("2026-04-06");
     });
   });
 });

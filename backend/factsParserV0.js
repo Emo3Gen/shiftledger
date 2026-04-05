@@ -145,7 +145,7 @@ function parseCommandFormat(text, receivedAt) {
     if (weekStart) {
       date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
     } else {
-      date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+      date = scheduleWeekdayBerlin(receivedAt, DOW_MAP[dow]);
     }
     results.push({
       fact_type: "SHIFT_AVAILABILITY",
@@ -186,7 +186,7 @@ function parseCommandFormat(text, receivedAt) {
       if (weekStart) {
         date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
       } else {
-        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+        date = scheduleWeekdayBerlin(receivedAt, DOW_MAP[dow]);
       }
       results.push({
         fact_type: "SHIFT_UNAVAILABILITY",
@@ -214,7 +214,7 @@ function parseCommandFormat(text, receivedAt) {
     const toHour = swapMatch[3].padStart(2, "0");
     const targetUserId = swapMatch[4].toLowerCase();
     if (DOW_MAP[dow] !== undefined) {
-      const date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+      const date = scheduleWeekdayBerlin(receivedAt, DOW_MAP[dow]);
       results.push({
         fact_type: "SHIFT_SWAP_REQUEST",
         fact_payload: {
@@ -236,7 +236,7 @@ function parseCommandFormat(text, receivedAt) {
     const dow = gapMatch[1].toLowerCase();
     const fromHour = gapMatch[2].padStart(2, "0");
     const toHour = gapMatch[3].padStart(2, "0");
-    const date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+    const date = scheduleWeekdayBerlin(receivedAt, DOW_MAP[dow]);
     results.push({
       fact_type: "SHIFT_GAP",
       fact_payload: {
@@ -301,7 +301,7 @@ function parseCommandFormat(text, receivedAt) {
       if (weekStart) {
         date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
       } else {
-        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+        date = scheduleWeekdayBerlin(receivedAt, DOW_MAP[dow]);
       }
       results.push({
         fact_type: "SHIFT_MARKED_PROBLEM",
@@ -346,7 +346,7 @@ function parseCommandFormat(text, receivedAt) {
       if (weekStart) {
         date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
       } else {
-        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+        date = scheduleWeekdayBerlin(receivedAt, DOW_MAP[dow]);
       }
       results.push({
         fact_type: "PROBLEM_SHIFT",
@@ -380,7 +380,7 @@ function parseCommandFormat(text, receivedAt) {
       if (weekStart) {
         date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
       } else {
-        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+        date = scheduleWeekdayBerlin(receivedAt, DOW_MAP[dow]);
       }
       results.push({
         fact_type: "SHIFT_FACT_CONFIRMED",
@@ -455,7 +455,7 @@ function parseCommandFormat(text, receivedAt) {
     if (DOW_MAP[dow] !== undefined) {
       const date = weekStart
         ? addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow])
-        : nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+        : scheduleWeekdayBerlin(receivedAt, DOW_MAP[dow]);
       results.push({
         fact_type: "SHIFT_GAP",
         fact_payload: {
@@ -498,7 +498,7 @@ function parseCommandFormat(text, receivedAt) {
       if (weekStart) {
         date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
       } else {
-        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+        date = scheduleWeekdayBerlin(receivedAt, DOW_MAP[dow]);
       }
       results.push({
         fact_type: "SHIFT_ASSIGNMENT",
@@ -540,7 +540,7 @@ function parseCommandFormat(text, receivedAt) {
       if (weekStart) {
         date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
       } else {
-        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+        date = scheduleWeekdayBerlin(receivedAt, DOW_MAP[dow]);
       }
       results.push({
         fact_type: "SHIFT_UNASSIGNMENT",
@@ -581,7 +581,7 @@ function parseCommandFormat(text, receivedAt) {
       if (weekStart) {
         date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
       } else {
-        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+        date = scheduleWeekdayBerlin(receivedAt, DOW_MAP[dow]);
       }
       results.push({
         fact_type: "OWNER_APPROVAL",
@@ -623,7 +623,7 @@ function parseCommandFormat(text, receivedAt) {
       if (weekStart) {
         date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
       } else {
-        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+        date = scheduleWeekdayBerlin(receivedAt, DOW_MAP[dow]);
       }
       results.push({
         fact_type: "SHIFT_WORKED",
@@ -664,7 +664,7 @@ function parseCommandFormat(text, receivedAt) {
       if (weekStart) {
         date = addDaysBerlin(weekStart + "T00:00:00Z", DOW_MAP[dow]);
       } else {
-        date = nextWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+        date = scheduleWeekdayBerlin(receivedAt, DOW_MAP[dow]);
       }
       results.push({
         fact_type: "SHIFT_NO_SHOW",
@@ -857,13 +857,13 @@ function parseCommandFormat(text, receivedAt) {
 
 // Russian day-of-week map (full + abbreviated) → dow code
 const RU_DOW_MAP = {
-  пн: "mon", понедельник: "mon",
-  вт: "tue", вторник: "tue",
-  ср: "wed", среда: "wed", среду: "wed",
-  чт: "thu", четверг: "thu",
-  пт: "fri", пятница: "fri", пятницу: "fri",
-  сб: "sat", суббота: "sat", субботу: "sat",
-  вс: "sun", воскресенье: "sun",
+  пн: "mon", понедельник: "mon", понедельника: "mon",
+  вт: "tue", вторник: "tue", вторника: "tue",
+  ср: "wed", среда: "wed", среду: "wed", среды: "wed",
+  чт: "thu", четверг: "thu", четверга: "thu",
+  пт: "fri", пятница: "fri", пятницу: "fri", пятницы: "fri",
+  сб: "sat", суббота: "sat", субботу: "sat", субботы: "sat",
+  вс: "sun", воскресенье: "sun", воскресенья: "sun", воскресения: "sun",
 };
 
 // Named time slots
@@ -1113,7 +1113,7 @@ function parseAllDaysExcept(text, receivedAt) {
   const results = [];
   for (let i = 0; i < ALL_DOWS.length; i++) {
     const dow = ALL_DOWS[i];
-    const date = nextWeekdayBerlin(receivedAt, i);
+    const date = scheduleWeekdayBerlin(receivedAt, i);
     const week_start = getWeekStartForDate(date);
     if (excludedDows.has(dow)) {
       for (const slot of BOTH_SLOTS) {
@@ -1935,7 +1935,7 @@ export function parseEventToFacts(event) {
         }
       }
       if (targetUserId) {
-        const date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+        const date = scheduleWeekdayBerlin(receivedAt, dowInfo.dowIndex);
         results.push({
           fact_type: "PROBLEM_SHIFT",
           fact_payload: {
@@ -1961,7 +1961,7 @@ export function parseEventToFacts(event) {
     const dowInfo = extractRuDow(lower);
     const time = dowInfo ? extractTime(lower) : null;
     if (dowInfo && time) {
-      const date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+      const date = scheduleWeekdayBerlin(receivedAt, dowInfo.dowIndex);
       const week_start = getWeekStartForDate(date);
       results.push({
         fact_type: "SHIFT_UNAVAILABILITY",
@@ -1988,7 +1988,7 @@ export function parseEventToFacts(event) {
     const dowInfo = extractRuDow(lower);
     const time = dowInfo ? extractTime(lower) : null;
     if (dowInfo && time) {
-      const date = nextWeekdayBerlin(receivedAt, dowInfo.dowIndex);
+      const date = scheduleWeekdayBerlin(receivedAt, dowInfo.dowIndex);
       results.push({
         fact_type: "SHIFT_REPLACEMENT",
         fact_payload: {
@@ -2033,8 +2033,8 @@ export function parseEventToFacts(event) {
       const fromIndex = WEEKDAYS.indexOf(fromDayToken);
       const toIndex = WEEKDAYS.indexOf(toDayToken);
       if (fromIndex !== -1 && toIndex !== -1) {
-        const fromDate = nextWeekdayBerlin(receivedAt, fromIndex);
-        const toDate = nextWeekdayBerlin(receivedAt, toIndex);
+        const fromDate = scheduleWeekdayBerlin(receivedAt, fromIndex);
+        const toDate = scheduleWeekdayBerlin(receivedAt, toIndex);
         const fromShift =
           fromShiftWord === "утро"
             ? "morning"
