@@ -256,19 +256,28 @@ function initCacheFromDB(chatId, facts) {
 }
 
 async function getOrLoadFacts(chatId) {
-  let facts = getFactsForChat(chatId);
-  if (facts.length > 0) return facts;
-  // Lazy load from DB on first access
+  if (_factsCache.has(chatId) && _factsCache.get(chatId).size > 0) {
+    const facts = Array.from(_factsCache.get(chatId).values());
+    logger.debug({ chatId, count: facts.length }, "[facts-cache] hit");
+    return facts;
+  }
+  // Lazy load from DB on first access (or after cache miss)
+  logger.info({ chatId }, "[facts-cache] miss, loading from DB");
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - FACTS_CACHE_MAX_AGE_DAYS);
-  const { data: dbFacts } = await supabase
+  const { data: dbFacts, error: dbErr } = await supabase
     .from("facts").select("*")
     .eq("chat_id", chatId)
     .gte("created_at", cutoff.toISOString())
     .order("created_at", { ascending: true })
     .limit(5000);
+  if (dbErr) {
+    logger.error({ chatId, err: dbErr }, "[facts-cache] DB load error");
+    return [];
+  }
   if (dbFacts) {
-    initCacheFromDB(chatId, dbFacts);
+    const cached = initCacheFromDB(chatId, dbFacts);
+    logger.info({ chatId, dbRows: dbFacts.length, cached }, "[facts-cache] loaded from DB");
     return getFactsForChat(chatId);
   }
   return [];
@@ -1559,6 +1568,33 @@ app.post("/api/reset-week", async (req, res) => {
     logger.error({ err: e }, "POST /api/reset-week error");
     res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
+});
+
+app.get("/debug/cache-status", async (req, res) => {
+  const chatId = req.query.chat_id || "-1002789466545";
+  const facts = await getOrLoadFacts(chatId);
+  const cacheSize = _factsCache.get(chatId)?.size || 0;
+  // Also do a raw DB count for comparison
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - FACTS_CACHE_MAX_AGE_DAYS);
+  const { count: dbCount, error: countErr } = await supabase
+    .from("facts").select("*", { count: "exact", head: true })
+    .eq("chat_id", chatId)
+    .gte("created_at", cutoff.toISOString());
+  const { count: dbCountAll } = await supabase
+    .from("facts").select("*", { count: "exact", head: true })
+    .eq("chat_id", chatId);
+  res.json({
+    chatId,
+    factsReturned: facts.length,
+    cacheSize,
+    cacheKeys: [...(_factsCache.keys())],
+    dbCountWithCutoff: dbCount,
+    dbCountAll: dbCountAll,
+    dbCountError: countErr ? String(countErr.message || countErr) : null,
+    cutoffDate: cutoff.toISOString(),
+    sampleFact: facts[0] || null,
+  });
 });
 
 app.get("/debug/weeks", async (req, res) => {
