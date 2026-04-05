@@ -1110,7 +1110,7 @@ app.get("/debug/tenants", async (req, res) => {
 
     const tenantSet = new Set();
     for (const row of data || []) {
-      const tenantId = row.meta?.tenant_id || row.source;
+      const tenantId = row.meta?.tenant_id || "dev";
       if (tenantId) {
         tenantSet.add(tenantId);
       }
@@ -1153,7 +1153,7 @@ app.get("/debug/dialogs", validateQuery(DialogsQuerySchema), async (req, res) =>
 
     // Фильтруем в памяти: (meta.tenant_id == tenant_id) OR (если meta.tenant_id нет, то source == tenant_id)
     const filtered = (data || []).filter((row) => {
-      const rowTenantId = row.meta?.tenant_id || row.source;
+      const rowTenantId = row.meta?.tenant_id || "dev";
       return rowTenantId === tenant_id;
     });
 

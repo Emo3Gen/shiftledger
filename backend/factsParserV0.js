@@ -44,18 +44,14 @@ function sameWeekdayBerlin(isoString, targetIndex) {
   return addDaysBerlin(isoString, diff);
 }
 
-// Smart weekday resolution: past days → next week, today/future → same week (SL-022).
-// Used for availability/scheduling messages where people mean upcoming days.
-function smartWeekdayBerlin(isoString, targetIndex) {
-  const date = new Date(isoString);
-  let currentDay = date.getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-  if (currentDay === 0) currentDay = 7; // Sun=7
-  const currentDayIndex = currentDay - 1; // 0=Mon, ..., 6=Sun
-
-  if (targetIndex < currentDayIndex) {
-    return nextWeekdayBerlin(isoString, targetIndex);
-  }
-  return sameWeekdayBerlin(isoString, targetIndex);
+// Schedule weekday resolution: ALWAYS next week (SL-027).
+// Employees write schedules mid-week meaning NEXT week. No exceptions.
+function scheduleWeekdayBerlin(isoString, targetIndex) {
+  const berlinDate = getBerlinDateFromIso(isoString);
+  const weekStart = getWeekStartForDate(berlinDate);
+  const d = new Date(weekStart + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 7 + targetIndex);
+  return d.toISOString().split("T")[0];
 }
 
 // Get Monday (week_start) for a given YYYY-MM-DD date string.
@@ -1024,7 +1020,7 @@ function parseMultiLineSchedule(text, receivedAt) {
     const dow = RU_DOW_MAP[dayToken];
     if (!dow) continue;
     const dowIndex = DOW_MAP[dow];
-    const date = smartWeekdayBerlin(receivedAt, dowIndex);
+    const date = scheduleWeekdayBerlin(receivedAt, dowIndex);
     const week_start = getWeekStartForDate(date);
 
     // Determine if unavailable
@@ -1209,7 +1205,7 @@ function parseRussianNL(text, receivedAt) {
 
     for (const dayInfo of days) {
       const time = segTime || globalTime;
-      const date = smartWeekdayBerlin(receivedAt, dayInfo.dowIndex);
+      const date = scheduleWeekdayBerlin(receivedAt, dayInfo.dowIndex);
       const week_start = getWeekStartForDate(date);
 
       if (time) {
@@ -1463,7 +1459,7 @@ function fuzzyMatchIntent(text, receivedAt) {
     const availability = isNeg ? 'cannot' : 'can';
 
     for (const dow of foundDays) {
-      const date = smartWeekdayBerlin(receivedAt, DOW_MAP[dow]);
+      const date = scheduleWeekdayBerlin(receivedAt, DOW_MAP[dow]);
       const week_start = getWeekStartForDate(date);
       if (foundTime) {
         results.push({

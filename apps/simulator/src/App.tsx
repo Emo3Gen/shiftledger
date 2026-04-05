@@ -80,6 +80,17 @@ function saveCollapsed(c: Record<string, boolean>) {
   localStorage.setItem("panel_collapsed", JSON.stringify(c));
 }
 
+const KNOWN_CHATS: Record<string, string> = {
+  "-1002789466545": "Telegram — сотрудники",
+  "dev_seed_chat": "Эмулятор",
+};
+function formatChatId(chatId: string): string {
+  if (KNOWN_CHATS[chatId]) return KNOWN_CHATS[chatId];
+  if (chatId.startsWith("tg_")) return `Telegram (${chatId.replace("tg_", "")})`;
+  if (chatId.startsWith("-100")) return `TG ${chatId.slice(-6)}`;
+  return chatId;
+}
+
 // ToggleSection: wraps a section with collapse ▼/▶ toggle
 const ToggleSection: React.FC<{
   id: string;
@@ -1548,7 +1559,7 @@ export const App: React.FC = () => {
               >
                 {tenants.map((t) => (
                   <option key={t.tenant_id} value={t.tenant_id}>
-                    {t.tenant_id}
+                    {t.tenant_id === "dev" ? "dev — Telegram-чат" : t.tenant_id === "emu" ? "emu — Симулятор" : t.tenant_id}
                   </option>
                 ))}
               </select>
@@ -1561,7 +1572,7 @@ export const App: React.FC = () => {
               >
                 {dialogs.map((d) => (
                   <option key={d.chat_id} value={d.chat_id}>
-                    {d.chat_id === "dev_seed_chat" ? "Эмулятор" : d.chat_id.startsWith("tg_") ? `Telegram (${d.chat_id.replace("tg_", "")})` : d.chat_id}
+                    {formatChatId(d.chat_id)}
                   </option>
                 ))}
               </select>
@@ -1619,7 +1630,7 @@ export const App: React.FC = () => {
                     }
                     onClick={() => setSelectedChatId(d.chat_id)}
                   >
-                    <div className="dialog-title">{d.chat_id}</div>
+                    <div className="dialog-title">{formatChatId(d.chat_id)}</div>
                     <div className="dialog-meta">
                       <span>{(d.last_text ?? "").length > 50 ? (d.last_text!.slice(0, 50) + "...") : (d.last_text ?? "")}</span>
                       {d.last_ts && <span>{new Date(d.last_ts).toLocaleString("ru-RU")}</span>}
