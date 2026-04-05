@@ -231,6 +231,49 @@ function computeFactHash(eventId, factType, payload) {
   return createHash("sha256").update(s).digest("hex");
 }
 
+// --- In-memory facts cache (SL-023) ---
+const _factsCache = new Map(); // chat_id → Map(fact_hash|id → fact)
+const FACTS_CACHE_MAX_AGE_DAYS = 60;
+
+function getFactsForChat(chatId) {
+  return Array.from((_factsCache.get(chatId) || new Map()).values());
+}
+
+function addFactToCache(chatId, fact) {
+  if (!_factsCache.has(chatId)) _factsCache.set(chatId, new Map());
+  _factsCache.get(chatId).set(fact.fact_hash || fact.id, fact);
+}
+
+function initCacheFromDB(chatId, facts) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - FACTS_CACHE_MAX_AGE_DAYS);
+  const chatMap = new Map();
+  for (const f of facts) {
+    if (new Date(f.created_at) > cutoff) chatMap.set(f.fact_hash || f.id, f);
+  }
+  _factsCache.set(chatId, chatMap);
+  return chatMap.size;
+}
+
+async function getOrLoadFacts(chatId) {
+  let facts = getFactsForChat(chatId);
+  if (facts.length > 0) return facts;
+  // Lazy load from DB on first access
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - FACTS_CACHE_MAX_AGE_DAYS);
+  const { data: dbFacts } = await supabase
+    .from("facts").select("*")
+    .eq("chat_id", chatId)
+    .gte("created_at", cutoff.toISOString())
+    .order("created_at", { ascending: true })
+    .limit(5000);
+  if (dbFacts) {
+    initCacheFromDB(chatId, dbFacts);
+    return getFactsForChat(chatId);
+  }
+  return [];
+}
+
 // Internal ingest helper used by /ingest and /debug/send
 async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id, traceId }) {
   const startedAt = Date.now();
@@ -356,6 +399,8 @@ async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id,
 
     if (!factsLoadErr && Array.isArray(factsData)) {
       facts = factsData;
+      // Update in-memory cache (SL-023)
+      for (const f of factsData) addFactToCache(chat_id, f);
     }
 
     // --- Replacement coordination: system messages + auto-promotion ---
@@ -407,14 +452,16 @@ async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id,
         const swapHash = createHash("sha256").update(
           `clarification_cleaning|${eventId}|${JSON.stringify(swapPayload)}`
         ).digest("hex");
-        const { error: swErr } = await supabase.from("facts").upsert([{
+        const swapFact = {
           event_id: eventId, trace_id: inserted.trace_id, chat_id: inserted.chat_id, user_id: clarUserId,
           fact_type: "CLEANING_SWAP", fact_payload: swapPayload, confidence: 1.0,
           status: "parsed", parser_version: "v0", fact_hash: swapHash,
-        }], { onConflict: "fact_hash" });
+        };
+        const { error: swErr } = await supabase.from("facts").upsert([swapFact], { onConflict: "fact_hash" });
         if (swErr) {
           logger.error({ err: swErr }, "Failed to create CLEANING_SWAP from clarification");
         } else {
+          addFactToCache(inserted.chat_id, swapFact);
           const volunteerName = UserDirectory.getDisplayName(clarUserId);
           const originalName = UserDirectory.getDisplayName(pending.cleaning_help_user_id);
           await insertSystemEvent(inserted.chat_id, `✅ ${volunteerName} уберётся за ${originalName} в ${dayLabel}`);
@@ -425,14 +472,16 @@ async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id,
         const replHash = createHash("sha256").update(
           `clarification_shift|${eventId}|${JSON.stringify(replPayload)}`
         ).digest("hex");
-        const { error: rErr } = await supabase.from("facts").upsert([{
+        const replFact = {
           event_id: eventId, trace_id: inserted.trace_id, chat_id: inserted.chat_id, user_id: clarUserId,
           fact_type: "SHIFT_REPLACEMENT", fact_payload: replPayload, confidence: 1.0,
           status: "parsed", parser_version: "v0", fact_hash: replHash,
-        }], { onConflict: "fact_hash" });
+        };
+        const { error: rErr } = await supabase.from("facts").upsert([replFact], { onConflict: "fact_hash" });
         if (rErr) {
           logger.error({ err: rErr }, "Failed to create SHIFT_REPLACEMENT from clarification");
         } else {
+          addFactToCache(inserted.chat_id, replFact);
           const replacementName = UserDirectory.getDisplayName(clarUserId);
           const originalName = UserDirectory.getDisplayName(pending.shift_unavail_user_id);
           const slotLabel = getSlotLabel(pending.shift_slot.from, pending.shift_slot.to);
@@ -464,9 +513,7 @@ async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id,
     const hasGenericAvail = [...availDaySlots.entries()].some(([, s]) => s.has("10:00|13:00") && s.has("18:00|21:00"));
     let ambiguityCheckFacts = [];
     if (hasGenericAvail) {
-      const { data: acf } = await supabase.from("facts").select("*")
-        .eq("chat_id", inserted.chat_id).order("created_at", { ascending: false }).limit(500);
-      ambiguityCheckFacts = acf || [];
+      ambiguityCheckFacts = await getOrLoadFacts(inserted.chat_id);
     }
 
     for (const [dow, slotsSet] of availDaySlots.entries()) {
@@ -555,12 +602,14 @@ async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id,
       const swapHash = createHash("sha256").update(
         `auto_clean_from_avail|${eventId}|${JSON.stringify(swapPayload)}`
       ).digest("hex");
-      const { error: swErr } = await supabase.from("facts").upsert([{
+      const autoSwapFact = {
         event_id: eventId, trace_id: inserted.trace_id, chat_id: inserted.chat_id, user_id: volunteerId,
         fact_type: "CLEANING_SWAP", fact_payload: swapPayload, confidence: 1.0,
         status: "parsed", parser_version: "v0", fact_hash: swapHash,
-      }], { onConflict: "fact_hash" });
+      };
+      const { error: swErr } = await supabase.from("facts").upsert([autoSwapFact], { onConflict: "fact_hash" });
       if (!swErr) {
+        addFactToCache(inserted.chat_id, autoSwapFact);
         const vName = UserDirectory.getDisplayName(volunteerId);
         const oName = UserDirectory.getDisplayName(cInfo.cleanHelpUserId);
         const dLabel = DOW_RU_MAP[dow] || dow;
@@ -583,16 +632,11 @@ async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id,
       const replUserId = UserDirectory.normalizeUserId(inserted.user_id);
       const slotKey = `${dow}|${from}|${to}`;
 
-      // Find who was unavailable for this slot
-      const { data: chatFacts } = await supabase
-        .from("facts")
-        .select("*")
-        .eq("chat_id", inserted.chat_id)
-        .eq("fact_type", "SHIFT_UNAVAILABILITY")
-        .order("created_at", { ascending: false })
-        .limit(200);
+      // Find who was unavailable for this slot (from cache)
+      const chatFacts = (await getOrLoadFacts(inserted.chat_id))
+        .filter((f) => f.fact_type === "SHIFT_UNAVAILABILITY");
 
-      const unavailFact = (chatFacts || []).find((uf) => {
+      const unavailFact = chatFacts.find((uf) => {
         const p = uf.fact_payload || {};
         return `${p.dow}|${p.from}|${p.to}` === slotKey;
       });
@@ -652,14 +696,9 @@ async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id,
       const volunteerId = UserDirectory.normalizeUserId(inserted.user_id);
 
       // Check if there's an unresolved CLEANING_HELP_REQUEST for this day from a different user
-      const { data: allCleanFacts } = await supabase
-        .from("facts")
-        .select("*")
-        .eq("chat_id", inserted.chat_id)
-        .order("created_at", { ascending: false })
-        .limit(500);
+      const allCleanFacts = await getOrLoadFacts(inserted.chat_id);
 
-      const helpFact = (allCleanFacts || []).find((hf) => {
+      const helpFact = allCleanFacts.find((hf) => {
         if (hf.fact_type !== "CLEANING_HELP_REQUEST") return false;
         return hf.fact_payload?.dow === dow &&
           UserDirectory.normalizeUserId(hf.user_id) !== volunteerId;
@@ -1238,16 +1277,12 @@ app.post("/debug/send", ingestLimiter, validateBody(DebugSendSchema), async (req
       if (!dow) continue;
 
       // Find the week_start from recent facts for this chat to compute the date
-      const { data: recentWeekFacts } = await supabase
-        .from("facts")
-        .select("fact_payload")
-        .eq("chat_id", body.chat_id)
-        .in("fact_type", ["WEEK_OPEN", "SHIFT_ASSIGNMENT", "SHIFT_AVAILABILITY"])
-        .order("created_at", { ascending: false })
-        .limit(50);
+      const recentWeekFacts = (await getOrLoadFacts(body.chat_id))
+        .filter((f) => ["WEEK_OPEN", "SHIFT_ASSIGNMENT", "SHIFT_AVAILABILITY"].includes(f.fact_type))
+        .reverse();
 
       let weekStart = null;
-      for (const rf of (recentWeekFacts || [])) {
+      for (const rf of recentWeekFacts) {
         if (rf.fact_payload?.week_start) {
           weekStart = rf.fact_payload.week_start;
           break;
@@ -1353,11 +1388,9 @@ app.post("/debug/seed", async (req, res) => {
     const seedBuild = async (chatId, weekStart) => {
       const slotTypes = await loadSlotTypes(tenantId);
       const seedSettings = await settingsService.getAll(tenantId);
-      const { data: facts } = await supabase
-        .from("facts").select("*").eq("chat_id", chatId)
-        .order("created_at", { ascending: true }).limit(500);
-      logger.info("seedBuild: found %d facts for chat %s, building schedule for week %s", (facts || []).length, chatId, weekStart);
-      const schedule = buildDraftSchedule({ facts: facts ?? [], weekStartISO: weekStart, slotTypes, settings: seedSettings });
+      const facts = await getOrLoadFacts(chatId);
+      logger.info("seedBuild: found %d facts for chat %s, building schedule for week %s", facts.length, chatId, weekStart);
+      const schedule = buildDraftSchedule({ facts, weekStartISO: weekStart, slotTypes, settings: seedSettings });
       logger.info("seedBuild: schedule produced %d assignments", (schedule.assignments || []).length);
       const DOW_ORDER_MAP = { mon: 0, tue: 1, wed: 2, thu: 3, fri: 4, sat: 5, sun: 6 };
       const rows = [];
@@ -1372,7 +1405,10 @@ app.post("/debug/seed", async (req, res) => {
       if (rows.length > 0) {
         const { error: upsertErr } = await supabase.from("facts").upsert(rows, { onConflict: "fact_hash" });
         if (upsertErr) logger.error({ err: upsertErr }, "seedBuild: upsert error");
-        else logger.info("seedBuild: persisted %d SHIFT_ASSIGNMENT facts", rows.length);
+        else {
+          logger.info("seedBuild: persisted %d SHIFT_ASSIGNMENT facts", rows.length);
+          for (const r of rows) addFactToCache(chatId, r);
+        }
       } else {
         logger.warn("seedBuild: no assignments to persist");
       }
@@ -1424,6 +1460,9 @@ app.post("/debug/reset-week", async (req, res) => {
       if (delErr) logger.error({ err: delErr }, "reset-week: facts delete error");
       else factsDeleted = idsToDelete.length;
     }
+
+    // Invalidate facts cache for this chat (SL-023)
+    _factsCache.delete(chatId);
 
     // Delete events for this chat (simple approach: delete events whose text references the week)
     const { data: eventsDeleted, error: evErr } = await supabase
@@ -1480,6 +1519,9 @@ app.post("/api/reset-week", async (req, res) => {
       else factsDeleted = idsToDelete.length;
     }
 
+    // Invalidate facts cache for this chat (SL-023)
+    _factsCache.delete(chatId);
+
     // 2. Create WEEK_OPEN fact
     const weekOpenPayload = { week_start: weekStart, status: "collecting" };
     const weekOpenHash = createHash("sha256").update(`WEEK_OPEN|${JSON.stringify(weekOpenPayload)}|reset`).digest("hex");
@@ -1494,6 +1536,7 @@ app.post("/api/reset-week", async (req, res) => {
       parser_version: "v0",
       fact_hash: weekOpenHash,
     }], { onConflict: "fact_hash" });
+    addFactToCache(chatId, { fact_type: "WEEK_OPEN", fact_payload: weekOpenPayload, fact_hash: weekOpenHash, created_at: new Date().toISOString() });
 
     // 3. Insert system message
     const mondayStr = wsDate.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
@@ -1523,14 +1566,7 @@ app.get("/debug/weeks", async (req, res) => {
     const chatId = req.query.chat_id;
     if (!chatId) return res.status(400).json({ error: "chat_id required" });
 
-    const { data: facts, error } = await supabase
-      .from("facts")
-      .select("fact_payload")
-      .eq("chat_id", chatId)
-      .order("created_at", { ascending: false })
-      .limit(500);
-
-    if (error) throw error;
+    const facts = await getOrLoadFacts(chatId);
 
     const weeks = new Set();
     for (const f of facts || []) {
@@ -1558,14 +1594,7 @@ app.get("/debug/schedule", validateQuery(ScheduleQuerySchema), async (req, res) 
       week_start ??
       new Date(new Date().setUTCHours(0, 0, 0, 0)).toISOString().slice(0, 10);
 
-    const { data: facts, error } = await supabase
-      .from("facts")
-      .select("*")
-      .eq("chat_id", chat_id)
-      .order("created_at", { ascending: true })
-      .limit(500);
-
-    if (error) throw error;
+    const facts = await getOrLoadFacts(chat_id);
 
     // Diagnostic: analyze facts format
     const counts_by_type = {};
@@ -1647,14 +1676,7 @@ app.get("/debug/week_state", validateQuery(ScheduleQuerySchema), async (req, res
       week_start ??
       new Date(new Date().setUTCHours(0, 0, 0, 0)).toISOString().slice(0, 10);
 
-    const { data: facts, error } = await supabase
-      .from("facts")
-      .select("*")
-      .eq("chat_id", chat_id)
-      .order("created_at", { ascending: true })
-      .limit(500);
-
-    if (error) throw error;
+    const facts = await getOrLoadFacts(chat_id);
 
     // Filter facts to this week
     const filteredFacts = (facts || []).filter((f) => {
@@ -1749,15 +1771,8 @@ app.post("/debug/build-schedule", validateBody(BuildScheduleSchema), async (req,
       week_start ??
       new Date(new Date().setUTCHours(0, 0, 0, 0)).toISOString().slice(0, 10);
 
-    // Load facts for this week
-    const { data: facts, error: factsError } = await supabase
-      .from("facts")
-      .select("*")
-      .eq("chat_id", chat_id)
-      .order("created_at", { ascending: true })
-      .limit(500);
-
-    if (factsError) throw factsError;
+    // Load facts from cache or DB
+    const facts = await getOrLoadFacts(chat_id);
 
     // Filter facts to this week
     const filteredFacts = (facts || []).filter((f) => {
@@ -1886,6 +1901,7 @@ app.post("/debug/build-schedule", validateBody(BuildScheduleSchema), async (req,
       } else {
         assignmentsCreated = insertedFacts?.length || 0;
         logger.info({ assignmentsCreated, event_id: eventId }, "BUILD_SCHEDULE created assignments");
+        for (const f of insertedFacts) addFactToCache(chat_id, f);
       }
     } else {
       logger.info("BUILD_SCHEDULE no new assignments to create");
@@ -1906,23 +1922,19 @@ app.post("/debug/build-schedule", validateBody(BuildScheduleSchema), async (req,
       parser_version: "v0",
       fact_hash: builtHash,
     }], { onConflict: "fact_hash" });
+    addFactToCache(chat_id, { fact_type: "SCHEDULE_BUILT", fact_payload: builtPayload, fact_hash: builtHash, created_at: new Date().toISOString() });
     logger.info("BUILD_SCHEDULE: created SCHEDULE_BUILT fact for week %s", weekStartISO);
 
     // IMPORTANT: Recalculate schedule after creating facts, so that new assignments have proper created_at timestamps
     // and slots show as PENDING (not CONFIRMED) by default
     let finalSchedule = draftSchedule;
     if (assignmentsCreated > 0) {
-      // Reload facts to include newly created SHIFT_ASSIGNMENT facts
-      const { data: updatedFacts, error: reloadError } = await supabase
-        .from("facts")
-        .select("*")
-        .eq("chat_id", chat_id)
-        .order("created_at", { ascending: true })
-        .limit(500);
+      // Reload facts from cache (includes newly created SHIFT_ASSIGNMENT facts)
+      const updatedFacts = await getOrLoadFacts(chat_id);
 
-      if (!reloadError && updatedFacts) {
+      if (updatedFacts.length > 0) {
         // Filter facts to this week
-        const updatedFilteredFacts = (updatedFacts || []).filter((f) => {
+        const updatedFilteredFacts = updatedFacts.filter((f) => {
           if (f.fact_type?.startsWith("WEEK_")) {
             return f.fact_payload?.week_start === weekStartISO;
           }
@@ -2046,19 +2058,13 @@ app.post("/api/week/:weekStartISO/confirm-user", validateParams(ConfirmUserParam
       logger.error({ err: insertError }, "CONFIRM_USER failed to insert confirmation");
       return res.status(500).json({ error: String(insertError.message || insertError) });
     }
+    if (insertedFacts) for (const f of insertedFacts) addFactToCache(chat_id, f);
 
     // Пересчитываем график с новым фактом подтверждения
-    const { data: allFacts, error: factsError } = await supabase
-      .from("facts")
-      .select("*")
-      .eq("chat_id", chat_id)
-      .order("created_at", { ascending: true })
-      .limit(500);
-
-    if (factsError) throw factsError;
+    const allFacts = await getOrLoadFacts(chat_id);
 
     // Фильтруем факты для этой недели
-    const filteredFacts = (allFacts || []).filter((f) => {
+    const filteredFacts = allFacts.filter((f) => {
       if (f.fact_type?.startsWith("WEEK_")) {
         return f.fact_payload?.week_start === weekStartISO;
       }
@@ -2129,18 +2135,11 @@ app.get("/debug/timesheet", validateQuery(ScheduleQuerySchema), async (req, res)
       week_start ??
       new Date(new Date().setUTCHours(0, 0, 0, 0)).toISOString().slice(0, 10);
 
-    // Load facts
-    const { data: facts, error } = await supabase
-      .from("facts")
-      .select("*")
-      .eq("chat_id", chat_id)
-      .order("created_at", { ascending: true })
-      .limit(500);
-
-    if (error) throw error;
+    // Load facts from cache
+    const facts = await getOrLoadFacts(chat_id);
 
     // Filter facts to this week
-    const filteredFacts = (facts || []).filter((f) => {
+    const filteredFacts = facts.filter((f) => {
       // WEEK_* and SCHEDULE_BUILT facts: check week_start in payload
       if (f.fact_type?.startsWith("WEEK_") || f.fact_type === "SCHEDULE_BUILT") {
         return f.fact_payload?.week_start === weekStartISO;
@@ -2244,15 +2243,8 @@ app.get("/debug/timesheet-period", validateQuery(TimesheetPeriodQuerySchema), as
       d.setDate(d.getDate() + 7);
     }
 
-    // Load ALL facts for this chat (we'll filter per week)
-    const { data: allFacts, error } = await supabase
-      .from("facts")
-      .select("*")
-      .eq("chat_id", chat_id)
-      .order("created_at", { ascending: true })
-      .limit(2000);
-
-    if (error) throw error;
+    // Load ALL facts for this chat from cache
+    const allFacts = await getOrLoadFacts(chat_id);
 
     const slotTypesTS = await loadSlotTypes(req.query.tenant_id);
     const tenantSettingsTS = await settingsService.getAll(req.query.tenant_id || "dev");
@@ -2405,6 +2397,7 @@ async function autoCollectNextWeek(chatId, tenantId) {
     parser_version: "v0",
     fact_hash: factHash,
   }], { onConflict: "fact_hash" });
+  addFactToCache(chatId, { fact_type: "WEEK_OPEN", fact_payload: factPayload, fact_hash: factHash, created_at: new Date().toISOString() });
 
   // Insert system message in chat
   const sysEvent = {
@@ -2449,18 +2442,12 @@ app.get("/api/schedule/image", async (req, res) => {
       week_start ??
       (() => { const d = new Date(); const day = d.getDay(); const diff = d.getDate() - day + (day === 0 ? -6 : 1); return new Date(d.getFullYear(), d.getMonth(), diff).toISOString().slice(0, 10); })();
 
-    const { data: facts, error } = await supabase
-      .from("facts")
-      .select("*")
-      .eq("chat_id", chat_id)
-      .order("created_at", { ascending: true })
-      .limit(500);
-    if (error) throw error;
+    const facts = await getOrLoadFacts(chat_id);
 
     const slotTypes = await loadSlotTypes(tenant_id);
     const tenantSettings = await settingsService.getAll(tenant_id || "dev");
     const schedule = buildDraftSchedule({
-      facts: facts ?? [],
+      facts,
       weekStartISO,
       slotTypes,
       settings: tenantSettings,
@@ -2491,18 +2478,12 @@ app.post("/api/schedule/publish", async (req, res) => {
       week_start ??
       (() => { const d = new Date(); const day = d.getDay(); const diff = d.getDate() - day + (day === 0 ? -6 : 1); return new Date(d.getFullYear(), d.getMonth(), diff).toISOString().slice(0, 10); })();
 
-    const { data: facts, error } = await supabase
-      .from("facts")
-      .select("*")
-      .eq("chat_id", chat_id)
-      .order("created_at", { ascending: true })
-      .limit(500);
-    if (error) throw error;
+    const facts = await getOrLoadFacts(chat_id);
 
     const slotTypes = await loadSlotTypes(tenant_id);
     const tenantSettings = await settingsService.getAll(tenant_id || "dev");
     const schedule = buildDraftSchedule({
-      facts: facts ?? [],
+      facts,
       weekStartISO,
       slotTypes,
       settings: tenantSettings,
@@ -2566,18 +2547,12 @@ app.post("/api/schedule/publish-test", async (req, res) => {
       week_start ??
       (() => { const d = new Date(); const day = d.getDay(); const diff = d.getDate() - day + (day === 0 ? -6 : 1); return new Date(d.getFullYear(), d.getMonth(), diff).toISOString().slice(0, 10); })();
 
-    const { data: facts, error } = await supabase
-      .from("facts")
-      .select("*")
-      .eq("chat_id", chat_id || "test")
-      .order("created_at", { ascending: true })
-      .limit(500);
-    if (error) throw error;
+    const facts = await getOrLoadFacts(chat_id || "test");
 
     const slotTypes = await loadSlotTypes(tenant_id);
     const tenantSettings = await settingsService.getAll(tenant_id || "dev");
     const schedule = buildDraftSchedule({
-      facts: facts ?? [],
+      facts,
       weekStartISO,
       slotTypes,
       settings: tenantSettings,
@@ -2763,19 +2738,24 @@ UserDirectory.syncFromDB(employeeService).then(async () => {
     logger.info({ port: Number(port), env: envName }, "Server started");
     logger.info(`Swagger UI: http://localhost:${port}/api-docs`);
 
+    // Warm facts cache for known chats (SL-023)
+    const warmFactsCache = async () => {
+      const knownChats = [process.env.TELEGRAM_CHAT_ID || "-1002789466545"];
+      for (const chatId of knownChats) {
+        const count = (await getOrLoadFacts(chatId)).length;
+        logger.info({ chatId, count }, "facts cache warmed");
+      }
+    };
+    warmFactsCache().catch((e) => logger.warn({ err: e }, "facts cache warmup failed"));
+
     // Dev seed: auto-load test data if not in production
     if (envName !== "production") {
       const seedBuildSchedule = async (chatId, weekStart) => {
         const tenantId = process.env.DEFAULT_TENANT_ID || "dev";
         const slotTypes = await loadSlotTypes(tenantId);
         const seedSettings = await settingsService.getAll(tenantId);
-        const { data: facts } = await supabase
-          .from("facts")
-          .select("*")
-          .eq("chat_id", chatId)
-          .order("created_at", { ascending: true })
-          .limit(500);
-        const schedule = buildDraftSchedule({ facts: facts ?? [], weekStartISO: weekStart, slotTypes, settings: seedSettings });
+        const facts = await getOrLoadFacts(chatId);
+        const schedule = buildDraftSchedule({ facts, weekStartISO: weekStart, slotTypes, settings: seedSettings });
 
         // Persist SHIFT_ASSIGNMENT facts (same logic as /debug/build-schedule)
         const assignmentsToCreate = [];
@@ -2804,6 +2784,7 @@ UserDirectory.syncFromDB(employeeService).then(async () => {
         if (assignmentsToCreate.length > 0) {
           await supabase.from("facts").upsert(assignmentsToCreate, { onConflict: "fact_hash" });
           logger.info("Dev seed: persisted %d SHIFT_ASSIGNMENT facts", assignmentsToCreate.length);
+          for (const r of assignmentsToCreate) addFactToCache(chatId, r);
         }
       };
       runDevSeed(ingestInternal, seedBuildSchedule).catch((e) =>
@@ -2853,45 +2834,30 @@ UserDirectory.syncFromDB(employeeService).then(async () => {
         const tenantId = process.env.DEFAULT_TENANT_ID || "dev";
         const slotTypes = await loadSlotTypes(tenantId);
         const botSettings = await settingsService.getAll(tenantId);
-        const { data: facts } = await supabase
-          .from("facts")
-          .select("*")
-          .eq("chat_id", chatId)
-          .order("created_at", { ascending: true })
-          .limit(500);
+        const facts = await getOrLoadFacts(chatId);
         const weekStartISO = getBotMonday();
-        return buildDraftSchedule({ facts: facts ?? [], weekStartISO, slotTypes, settings: botSettings });
+        return buildDraftSchedule({ facts, weekStartISO, slotTypes, settings: botSettings });
       };
 
       const botWeekState = async (chatId) => {
         const tenantId = process.env.DEFAULT_TENANT_ID || "dev";
         const slotTypes = await loadSlotTypes(tenantId);
         const botSettings = await settingsService.getAll(tenantId);
-        const { data: facts } = await supabase
-          .from("facts")
-          .select("*")
-          .eq("chat_id", chatId)
-          .order("created_at", { ascending: true })
-          .limit(500);
+        const facts = await getOrLoadFacts(chatId);
         const weekStartISO = getBotMonday();
-        const schedule = buildDraftSchedule({ facts: facts ?? [], weekStartISO, slotTypes, settings: botSettings });
-        return computeWeekState({ facts: facts ?? [], weekStartISO, schedule });
+        const schedule = buildDraftSchedule({ facts, weekStartISO, slotTypes, settings: botSettings });
+        return computeWeekState({ facts, weekStartISO, schedule });
       };
 
       const botTimesheet = async (chatId) => {
         const tenantId = process.env.DEFAULT_TENANT_ID || "dev";
         const slotTypes = await loadSlotTypes(tenantId);
         const botSettings = await settingsService.getAll(tenantId);
-        const { data: facts } = await supabase
-          .from("facts")
-          .select("*")
-          .eq("chat_id", chatId)
-          .order("created_at", { ascending: true })
-          .limit(500);
+        const facts = await getOrLoadFacts(chatId);
         const weekStartISO = getBotMonday();
-        const schedule = buildDraftSchedule({ facts: facts ?? [], weekStartISO, slotTypes, settings: botSettings });
+        const schedule = buildDraftSchedule({ facts, weekStartISO, slotTypes, settings: botSettings });
         const hourlyRates = UserDirectory.getAllHourlyRates();
-        return buildTimesheet({ facts: facts ?? [], weekStartISO, hourlyRates, schedule, settings: botSettings });
+        return buildTimesheet({ facts, weekStartISO, hourlyRates, schedule, settings: botSettings });
       };
 
       const mode = process.env.TELEGRAM_MODE || "polling";
