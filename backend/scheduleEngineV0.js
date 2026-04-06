@@ -418,9 +418,18 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
 
   // Count how many total slots each user is available for (used as tiebreaker)
   const availableSlotsCountByUser = new Map();
+  // SL-035b: Count morning/evening slots separately for slot-type scarcity
+  const morningCountByUser = new Map();
+  const eveningCountByUser = new Map();
   for (const slot of availableSlots) {
+    const isMorning = parseInt(slot.from.split(":")[0], 10) < 14;
     for (const userId of slot.candidates) {
       availableSlotsCountByUser.set(userId, (availableSlotsCountByUser.get(userId) || 0) + 1);
+      if (isMorning) {
+        morningCountByUser.set(userId, (morningCountByUser.get(userId) || 0) + 1);
+      } else {
+        eveningCountByUser.set(userId, (eveningCountByUser.get(userId) || 0) + 1);
+      }
     }
   }
 
@@ -508,18 +517,28 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
       continue;
     }
 
+    // SL-035b: Slot-type scarcity — prefer candidates with fewer options
+    // for this time type (morning/evening). A candidate with only 3 evening
+    // slots should get priority for evenings over one with 6 evening slots.
+    const slotIsMorning = parseInt(slot.from.split(":")[0], 10) < 14;
+    const typeCountMap = slotIsMorning ? morningCountByUser : eveningCountByUser;
+
     qualifiedJuniors.sort((a, b) => {
+      // 1. Slot-type scarcity: fewer options for this time type = higher priority
+      const typeA = typeCountMap.get(a) || 999;
+      const typeB = typeCountMap.get(b) || 999;
+      if (typeA !== typeB) return typeA - typeB;
+      // 2. Fewer assigned hours = higher priority
       const hoursA = assignedHoursByUser.get(a) || 0;
       const hoursB = assignedHoursByUser.get(b) || 0;
-      // 1. Fewer assigned hours = higher priority
       if (hoursA !== hoursB) return hoursA - hoursB;
-      // 2. Larger gap to minimum = higher priority
+      // 3. Larger gap to minimum = higher priority
       const minA = minHoursRequirements.get(a) || 0;
       const minB = minHoursRequirements.get(b) || 0;
       const gapA = minA - hoursA;
       const gapB = minB - hoursB;
       if (gapB !== gapA) return gapB - gapA;
-      // 3. Fewer available slots = harder to place later
+      // 4. Fewer available slots = harder to place later
       const slotsA = availableSlotsCountByUser.get(a) || 999;
       const slotsB = availableSlotsCountByUser.get(b) || 999;
       if (slotsA !== slotsB) return slotsA - slotsB;

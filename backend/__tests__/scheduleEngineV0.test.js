@@ -742,4 +742,57 @@ describe("scheduleEngineV0", () => {
       expect(monMorning.user_id).not.toBe(monEvening.user_id);
     });
   });
+
+  // SL-035b: Slot-type scarcity (specificity)
+  describe("SL-035b — slot-type scarcity", () => {
+    test("candidate with fewer evening options gets priority for evening slot", () => {
+      // u1: available for tue morning + evening (2 slots: 1 morning, 1 evening)
+      // u4: available for tue morning + evening + wed morning + wed evening (4 slots: 2 mornings, 2 evenings)
+      // For tue evening, u1 has fewer evening options (1 vs 2) → u1 should get tue evening
+      // For tue morning, u1 has fewer morning options (1 vs 2) → u1 should get tue morning
+      // But double-shift rule prevents u1 from getting both → u1 gets evening (scarcer), u4 gets morning
+      const facts = [
+        makeFact({ user_id: "u1", fact_payload: { dow: "tue", from: "10:00", to: "13:00", availability: "can" } }),
+        makeFact({ user_id: "u1", fact_payload: { dow: "tue", from: "18:00", to: "21:00", availability: "can" } }),
+        makeFact({ user_id: "u4", fact_payload: { dow: "tue", from: "10:00", to: "13:00", availability: "can" } }),
+        makeFact({ user_id: "u4", fact_payload: { dow: "tue", from: "18:00", to: "21:00", availability: "can" } }),
+        makeFact({ user_id: "u4", fact_payload: { dow: "wed", from: "10:00", to: "13:00", availability: "can" } }),
+        makeFact({ user_id: "u4", fact_payload: { dow: "wed", from: "18:00", to: "21:00", availability: "can" } }),
+      ];
+      const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+      const tueMorning = result.assignments.find(a => a.dow === "tue" && a.from === "10:00");
+      const tueEvening = result.assignments.find(a => a.dow === "tue" && a.from === "18:00");
+      expect(tueMorning).toBeDefined();
+      expect(tueEvening).toBeDefined();
+      // u1 and u4 should not share a double shift on Tue
+      expect(tueMorning.user_id).not.toBe(tueEvening.user_id);
+    });
+
+    test("flexible candidate fills remaining slots after specific candidates placed", () => {
+      // u2 (specific): available only tue morning
+      // u4 (flexible): available tue morning + tue evening + wed morning + wed evening
+      // u1 (specific evenings): available tue evening only
+      // Expected: u2 gets tue morning (specific), u1 gets tue evening (specific),
+      //           u4 gets wed morning + evening (flexible fills rest)
+      const facts = [
+        makeFact({ user_id: "u2", fact_payload: { dow: "tue", from: "10:00", to: "13:00", availability: "can" } }),
+        makeFact({ user_id: "u4", fact_payload: { dow: "tue", from: "10:00", to: "13:00", availability: "can" } }),
+        makeFact({ user_id: "u4", fact_payload: { dow: "tue", from: "18:00", to: "21:00", availability: "can" } }),
+        makeFact({ user_id: "u1", fact_payload: { dow: "tue", from: "18:00", to: "21:00", availability: "can" } }),
+        makeFact({ user_id: "u4", fact_payload: { dow: "wed", from: "10:00", to: "13:00", availability: "can" } }),
+        makeFact({ user_id: "u4", fact_payload: { dow: "wed", from: "18:00", to: "21:00", availability: "can" } }),
+      ];
+      const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+      const tueMorning = result.assignments.find(a => a.dow === "tue" && a.from === "10:00");
+      const tueEvening = result.assignments.find(a => a.dow === "tue" && a.from === "18:00");
+      const wedMorning = result.assignments.find(a => a.dow === "wed" && a.from === "10:00");
+      const wedEvening = result.assignments.find(a => a.dow === "wed" && a.from === "18:00");
+      // Specific candidates get their slots
+      expect(tueMorning.user_id).toBe("u2"); // u2 has only 1 morning option
+      expect(tueEvening.user_id).toBe("u1"); // u1 has only 1 evening option
+      // Flexible candidate fills remaining
+      expect(wedMorning.user_id).toBe("u4");
+      expect(wedEvening.user_id).toBe("u4");
+    });
+  });
 });
