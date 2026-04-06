@@ -49,6 +49,8 @@ import paraplanRouter from "./routes/paraplan.js";
 import createMiniappRouter from "./routes/miniapp.js";
 import emogenRouter from "./routes/emogen.js";
 import createPaymentsRouter from "./routes/payments.js";
+import feedbackRouter from "./routes/feedback.js";
+import { classifyNewTickets } from "./crons/ticketMonitor.js";
 import swaggerUi from "swagger-ui-express";
 import { specs as swaggerSpecs } from "./swagger.js";
 import {
@@ -2649,6 +2651,8 @@ app.use("/api/paraplan", paraplanRouter);
 app.use("/api/emogen", emogenRouter);
 app.use("/api/payments", createPaymentsRouter({ getTelegramBot: () => telegramBot }));
 app.use("/api/miniapp", createMiniappRouter({ getTelegramBot: () => telegramBot }));
+app.use("/api/feedback", feedbackRouter);
+logger.debug("/api/feedback routes registered");
 
 // ── Bot mode: manual / auto / debug ─────────────────────────────────────────
 app.get("/api/bot-mode", (_req, res) => {
@@ -3032,5 +3036,21 @@ UserDirectory.syncFromDB(employeeService).then(async () => {
 
     setInterval(paymentsCronCheck, 60 * 1000);
     logger.info("Payments cron started (daily 19:30 MSK)");
+
+    // --- Ticket monitor cron (every 5 minutes) ---
+    const ticketMonitorCheck = async () => {
+      try {
+        if (!process.env.OPENAI_API_KEY) return;
+        const sendTg = telegramBot
+          ? (chatId, text, opts) => telegramBot.api.sendMessage(chatId, text, opts)
+          : null;
+        await classifyNewTickets(sendTg);
+      } catch (e) {
+        logger.error({ err: e }, "Ticket monitor cron error");
+      }
+    };
+    setInterval(ticketMonitorCheck, 5 * 60 * 1000);
+    setTimeout(ticketMonitorCheck, 30_000); // first run after 30s
+    logger.info("Ticket monitor cron started (every 5 min)");
   });
 });

@@ -580,4 +580,166 @@ describe("scheduleEngineV0", () => {
       expect(tueMorningAssignment.user_id).not.toBe("u4");
     }
   });
+
+  // SL-034: Timestamp-aware AVAIL/UNAVAIL resolution
+  describe("SL-034 — AVAIL/UNAVAIL conflict resolution", () => {
+    test("newer AVAILABILITY overrides older UNAVAILABILITY for same user+slot", () => {
+      const facts = [
+        // u1: first says unavailable for sun morning (older)
+        makeFact({
+          fact_type: "SHIFT_UNAVAILABILITY",
+          user_id: "u1",
+          fact_payload: { dow: "sun", from: "10:00", to: "13:00", availability: "cannot" },
+          created_at: "2025-01-05T08:00:00Z",
+        }),
+        // u1: then says available for sun morning (newer)
+        makeFact({
+          user_id: "u1",
+          fact_payload: { dow: "sun", from: "10:00", to: "13:00", availability: "can" },
+          created_at: "2025-01-05T12:00:00Z",
+        }),
+      ];
+      const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+      const sunMorning = result.assignments.find(
+        (a) => a.dow === "sun" && a.from === "10:00" && a.to === "13:00"
+      );
+      expect(sunMorning).toBeDefined();
+      expect(sunMorning.user_id).toBe("u1");
+    });
+
+    test("newer UNAVAILABILITY overrides older AVAILABILITY for same user+slot", () => {
+      const facts = [
+        // u1: first says available (older)
+        makeFact({
+          user_id: "u1",
+          fact_payload: { dow: "mon", from: "10:00", to: "13:00", availability: "can" },
+          created_at: "2025-01-05T08:00:00Z",
+        }),
+        // u1: then says unavailable (newer)
+        makeFact({
+          fact_type: "SHIFT_UNAVAILABILITY",
+          user_id: "u1",
+          fact_payload: { dow: "mon", from: "10:00", to: "13:00", availability: "cannot" },
+          created_at: "2025-01-05T12:00:00Z",
+        }),
+      ];
+      const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+      const monMorning = result.assignments.find(
+        (a) => a.dow === "mon" && a.from === "10:00" && a.user_id === "u1"
+      );
+      expect(monMorning).toBeUndefined();
+    });
+
+    test("unavailability blocks assignment in balanced phase", () => {
+      const facts = [
+        makeFact({
+          user_id: "u1",
+          fact_payload: { dow: "sun", from: "10:00", to: "13:00", availability: "can" },
+        }),
+        makeFact({
+          fact_type: "SHIFT_UNAVAILABILITY",
+          user_id: "u2",
+          fact_payload: { dow: "sun", from: "18:00", to: "21:00", availability: "cannot" },
+        }),
+      ];
+      const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+      const sunEvening = result.assignments.find(
+        (a) => a.dow === "sun" && a.from === "18:00"
+      );
+      // u2 unavailable — must NOT be assigned
+      if (sunEvening) {
+        expect(sunEvening.user_id).not.toBe("u2");
+      }
+    });
+
+    test("sunday morning gets assigned when candidate is available", () => {
+      const facts = [
+        makeFact({
+          user_id: "u1",
+          fact_payload: { dow: "sun", from: "10:00", to: "13:00", availability: "can" },
+        }),
+      ];
+      const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+      const sunMorning = result.assignments.find(
+        (a) => a.dow === "sun" && a.from === "10:00"
+      );
+      expect(sunMorning).toBeDefined();
+      expect(sunMorning.user_id).toBe("u1");
+    });
+  });
+
+  // SL-035: Double-shift avoidance
+  describe("SL-035 — double-shift avoidance", () => {
+    test("prefer rested candidate over double-shift when alternative exists", () => {
+      const facts = [
+        // u1 available mon morning + evening
+        makeFact({ user_id: "u1", fact_payload: { dow: "mon", from: "10:00", to: "13:00", availability: "can" } }),
+        makeFact({ user_id: "u1", fact_payload: { dow: "mon", from: "18:00", to: "21:00", availability: "can" } }),
+        // u2 available only mon evening
+        makeFact({ user_id: "u2", fact_payload: { dow: "mon", from: "18:00", to: "21:00", availability: "can" } }),
+      ];
+      const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+      const monMorning = result.assignments.find(
+        (a) => a.dow === "mon" && a.from === "10:00"
+      );
+      const monEvening = result.assignments.find(
+        (a) => a.dow === "mon" && a.from === "18:00"
+      );
+      expect(monMorning).toBeDefined();
+      expect(monEvening).toBeDefined();
+      // u1 morning, u2 evening (no double shift for u1)
+      // OR if u1 gets evening first due to narrowest-first sort (both have 1 candidate for morning,
+      // 2 for evening → morning assigned first), then u1 gets morning, u2 gets evening
+      // Either way u1 should NOT have both slots
+      expect(monMorning.user_id !== monEvening.user_id || monEvening.user_id === "u1").toBe(true);
+      // More precisely: since mon morning has only u1 (1 candidate = narrowest), it's assigned first
+      // Then mon evening has u1+u2, but u1 already has a shift → prefer u2
+      expect(monMorning.user_id).toBe("u1");
+      expect(monEvening.user_id).toBe("u2");
+    });
+
+    test("allow double-shift when no alternatives exist", () => {
+      const facts = [
+        // Only u1 available for both mon slots
+        makeFact({ user_id: "u1", fact_payload: { dow: "mon", from: "10:00", to: "13:00", availability: "can" } }),
+        makeFact({ user_id: "u1", fact_payload: { dow: "mon", from: "18:00", to: "21:00", availability: "can" } }),
+      ];
+      const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+      const monMorning = result.assignments.find(
+        (a) => a.dow === "mon" && a.from === "10:00"
+      );
+      const monEvening = result.assignments.find(
+        (a) => a.dow === "mon" && a.from === "18:00"
+      );
+      expect(monMorning).toBeDefined();
+      expect(monEvening).toBeDefined();
+      expect(monMorning.user_id).toBe("u1");
+      expect(monEvening.user_id).toBe("u1");
+    });
+
+    test("rebalance does not create double shift", () => {
+      // u4 (minHours=20) available for mon morning only
+      // u1 available for mon morning + evening
+      // u2 available for mon evening only
+      // After assignment: u4 gets morning (higher min), u2 gets evening
+      // Rebalance should NOT swap u4 into evening (double shift)
+      const facts = [
+        makeFact({ user_id: "u4", fact_payload: { dow: "mon", from: "10:00", to: "13:00", availability: "can" } }),
+        makeFact({ user_id: "u1", fact_payload: { dow: "mon", from: "10:00", to: "13:00", availability: "can" } }),
+        makeFact({ user_id: "u1", fact_payload: { dow: "mon", from: "18:00", to: "21:00", availability: "can" } }),
+        makeFact({ user_id: "u4", fact_payload: { dow: "mon", from: "18:00", to: "21:00", availability: "can" } }),
+      ];
+      const result = buildDraftSchedule({ facts, weekStartISO: WEEK_START });
+      const monMorning = result.assignments.find(
+        (a) => a.dow === "mon" && a.from === "10:00"
+      );
+      const monEvening = result.assignments.find(
+        (a) => a.dow === "mon" && a.from === "18:00"
+      );
+      expect(monMorning).toBeDefined();
+      expect(monEvening).toBeDefined();
+      // Should not be same user for both slots when alternatives exist
+      expect(monMorning.user_id).not.toBe(monEvening.user_id);
+    });
+  });
 });

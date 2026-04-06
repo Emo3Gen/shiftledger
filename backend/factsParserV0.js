@@ -986,6 +986,21 @@ function extractTime(text) {
 }
 
 /**
+ * SL-036: Normalize schedule text — insert newlines before day-of-week tokens.
+ * Handles one-line input: "пн - утро вт - вечер" → "пн - утро\nвт - вечер"
+ * Already multi-line text passes through unchanged.
+ */
+export function normalizeScheduleText(text) {
+  if (!text) return text;
+  // Insert \n before day abbreviations that follow non-newline whitespace + content
+  // Pattern: whitespace (not \n) followed by a day token + separator
+  return text.replace(
+    /([^\n])\s+((?:пн|вт|ср|чт|пт|сб|вс|понедельник|вторник|среда|четверг|пятница|суббота|воскресенье|воскресение)\s*[-–—:])/gi,
+    "$1\n$2"
+  );
+}
+
+/**
  * Parse multi-line schedule format:
  *   "пн - утро\nвт - —\nчт - вечер\nсб - вечер"
  *   "пн - вечер\nвт - утро\nчт - утро, вечер\nвс - не могу"
@@ -999,7 +1014,10 @@ function extractTime(text) {
  *   "—", "-", "нет", "не могу", empty → SHIFT_UNAVAILABILITY
  */
 function parseMultiLineSchedule(text, receivedAt) {
-  const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+  // SL-036: Normalize one-line schedules — insert \n before each day abbreviation
+  // "пн - утро вт - вечер чт - не могу" → "пн - утро\nвт - вечер\nчт - не могу"
+  const normalizedText = normalizeScheduleText(text);
+  const lines = normalizedText.split(/\n/).map(l => l.trim()).filter(Boolean);
   // Need at least 2 lines with day-separator-content pattern to qualify
   const DOW_ABBREVS = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
   const lineRe = /^(пн|вт|ср|чт|пт|сб|вс|понедельник|вторник|среда|среду|четверг|пятница|пятницу|суббота|субботу|воскресенье)\s*[-–—:]\s*(.*)$/i;

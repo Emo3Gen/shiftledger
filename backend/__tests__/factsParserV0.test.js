@@ -1,4 +1,4 @@
-import { parseEventToFacts } from "../factsParserV0.js";
+import { parseEventToFacts, normalizeScheduleText } from "../factsParserV0.js";
 
 // Fixed receivedAt for deterministic date calculations
 const RECEIVED_AT = "2025-01-06T12:00:00Z"; // Monday
@@ -1048,6 +1048,55 @@ describe("factsParserV0", () => {
       expect(facts[0]?.fact_type).toBe("SHIFT_AVAILABILITY");
       expect(facts[0]?.fact_payload.date).toBe("2026-04-06");
       expect(facts[0]?.fact_payload.week_start).toBe("2026-04-06");
+    });
+  });
+
+  // SL-036: One-line schedule normalization
+  describe("SL-036 — one-line schedule normalization", () => {
+    test("one-line schedule parses same as multi-line", () => {
+      const oneLine = "пн - вечер вт - утро ср - утро чт - не могу пт - не могу сб - утро вс - утро, вечер";
+      const multiLine = "пн - вечер\nвт - утро\nср - утро\nчт - не могу\nпт - не могу\nсб - утро\nвс - утро, вечер";
+      const opts = { received_at: "2026-04-05T16:49:00Z", chat_id: "test", user_id: "u2", meta: {} };
+      const factsOne = parseEventToFacts({ text: oneLine, ...opts });
+      const factsMulti = parseEventToFacts({ text: multiLine, ...opts });
+      expect(factsOne.length).toBe(factsMulti.length);
+      // Same fact types per dow
+      const getByDow = (facts, dow) => facts.find(f => f.fact_payload?.dow === dow)?.fact_type;
+      for (const dow of ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]) {
+        expect(getByDow(factsOne, dow)).toBe(getByDow(factsMulti, dow));
+      }
+    });
+
+    test("one-line correctly identifies available and unavailable days", () => {
+      const text = "пн - вечер вт - утро ср - утро чт - не могу пт - не могу сб - утро вс - утро, вечер";
+      const facts = parseEventToFacts({
+        text,
+        received_at: "2026-04-05T16:49:00Z",
+        chat_id: "test", user_id: "u2", meta: {},
+      });
+      const avail = facts.filter(f => f.fact_type === "SHIFT_AVAILABILITY");
+      const unavail = facts.filter(f => f.fact_type === "SHIFT_UNAVAILABILITY");
+      // пн/вт/ср/сб/вс — available
+      expect(avail.some(f => f.fact_payload.dow === "mon")).toBe(true);
+      expect(avail.some(f => f.fact_payload.dow === "tue")).toBe(true);
+      expect(avail.some(f => f.fact_payload.dow === "wed")).toBe(true);
+      expect(avail.some(f => f.fact_payload.dow === "sat")).toBe(true);
+      expect(avail.some(f => f.fact_payload.dow === "sun")).toBe(true);
+      // чт/пт — unavailable
+      expect(unavail.some(f => f.fact_payload.dow === "thu")).toBe(true);
+      expect(unavail.some(f => f.fact_payload.dow === "fri")).toBe(true);
+    });
+
+    test("multi-line text is not altered by normalization", () => {
+      const text = "пн - утро\nвт - вечер";
+      expect(normalizeScheduleText(text)).toBe(text);
+    });
+
+    test("mixed text (partial newlines) gets normalized", () => {
+      const text = "пн - утро\nвт - вечер ср - утро";
+      const normalized = normalizeScheduleText(text);
+      expect(normalized).toContain("\nср");
+      expect(normalized.split("\n").length).toBe(3);
     });
   });
 });

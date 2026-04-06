@@ -66,6 +66,30 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
     return true;
   });
 
+  // SL-034: Pre-resolve AVAIL/UNAVAIL conflicts by recency.
+  // When both SHIFT_AVAILABILITY and SHIFT_UNAVAILABILITY exist for the same
+  // user+slot, the NEWER fact (by created_at, then by id) determines status.
+  const resolvedAvailByUserSlot = new Map();
+  for (const fact of filteredFacts) {
+    if (fact.fact_type !== "SHIFT_AVAILABILITY" && fact.fact_type !== "SHIFT_UNAVAILABILITY") continue;
+    const { dow, from, to } = fact.fact_payload || {};
+    if (!dow || !from || !to) continue;
+    const uid = fact.user_id || fact.fact_payload?.user_id;
+    if (!uid) continue;
+    const nuid = UserDirectory.normalizeUserId(uid);
+    const key = `${nuid}|${dow}|${from}|${to}`;
+    const factTime = new Date(fact.created_at || 0).getTime();
+    const factId = fact.id || 0;
+    const ex = resolvedAvailByUserSlot.get(key);
+    if (!ex || factTime > ex.time || (factTime === ex.time && factId > ex.id)) {
+      resolvedAvailByUserSlot.set(key, {
+        available: fact.fact_type === "SHIFT_AVAILABILITY" && fact.fact_payload?.availability === "can",
+        time: factTime,
+        id: factId,
+      });
+    }
+  }
+
   // Step 0: Collect SHIFT_REPLACEMENT facts (replacement overrides)
   // When someone offers to replace (e.g. "я смогу выйти в чт утро"),
   // the slot should be reassigned to the replacement user.
@@ -170,6 +194,19 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
     if (!userId) continue;
 
     const normalizedUserId = UserDirectory.normalizeUserId(userId);
+
+    // SL-034: Skip if a newer AVAILABILITY fact overrides this UNAVAILABILITY
+    const resolveKey = `${normalizedUserId}|${dow}|${from}|${to}`;
+    const resolved = resolvedAvailByUserSlot.get(resolveKey);
+    if (resolved && resolved.available) {
+      debugSkipped.push({
+        user_id: normalizedUserId,
+        user_name: UserDirectory.getDisplayName(normalizedUserId),
+        slot: slotKey,
+        reason: "UNAVAILABILITY overridden by newer AVAILABILITY fact",
+      });
+      continue;
+    }
 
     // Track unavailable users per slot (used later to filter candidates)
     if (!unavailableBySlot.has(slotKey)) {
@@ -444,6 +481,33 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
       }
     }
 
+    // SL-035: Double-shift avoidance (soft constraint)
+    // Prefer candidates without same-day shifts over those with one shift today.
+    const restedCandidates = [];
+    const oneShiftCandidates = [];
+    for (const uid of qualifiedJuniors) {
+      const dayShifts = assignments.filter(a => a.user_id === uid && a.dow === slot.dow).length;
+      if (dayShifts === 0) {
+        restedCandidates.push(uid);
+      } else {
+        oneShiftCandidates.push(uid);
+        if (restedCandidates.length > 0) {
+          debugSkipped.push({
+            user_id: uid,
+            user_name: UserDirectory.getDisplayName(uid),
+            slot: slot.slotKey,
+            reason: "has 1 shift today, prefer rested candidate",
+          });
+        }
+      }
+    }
+    // Soft: prefer rested; fall back to oneShift if no rested candidates
+    qualifiedJuniors = restedCandidates.length > 0 ? restedCandidates : oneShiftCandidates;
+    if (qualifiedJuniors.length === 0) {
+      slotsForSeniors.push(slot);
+      continue;
+    }
+
     qualifiedJuniors.sort((a, b) => {
       const hoursA = assignedHoursByUser.get(a) || 0;
       const hoursB = assignedHoursByUser.get(b) || 0;
@@ -506,6 +570,10 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
       // Do not swap into a slot that requires a skill level this employee doesn't meet
       const requiredSkillForSlot = getSlotSkillReq(slot.dow, slot.from);
       if (requiredSkillForSlot && !meetsSkillReq(empId, requiredSkillForSlot)) continue;
+
+      // SL-035: Don't create double shift through rebalance
+      const empDayShifts = assignments.filter(a => a.user_id === empId && a.dow === slot.dow).length;
+      if (empDayShifts > 0) continue;
 
       const assignIdx = assignments.findIndex(
         (a) => a.dow === slot.dow && a.from === slot.from && a.to === slot.to

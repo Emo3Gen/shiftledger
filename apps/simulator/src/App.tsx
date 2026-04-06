@@ -29,6 +29,7 @@ const ALL_SECTIONS = [
   { id: "settings", label: "Настройки" },
   { id: "activity_log", label: "Лог действий" },
   { id: "emogen_dialogs", label: "Диалоги Emogen" },
+  { id: "tickets", label: "Тикеты" },
 ] as const;
 
 type SectionId = typeof ALL_SECTIONS[number]["id"];
@@ -454,6 +455,42 @@ export const App: React.FC = () => {
   const [emogenDialogMessages, setEmogenDialogMessages] = React.useState<any[]>([]);
   const [emogenSelectedPeer, setEmogenSelectedPeer] = React.useState<string | null>(null);
   const [emogenDialogsLoading, setEmogenDialogsLoading] = React.useState(false);
+
+  // Tickets (SL-032)
+  interface FeedbackTicket {
+    id: string; type: string; text: string; screenshot_url: string | null;
+    page_url: string | null; status: string; ai_category: string | null;
+    ai_summary: string | null; created_by: string | null; response: string | null;
+    responded_at: string | null; created_at: string; updated_at: string;
+  }
+  const [tickets, setTickets] = React.useState<FeedbackTicket[]>([]);
+  const [ticketsLoading, setTicketsLoading] = React.useState(false);
+  const [ticketFilter, setTicketFilter] = React.useState<string>("");
+  const [ticketTypeFilter, setTicketTypeFilter] = React.useState<string>("");
+  const [selectedTicketId, setSelectedTicketId] = React.useState<string | null>(null);
+  const [ticketResponse, setTicketResponse] = React.useState("");
+  const [ticketSaving, setTicketSaving] = React.useState(false);
+  // Feedback widget
+  const [feedbackOpen, setFeedbackOpen] = React.useState(false);
+  const [feedbackType, setFeedbackType] = React.useState("bug");
+  const [feedbackText, setFeedbackText] = React.useState("");
+  const [feedbackSending, setFeedbackSending] = React.useState(false);
+
+  const loadTickets = React.useCallback(async () => {
+    setTicketsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (ticketFilter) params.set("status", ticketFilter);
+      if (ticketTypeFilter) params.set("type", ticketTypeFilter);
+      const qs = params.toString();
+      const r = await fetch(`/api/feedback${qs ? `?${qs}` : ""}`);
+      const data = await r.json();
+      setTickets(data.items || []);
+    } catch (e) { console.error("Failed to load tickets", e); }
+    setTicketsLoading(false);
+  }, [ticketFilter, ticketTypeFilter]);
+
+  React.useEffect(() => { loadTickets(); }, [loadTickets]);
 
   // Visibility, collapse & scale
   const [vis, setVis] = React.useState<Record<string, boolean>>(loadVisibility);
@@ -4779,7 +4816,242 @@ export const App: React.FC = () => {
               );
             })()}
           </ToggleSection>
+
+          {/* SL-032: Tickets panel — master-detail */}
+          <ToggleSection id="tickets" vis={vis} collapsed={collapsed} onHide={hideSection} onToggleCollapse={toggleCollapse}>
+            <h3>Тикеты <InfoTip text="Обратная связь и баг-репорты" /></h3>
+            {(() => {
+              const selectedTicket = tickets.find(t => t.id === selectedTicketId) || null;
+              const TYPE_ICONS: Record<string, string> = { bug: "\uD83D\uDC1B", feature: "\uD83D\uDCA1", question: "\u2753", other: "\uD83D\uDCCB" };
+              const STATUS_LABELS: Record<string, { label: string; color: string }> = {
+                new: { label: "Новый", color: "#e67e22" },
+                in_progress: { label: "В работе", color: "#3498db" },
+                resolved: { label: "Решён", color: "#27ae60" },
+                closed: { label: "Закрыт", color: "#95a5a6" },
+              };
+              const CAT_LABELS: Record<string, { label: string; color: string }> = {
+                critical: { label: "Критический", color: "#e74c3c" },
+                normal: { label: "Обычный", color: "#3498db" },
+                low: { label: "Низкий", color: "#95a5a6" },
+              };
+              return (<>
+                {/* Filters row */}
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8, flexWrap: "wrap", fontSize: 12 }}>
+                  <select value={ticketTypeFilter} onChange={e => setTicketTypeFilter(e.target.value)} style={{ fontSize: 12 }}>
+                    <option value="">Все типы</option>
+                    <option value="bug">Баги</option>
+                    <option value="feature">Идеи</option>
+                    <option value="question">Вопросы</option>
+                  </select>
+                  <select value={ticketFilter} onChange={e => setTicketFilter(e.target.value)} style={{ fontSize: 12 }}>
+                    <option value="">Все статусы</option>
+                    <option value="new">Новые</option>
+                    <option value="in_progress">В работе</option>
+                    <option value="resolved">Решённые</option>
+                    <option value="closed">Закрытые</option>
+                  </select>
+                  <button type="button" onClick={loadTickets} style={{ fontSize: 12, padding: "2px 8px" }}>
+                    {ticketsLoading ? "..." : "\uD83D\uDD04 Обновить"}
+                  </button>
+                  <span style={{ color: "#999" }}>{tickets.length} тикетов</span>
+                </div>
+
+                {/* Master-detail */}
+                <div style={{ display: "flex", gap: 8, minHeight: 250 }}>
+                  {/* Left: ticket list */}
+                  <div style={{ flex: "1 1 45%", maxHeight: 400, overflowY: "auto", borderRight: "1px solid #eee", paddingRight: 6 }}>
+                    {tickets.length === 0 && !ticketsLoading && <div className="empty" style={{ fontSize: "0.85em" }}>Нет тикетов</div>}
+                    <table style={{ width: "100%", fontSize: "0.8em", borderCollapse: "collapse" }}>
+                      <tbody>
+                        {tickets.map(t => {
+                          const st = STATUS_LABELS[t.status] || { label: t.status, color: "#666" };
+                          return (
+                            <tr key={t.id}
+                              onClick={() => setSelectedTicketId(t.id)}
+                              style={{
+                                cursor: "pointer",
+                                background: t.id === selectedTicketId ? "#e8f4fd" : "transparent",
+                                borderBottom: "1px solid #f0f0f0",
+                              }}
+                            >
+                              <td style={{ padding: "4px 2px", width: 24 }}>{TYPE_ICONS[t.type] || "\uD83D\uDCCB"}</td>
+                              <td style={{ padding: "4px 4px", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {t.text.slice(0, 60)}{t.text.length > 60 ? "..." : ""}
+                              </td>
+                              <td style={{ padding: "4px 4px", textAlign: "right" }}>
+                                <span style={{ fontSize: "0.85em", color: st.color, fontWeight: 600 }}>{st.label}</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Right: detail panel */}
+                  <div style={{ flex: "1 1 55%", paddingLeft: 6, fontSize: "0.85em" }}>
+                    {!selectedTicket ? (
+                      <div style={{ color: "#999", marginTop: 40, textAlign: "center" }}>Выберите тикет слева</div>
+                    ) : (
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                          <span style={{ fontSize: "1.1em" }}>{TYPE_ICONS[selectedTicket.type] || ""} {selectedTicket.type === "bug" ? "Баг" : selectedTicket.type === "feature" ? "Идея" : selectedTicket.type === "question" ? "Вопрос" : "Другое"}</span>
+                          <span style={{ color: (STATUS_LABELS[selectedTicket.status] || {}).color, fontWeight: 600 }}>{(STATUS_LABELS[selectedTicket.status] || {}).label || selectedTicket.status}</span>
+                        </div>
+                        <div style={{ whiteSpace: "pre-wrap", marginBottom: 8, lineHeight: 1.4 }}>{selectedTicket.text}</div>
+                        {selectedTicket.page_url && <div style={{ color: "#888", marginBottom: 4 }}>Страница: {selectedTicket.page_url}</div>}
+                        <div style={{ color: "#888", marginBottom: 4 }}>Создан: {new Date(selectedTicket.created_at).toLocaleString("ru-RU")}</div>
+                        {selectedTicket.created_by && <div style={{ color: "#888", marginBottom: 8 }}>От: {selectedTicket.created_by}</div>}
+                        {selectedTicket.ai_category && (
+                          <div style={{ marginBottom: 8 }}>
+                            <span style={{ fontSize: "0.85em", padding: "2px 6px", borderRadius: 4, color: "#fff", background: (CAT_LABELS[selectedTicket.ai_category] || { color: "#888" }).color }}>
+                              AI: {(CAT_LABELS[selectedTicket.ai_category] || {}).label || selectedTicket.ai_category}
+                            </span>
+                            {selectedTicket.ai_summary && <div style={{ color: "#666", marginTop: 4, fontStyle: "italic" }}>{selectedTicket.ai_summary}</div>}
+                          </div>
+                        )}
+                        {selectedTicket.response && (
+                          <div style={{ background: "#f0f8e8", padding: 8, borderRadius: 6, marginBottom: 8 }}>
+                            <div style={{ fontWeight: 600, marginBottom: 2 }}>Ответ:</div>
+                            {selectedTicket.response}
+                          </div>
+                        )}
+                        <div style={{ marginTop: 8 }}>
+                          <label style={{ display: "block", marginBottom: 4, fontWeight: 600 }}>Изменить статус</label>
+                          <select
+                            value={selectedTicket.status}
+                            onChange={async (e) => {
+                              setTicketSaving(true);
+                              try {
+                                await fetch(`/api/feedback/${selectedTicket.id}`, {
+                                  method: "PATCH",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ status: e.target.value }),
+                                });
+                                await loadTickets();
+                              } catch (err) { console.error(err); }
+                              setTicketSaving(false);
+                            }}
+                            disabled={ticketSaving}
+                            style={{ fontSize: 12, marginBottom: 8 }}
+                          >
+                            <option value="new">Новый</option>
+                            <option value="in_progress">В работе</option>
+                            <option value="resolved">Решён</option>
+                            <option value="closed">Закрыт</option>
+                          </select>
+                        </div>
+                        <div style={{ marginTop: 4 }}>
+                          <label style={{ display: "block", marginBottom: 4, fontWeight: 600 }}>Ответ</label>
+                          <textarea
+                            value={ticketResponse}
+                            onChange={e => setTicketResponse(e.target.value)}
+                            placeholder="Написать ответ..."
+                            rows={3}
+                            style={{ width: "100%", fontSize: 12, padding: 6, borderRadius: 4, border: "1px solid #ddd" }}
+                          />
+                          <button
+                            type="button"
+                            disabled={!ticketResponse.trim() || ticketSaving}
+                            onClick={async () => {
+                              setTicketSaving(true);
+                              try {
+                                await fetch(`/api/feedback/${selectedTicket.id}`, {
+                                  method: "PATCH",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ response: ticketResponse.trim(), status: "resolved" }),
+                                });
+                                setTicketResponse("");
+                                await loadTickets();
+                              } catch (err) { console.error(err); }
+                              setTicketSaving(false);
+                            }}
+                            style={{ fontSize: 12, padding: "4px 12px", marginTop: 4 }}
+                          >
+                            {ticketSaving ? "..." : "Сохранить"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>);
+            })()}
+          </ToggleSection>
         </div>
+
+        {/* SL-032: Floating feedback widget */}
+        {feedbackOpen && (
+          <div style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }} onClick={() => setFeedbackOpen(false)}>
+            <div style={{
+              background: "#fff", borderRadius: 10, padding: 20, width: 360, maxWidth: "90vw",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+            }} onClick={e => e.stopPropagation()}>
+              <h3 style={{ margin: "0 0 12px" }}>Сообщить о проблеме</h3>
+              <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                {([["bug", "\uD83D\uDC1B Баг"], ["feature", "\uD83D\uDCA1 Идея"], ["question", "\u2753 Вопрос"], ["other", "\uD83D\uDCCB Другое"]] as const).map(([val, label]) => (
+                  <button key={val} type="button"
+                    onClick={() => setFeedbackType(val)}
+                    style={{
+                      fontSize: 12, padding: "4px 10px", borderRadius: 4, cursor: "pointer",
+                      border: feedbackType === val ? "2px solid #3498db" : "1px solid #ccc",
+                      background: feedbackType === val ? "#ebf5fb" : "#fff",
+                    }}
+                  >{label}</button>
+                ))}
+              </div>
+              <textarea
+                value={feedbackText}
+                onChange={e => setFeedbackText(e.target.value)}
+                placeholder="Опишите проблему или предложение..."
+                rows={4}
+                style={{ width: "100%", fontSize: 13, padding: 8, borderRadius: 6, border: "1px solid #ccc", resize: "vertical" }}
+              />
+              <div style={{ display: "flex", gap: 8, marginTop: 10, justifyContent: "flex-end" }}>
+                <button type="button" onClick={() => setFeedbackOpen(false)} style={{ fontSize: 12, padding: "6px 14px" }}>Отмена</button>
+                <button type="button"
+                  disabled={!feedbackText.trim() || feedbackSending}
+                  onClick={async () => {
+                    setFeedbackSending(true);
+                    try {
+                      await fetch("/api/feedback", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          type: feedbackType,
+                          text: feedbackText.trim(),
+                          page_url: window.location.pathname,
+                          created_by: "director",
+                        }),
+                      });
+                      setFeedbackText("");
+                      setFeedbackOpen(false);
+                      loadTickets();
+                    } catch (e) { console.error(e); }
+                    setFeedbackSending(false);
+                  }}
+                  style={{ fontSize: 12, padding: "6px 14px", background: "#3498db", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}
+                >{feedbackSending ? "Отправка..." : "Отправить"}</button>
+              </div>
+            </div>
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => setFeedbackOpen(true)}
+          title="Сообщить о проблеме"
+          style={{
+            position: "fixed", bottom: 20, right: 20, zIndex: 900,
+            width: 48, height: 48, borderRadius: 24,
+            background: "#3498db", color: "#fff", border: "none",
+            fontSize: 20, cursor: "pointer",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >{"\u2709"}</button>
       </aside>
     </div>
   );
