@@ -1191,6 +1191,13 @@ app.get("/debug/dialogs", validateQuery(DialogsQuerySchema), async (req, res) =>
       }
     }
 
+    if (tenant_id === "emu") {
+      const SB = "chat_emu_sandbox";
+      if (!dialogs.find(d => d.chat_id === SB)) {
+        const { data: last } = await supabase.from("facts").select("created_at").eq("chat_id", SB).order("created_at", { ascending: false }).limit(1).maybeSingle();
+        dialogs.unshift({ chat_id: SB, last_ts: last?.created_at || new Date().toISOString(), last_text: "Песочница" });
+      }
+    }
     res.status(200).json({ dialogs });
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e) });
