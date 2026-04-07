@@ -84,12 +84,28 @@ function saveCollapsed(c: Record<string, boolean>) {
 const KNOWN_CHATS: Record<string, string> = {
   "-1002789466545": "Чат сотрудников",
   "dev_seed_chat": "Тестовые данные",
+  "chat_emu_sandbox": "Песочница",
 };
 function formatChatId(chatId: string): string {
   if (KNOWN_CHATS[chatId]) return KNOWN_CHATS[chatId];
   if (chatId.startsWith("-")) return `Telegram (${chatId})`;
   if (chatId.startsWith("chat_")) return "Тест-сессия";
   return chatId;
+}
+
+// SL-038 Песочница: фиксированный chat_id для тестовых фактов
+const SANDBOX_CHAT_ID = "chat_emu_sandbox";
+
+// Возвращает понедельник следующей недели для даты dateStr (ISO).
+// Если входное значение пустое, возвращает "".
+function getNextWeekStart(dateStr: string): string {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return "";
+  const day = d.getDay() === 0 ? 7 : d.getDay(); // 1..7 (Mon..Sun)
+  const next = new Date(d);
+  next.setDate(d.getDate() + (8 - day));
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
 }
 
 // ToggleSection: wraps a section with collapse ▼/▶ toggle
@@ -315,10 +331,14 @@ export const App: React.FC = () => {
   const [reminders, setReminders] = React.useState<Map<string, NodeJS.Timeout>>(new Map());
   const [escalations, setEscalations] = React.useState<Map<string, NodeJS.Timeout>>(new Map());
   const [pendingUsers, setPendingUsers] = React.useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = React.useState<"schedule" | "timesheet" | "empty">(() => {
+  const [activeTab, setActiveTab] = React.useState<"schedule" | "timesheet" | "empty" | "sandbox">(() => {
     const saved = localStorage.getItem("sl_active_tab");
     return (saved as any) || "schedule";
   });
+  // SL-038 Песочница state
+  const [simulatorDate, setSimulatorDate] = React.useState<string>("");
+  const [sandboxWeek, setSandboxWeek] = React.useState<string>("");
+  const [sandboxSchedule, setSandboxSchedule] = React.useState<any>(null);
   const [expandedEmpIdx, setExpandedEmpIdx] = React.useState<number | null>(null);
   
   // ActiveTasks: неблокирующие задачи вместо эскалаций
@@ -1225,7 +1245,14 @@ export const App: React.FC = () => {
           ? "admin1"
           : senderUserId;
 
-    const payload = { tenant_id: selectedTenant, chat_id: selectedChatId, user_id, text, meta: { role } };
+    // SL-038: в режиме emu все сообщения отправляются в фиксированный sandbox chat,
+    // чтобы тесты не задевали боевые данные dev_seed_chat / реальных чатов.
+    const isEmu = selectedTenant === "emu";
+    const targetChatId = isEmu ? SANDBOX_CHAT_ID : selectedChatId;
+    const payload: any = { tenant_id: selectedTenant, chat_id: targetChatId, user_id, text, meta: { role } };
+    if (simulatorDate) {
+      payload.received_at = new Date(simulatorDate).toISOString();
+    }
     console.log("[debugSend]", payload);
 
     try {
@@ -1268,8 +1295,9 @@ export const App: React.FC = () => {
         showToast(`Ошибка: ${json.error || "unknown"}`, "err");
       }
 
-      // Refresh chat, week state, and schedule grid (live update)
-      await loadDialogEvents(selectedChatId, selectedTenant);
+      // Refresh chat, week state, and schedule grid (live update).
+      // SL-038: в emu-режиме сообщения уходят в sandbox-чат, поэтому грузим его события.
+      await loadDialogEvents(targetChatId, selectedTenant);
       await refreshWeekState();
       await refreshSchedule();
       return json;
@@ -1277,6 +1305,55 @@ export const App: React.FC = () => {
       console.error("[debugSend] exception:", e);
       setLastError(`Ошибка отправки: ${String(e)}. Проверьте что бэкенд запущен (node backend/server.js)`);
       showToast("Ошибка подключения к серверу", "err");
+    }
+  };
+
+  // SL-038 Песочница: построить тестовый график из фактов sandbox-чата
+  const buildSandboxSchedule = async () => {
+    const week =
+      sandboxWeek ||
+      getNextWeekStart(simulatorDate || new Date().toISOString().slice(0, 16));
+    if (!week) {
+      showToast("Не удалось вычислить неделю", "err");
+      return;
+    }
+    setSandboxWeek(week);
+    try {
+      const r = await fetch(
+        `/debug/schedule?chat_id=${encodeURIComponent(SANDBOX_CHAT_ID)}&week_start=${encodeURIComponent(week)}&tenant_id=emu`,
+      );
+      if (!r.ok) {
+        showToast(`Ошибка ${r.status}`, "err");
+        return;
+      }
+      const data = await r.json();
+      setSandboxSchedule(data);
+      logActivity("Песочница", `Составлен график на ${week}`);
+    } catch (e) {
+      console.error("[buildSandboxSchedule]", e);
+      showToast("Ошибка построения графика", "err");
+    }
+  };
+
+  // SL-038 Песочница: удалить факты sandbox-чата за выбранную неделю
+  const clearSandbox = async () => {
+    if (!sandboxWeek) {
+      alert("Сначала постройте график (выберется неделя)");
+      return;
+    }
+    if (!confirm(`Удалить все факты из песочницы за неделю ${sandboxWeek}?`)) return;
+    try {
+      await fetch("/debug/reset-week", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: SANDBOX_CHAT_ID, week_start: sandboxWeek }),
+      });
+      setSandboxSchedule(null);
+      logActivity("Песочница", `Очищена неделя ${sandboxWeek}`);
+      showToast("Песочница очищена", "ok");
+    } catch (e) {
+      console.error("[clearSandbox]", e);
+      showToast("Ошибка очистки", "err");
     }
   };
 
@@ -1817,6 +1894,52 @@ export const App: React.FC = () => {
                 })
               )}
               <div ref={chatEndRef} />
+            </div>
+            {/* SL-038: симулируемая дата отправки сообщения (для песочницы) */}
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "4px 8px",
+              background: "#f9f9f9",
+              borderTop: "1px solid #ddd",
+              fontSize: "0.75em",
+              color: "#666",
+            }}>
+              <span title="Дата, которую увидит парсер для расчёта недели/дня. Пусто = сейчас.">
+                Дата:
+              </span>
+              <input
+                type="datetime-local"
+                value={simulatorDate}
+                onChange={(e) => setSimulatorDate(e.target.value)}
+                style={{
+                  fontSize: "0.85em",
+                  padding: "2px 4px",
+                  borderRadius: 3,
+                  border: "1px solid #ccc",
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setSimulatorDate("")}
+                style={{
+                  padding: "2px 6px",
+                  fontSize: "0.85em",
+                  borderRadius: 3,
+                  border: "1px solid #ccc",
+                  background: "#fff",
+                  cursor: "pointer",
+                }}
+                title="Сбросить (использовать текущую дату)"
+              >
+                Сейчас
+              </button>
+              {simulatorDate && (
+                <span style={{ color: "#888" }}>
+                  → неделя: {getNextWeekStart(simulatorDate) || "?"}
+                </span>
+              )}
             </div>
             <form
               className="chat-input"
@@ -3579,6 +3702,21 @@ export const App: React.FC = () => {
               >
                 Незаполненные
               </button>
+              <button
+                type="button"
+                onClick={() => { setActiveTab("sandbox"); logActivity("Вкладка", "Песочница"); }}
+                style={{
+                  padding: "4px 8px",
+                  border: "none",
+                  backgroundColor: activeTab === "sandbox" ? "#007bff" : "transparent",
+                  color: activeTab === "sandbox" ? "white" : "#666",
+                  cursor: "pointer",
+                  borderRadius: "4px 4px 0 0",
+                }}
+                title="Тестовая песочница: построение графика из произвольных тестовых сообщений"
+              >
+                Песочница
+              </button>
             </div>
 
             {/* Tab Content: Schedule */}
@@ -3998,6 +4136,87 @@ export const App: React.FC = () => {
                   </div>
                 )}
               </>
+            )}
+
+            {/* Tab Content: Песочница (SL-038) */}
+            {activeTab === "sandbox" && (
+              <div style={{ marginTop: "8px" }}>
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 8,
+                  padding: "8px 12px",
+                  background: "#f5f5f5",
+                  borderRadius: 6,
+                  flexWrap: "wrap",
+                }}>
+                  <span style={{ fontSize: "0.85em", color: "#555" }}>Неделя:</span>
+                  <input
+                    type="date"
+                    value={sandboxWeek}
+                    onChange={(e) => setSandboxWeek(e.target.value)}
+                    style={{
+                      fontSize: "0.85em",
+                      padding: "3px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #ccc",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={buildSandboxSchedule}
+                    style={{
+                      padding: "4px 12px",
+                      borderRadius: 4,
+                      border: "none",
+                      background: "#007bff",
+                      color: "white",
+                      cursor: "pointer",
+                      fontSize: "0.85em",
+                    }}
+                  >
+                    Составить
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearSandbox}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #ccc",
+                      background: "#fff",
+                      cursor: "pointer",
+                      fontSize: "0.85em",
+                    }}
+                  >
+                    Очистить
+                  </button>
+                  <span style={{ fontSize: "0.75em", color: "#888", marginLeft: "auto" }}>
+                    chat_id: <code>{SANDBOX_CHAT_ID}</code>
+                  </span>
+                </div>
+                {sandboxSchedule && sandboxSchedule.slots ? (
+                  <ScheduleGrid
+                    schedule={sandboxSchedule}
+                    weekStartISO={sandboxWeek}
+                    senderRole={senderRole}
+                    extrasMap={new Map()}
+                    openSlotModal={() => {}}
+                  />
+                ) : (
+                  <div style={{
+                    padding: 24,
+                    textAlign: "center",
+                    fontSize: "0.85em",
+                    color: "#999",
+                    border: "1px dashed #ddd",
+                    borderRadius: 6,
+                  }}>
+                    Введите сообщения от сотрудников (с указанием даты выше) и нажмите «Составить».
+                  </div>
+                )}
+              </div>
             )}
 
             {lastError && (

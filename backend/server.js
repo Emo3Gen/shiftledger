@@ -287,13 +287,13 @@ async function getOrLoadFacts(chatId) {
 }
 
 // Internal ingest helper used by /ingest and /debug/send
-async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id, traceId }) {
+async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id, traceId, received_at }) {
   const startedAt = Date.now();
   if (!chat_id || !user_id) {
     throw new Error("chat_id and user_id are required");
   }
 
-  const now = new Date().toISOString();
+  const now = received_at || new Date().toISOString();
   // Если tenant_id передан, сохраняем в meta.tenant_id
   const finalMeta = { ...(meta || {}) };
   if (tenant_id) {
@@ -1297,6 +1297,7 @@ app.post("/debug/send", ingestLimiter, validateBody(DebugSendSchema), async (req
       meta: body.meta,
       tenant_id: body.tenant_id,
       traceId,
+      received_at: body.received_at,
     });
 
     // Check for past-day SHIFT_AVAILABILITY and insert warning system messages

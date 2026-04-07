@@ -2,7 +2,7 @@
  * PaymentsService — ежедневный список оплат через Emogen API.
  *
  * Записи: Emogen /api/paraplan/records
- * Цены:   Emogen /api/settings/groups
+ * Цены:   Emogen /api/paraplan/prices
  */
 
 import logger from "./logger.js";
@@ -28,7 +28,7 @@ export async function fetchRecords(date) {
  * Fetch group prices from Emogen /api/settings/groups.
  */
 export async function fetchGroupPrices() {
-  const url = `${EMOGEN_API_URL}/api/settings/groups`;
+  const url = `${EMOGEN_API_URL}/api/paraplan/prices`;
   const r = await fetch(url, { headers: { Authorization: emogenAuthHeader } });
   if (!r.ok) throw new Error(`Emogen groups API: ${r.status} ${r.statusText}`);
   return r.json();

@@ -29,6 +29,7 @@ export const DebugSendSchema = z.object({
   ts: z.string().optional(),
   text: z.string().min(1).max(5000),
   meta: z.record(z.string(), z.any()).optional(),
+  received_at: z.string().datetime().optional(),
 });
 
 // --- POST /parse/:eventId ---
