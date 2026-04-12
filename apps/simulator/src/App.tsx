@@ -2955,6 +2955,8 @@ export const App: React.FC = () => {
           {/* Slot Assignment Modal */}
           {slotModal && (() => {
             const allUsers = UserDirectory.getAllUsers();
+            // SL-039: Schedulable users exclude directors/owners (for availability summary)
+            const schedulableUsers = allUsers.filter(u => u.role !== "director" && u.role !== "owner");
             const availSet = new Set(slotModal.availableUserIds || []);
             const shortFrom = slotModal.from.replace(/:00$/, "");
             const shortTo = slotModal.to.replace(/:00$/, "");
@@ -2986,7 +2988,7 @@ export const App: React.FC = () => {
                     style={{ width: "100%", padding: "6px 8px", fontSize: 13, borderRadius: 4, border: "1px solid #ccc" }}
                   >
                     <option value="">— Не назначен —</option>
-                    {allUsers.map((u) => {
+                    {schedulableUsers.map((u) => {
                       const isAvail = availSet.has(u.id);
                       return (
                         <option key={u.id} value={u.id}>
@@ -3000,8 +3002,8 @@ export const App: React.FC = () => {
                 {/* Availability summary */}
                 <div style={{ fontSize: 12, color: "#666", marginBottom: 12, lineHeight: 1.5 }}>
                   {(() => {
-                    const avail = allUsers.filter(u => availSet.has(u.id));
-                    const unavail = allUsers.filter(u => !availSet.has(u.id));
+                    const avail = schedulableUsers.filter(u => availSet.has(u.id));
+                    const unavail = schedulableUsers.filter(u => !availSet.has(u.id));
                     return (
                       <>
                         {avail.length > 0 && <div>Доступны: {avail.map(u => u.displayName).join(", ")}</div>}

@@ -90,6 +90,25 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
     }
   }
 
+  // SL-039: Per-day trace supersession — when a user sends a newer message with
+  // SHIFT_AVAILABILITY for a specific day, older facts from earlier messages (traces)
+  // for the SAME user+day are superseded. This prevents stale slot availability
+  // (e.g. old "Вс - утро/вечер" persisting when newer "Вс - утро" was sent).
+  const latestTraceByUserDow = new Map(); // key: "uid|dow" -> { trace_id, time }
+  for (const fact of filteredFacts) {
+    if (fact.fact_type !== "SHIFT_AVAILABILITY") continue;
+    const uid = fact.user_id || fact.fact_payload?.user_id;
+    const dow = fact.fact_payload?.dow;
+    if (!uid || !dow || !fact.trace_id) continue;
+    const nuid = UserDirectory.normalizeUserId(uid);
+    const key = `${nuid}|${dow}`;
+    const time = new Date(fact.created_at || 0).getTime();
+    const existing = latestTraceByUserDow.get(key);
+    if (!existing || time > existing.time) {
+      latestTraceByUserDow.set(key, { trace_id: fact.trace_id, time });
+    }
+  }
+
   // Step 0: Collect SHIFT_REPLACEMENT facts (replacement overrides)
   // When someone offers to replace (e.g. "я смогу выйти в чт утро"),
   // the slot should be reassigned to the replacement user.
@@ -106,6 +125,10 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
     if (!replacementUserId) continue;
 
     const normalizedId = UserDirectory.normalizeUserId(replacementUserId);
+
+    // SL-039: Skip users with autoSchedule: false (directors, owners)
+    if (!UserDirectory.isAutoSchedule(normalizedId)) continue;
+
     const factCreatedAt = new Date(fact.created_at || 0).getTime();
     const existing = replacementBySlot.get(slotKey);
     const existingCreatedAt = existing ? new Date(existing.created_at).getTime() : 0;
@@ -135,6 +158,9 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
     
     // Normalize user_id (slug -> internal id)
     const normalizedUserId = UserDirectory.normalizeUserId(user_id);
+
+    // SL-039: Skip users with autoSchedule: false (directors, owners)
+    if (!UserDirectory.isAutoSchedule(normalizedUserId)) continue;
 
     const factCreatedAt = new Date(fact.created_at || 0).getTime();
     const existing = assignmentBySlot.get(slotKey);
@@ -250,25 +276,58 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
     const { dow, from, to } = fact.fact_payload || {};
     if (!dow || !from || !to) continue;
 
+    // SL-039: Skip facts superseded by a newer message for the same user+day
+    const factUid = fact.user_id || fact.fact_payload?.user_id;
+    if (factUid && fact.trace_id) {
+      const nuid = UserDirectory.normalizeUserId(factUid);
+      const latest = latestTraceByUserDow.get(`${nuid}|${dow}`);
+      if (latest && fact.trace_id !== latest.trace_id) {
+        continue; // Superseded by a newer message
+      }
+    }
+
     const slotKey = `${dow}|${from}|${to}`;
 
     // Track in allAvailableBySlot (for UI, regardless of assignment)
     const userId = fact.user_id || fact.fact_payload?.user_id;
     if (userId) {
       const normalizedUserId = UserDirectory.normalizeUserId(userId);
-      const unavailUsers = unavailableBySlot.get(slotKey);
-      if (unavailUsers && unavailUsers.has(normalizedUserId)) {
+
+      // SL-039: Skip users with autoSchedule: false (directors, owners)
+      if (!UserDirectory.isAutoSchedule(normalizedUserId)) {
         debugSkipped.push({
           user_id: normalizedUserId,
           user_name: UserDirectory.getDisplayName(normalizedUserId),
           slot: slotKey,
-          reason: "UNAVAILABLE fact exists for this slot",
+          reason: "autoSchedule is false",
         });
       } else {
-        if (!allAvailableBySlot.has(slotKey)) {
-          allAvailableBySlot.set(slotKey, new Set());
+        // SL-039: Check resolved availability (newer UNAVAILABILITY overrides this)
+        const resolveKey = `${normalizedUserId}|${dow}|${from}|${to}`;
+        const resolved = resolvedAvailByUserSlot.get(resolveKey);
+        if (resolved && !resolved.available) {
+          debugSkipped.push({
+            user_id: normalizedUserId,
+            user_name: UserDirectory.getDisplayName(normalizedUserId),
+            slot: slotKey,
+            reason: "overridden by newer UNAVAILABILITY fact",
+          });
+        } else {
+          const unavailUsers = unavailableBySlot.get(slotKey);
+          if (unavailUsers && unavailUsers.has(normalizedUserId)) {
+            debugSkipped.push({
+              user_id: normalizedUserId,
+              user_name: UserDirectory.getDisplayName(normalizedUserId),
+              slot: slotKey,
+              reason: "UNAVAILABLE fact exists for this slot",
+            });
+          } else {
+            if (!allAvailableBySlot.has(slotKey)) {
+              allAvailableBySlot.set(slotKey, new Set());
+            }
+            allAvailableBySlot.get(slotKey).add(normalizedUserId);
+          }
         }
-        allAvailableBySlot.get(slotKey).add(normalizedUserId);
       }
     }
 
@@ -282,6 +341,8 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
     }
     if (userId) {
       const normalizedUserId = UserDirectory.normalizeUserId(userId);
+      // SL-039: Skip users with autoSchedule: false
+      if (!UserDirectory.isAutoSchedule(normalizedUserId)) continue;
       const unavailUsers = unavailableBySlot.get(slotKey);
       if (unavailUsers && unavailUsers.has(normalizedUserId)) continue;
       candidatesBySlot.get(slotKey).add(normalizedUserId);
