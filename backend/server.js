@@ -234,6 +234,20 @@ function computeFactHash(eventId, factType, payload) {
   return createHash("sha256").update(s).digest("hex");
 }
 
+// --- SL-040: Supersede old availability facts when user sends new message ---
+async function supersedePreviousFacts(chatId, userId, weekStart, traceId) {
+  const { error } = await supabase
+    .from("facts")
+    .update({ superseded_at: new Date().toISOString() })
+    .eq("chat_id", chatId)
+    .eq("user_id", userId)
+    .in("fact_type", ["SHIFT_AVAILABILITY", "SHIFT_UNAVAILABILITY"])
+    .filter("fact_payload->>week_start", "eq", weekStart)
+    .neq("trace_id", traceId)
+    .is("superseded_at", null);
+  if (error) logger.warn({ error, chatId, userId, weekStart }, "supersedePreviousFacts error");
+}
+
 // --- In-memory facts cache (SL-023) ---
 const _factsCache = new Map(); // chat_id → Map(fact_hash|id → fact)
 const FACTS_CACHE_MAX_AGE_DAYS = 60;
@@ -252,6 +266,7 @@ function initCacheFromDB(chatId, facts) {
   cutoff.setDate(cutoff.getDate() - FACTS_CACHE_MAX_AGE_DAYS);
   const chatMap = new Map();
   for (const f of facts) {
+    if (f.superseded_at) continue; // SL-040: skip superseded facts
     if (new Date(f.created_at) > cutoff) chatMap.set(f.fact_hash || f.id, f);
   }
   _factsCache.set(chatId, chatMap);
@@ -271,6 +286,7 @@ async function getOrLoadFacts(chatId) {
   const { data: dbFacts, error: dbErr } = await supabase
     .from("facts").select("*")
     .eq("chat_id", chatId)
+    .is("superseded_at", null) // SL-040: only active facts
     .gte("created_at", cutoff.toISOString())
     .order("created_at", { ascending: true })
     .limit(5000);
@@ -369,6 +385,18 @@ async function ingestInternal({ source, chat_id, user_id, text, meta, tenant_id,
     }
 
     if (Array.isArray(parsed) && parsed.length > 0) {
+      // SL-040: Supersede old availability facts before inserting new ones
+      const availFacts = parsed.filter(f =>
+        f.fact_type === "SHIFT_AVAILABILITY" || f.fact_type === "SHIFT_UNAVAILABILITY"
+      );
+      if (availFacts.length > 0) {
+        const weekStarts = [...new Set(availFacts.map(f => f.fact_payload?.week_start).filter(Boolean))];
+        for (const ws of weekStarts) {
+          await supersedePreviousFacts(inserted.chat_id, inserted.user_id, ws, inserted.trace_id);
+        }
+        _factsCache.delete(chat_id); // Invalidate cache — stale facts removed
+      }
+
       const rows = parsed.map((f) => {
         const factPayload = f.fact_payload ?? {};
         const factType = f.fact_type;

@@ -49,7 +49,7 @@ export function buildDraftSchedule({ facts, weekStartISO, slotTypes, settings })
     "SHIFT_AVAILABILITY", "SHIFT_UNAVAILABILITY", "SHIFT_ASSIGNMENT",
     "SHIFT_UNASSIGNMENT", "SHIFT_REPLACEMENT", "SHIFT_GAP",
   ]);
-  const filteredFacts = (facts || []).filter(f => {
+  const filteredFacts = (facts || []).filter(f => !f.superseded_at).filter(f => { // SL-040: skip superseded facts
     const ws = f.fact_payload?.week_start;
     if (ws) return ws === weekStartISO;
 
