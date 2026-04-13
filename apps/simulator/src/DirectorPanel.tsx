@@ -101,9 +101,9 @@ const DOW_RU: Record<string, string> = {
 const DOW_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
 const STATE_LABELS: Record<string, { label: string; color: string }> = {
-  COLLECTING: { label: "Сбор доступности", color: "#007bff" },
-  ACTIVE: { label: "График активен", color: "#28a745" },
-  CLOSED: { label: "Неделя закрыта", color: "#6c757d" },
+  COLLECTING: { label: "Сбор доступности", color: "#5C3D1E" },
+  ACTIVE: { label: "График активен", color: "#6B8E4E" },
+  CLOSED: { label: "Неделя закрыта", color: "#9A8E7E" },
 };
 
 const EMPTY_FORM: EmployeeFormData = {
@@ -235,10 +235,10 @@ const EmployeeFormModal: React.FC<{
       alignItems: "center", justifyContent: "center", zIndex: 1000,
     }} onClick={onClose}>
       <div style={{
-        background: "#fff", borderRadius: 10, padding: 24, width: 420, maxWidth: "90vw",
+        background: "#FFFFFF", borderRadius: 10, padding: 24, width: 420, maxWidth: "90vw",
         maxHeight: "90vh", overflowY: "auto", boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
       }} onClick={(e) => e.stopPropagation()}>
-        <h3 style={{ margin: "0 0 16px" }}>{isEdit ? "Редактировать сотрудника" : "Новый сотрудник"}</h3>
+        <h3 style={{ margin: "0 0 16px", color: "#2A1F0E" }}>{isEdit ? "Редактировать сотрудника" : "Новый сотрудник"}</h3>
 
         {err && <div style={{ padding: 8, background: "#ffebee", color: "#c62828", borderRadius: 4, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
@@ -284,10 +284,10 @@ const EmployeeFormModal: React.FC<{
           onChange={(e) => set("notes", e.target.value)} placeholder="Любые заметки..." />
 
         <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-          <button onClick={handleSave} disabled={saving} style={btnStyle("#007bff")}>
+          <button onClick={handleSave} disabled={saving} style={btnStyle("#5C3D1E")}>
             {saving ? "Сохранение..." : "Сохранить"}
           </button>
-          <button onClick={onClose} style={{ ...btnStyle("#6c757d"), background: "#e9ecef", color: "#333" }}>
+          <button onClick={onClose} style={{ ...btnStyle("#9A8E7E"), background: "#F9F6F1", color: "#2A1F0E" }}>
             Отмена
           </button>
         </div>
@@ -296,8 +296,8 @@ const EmployeeFormModal: React.FC<{
   );
 };
 
-const formLabelStyle: React.CSSProperties = { display: "block", fontSize: 12, color: "#666", marginBottom: 2, marginTop: 10 };
-const formInputStyle: React.CSSProperties = { width: "100%", padding: "6px 10px", border: "1px solid #ccc", borderRadius: 4, fontSize: 14, boxSizing: "border-box" };
+const formLabelStyle: React.CSSProperties = { display: "block", fontSize: 12, color: "#9A8E7E", marginBottom: 2, marginTop: 10 };
+const formInputStyle: React.CSSProperties = { width: "100%", padding: "6px 10px", border: "1px solid #DDD5C4", borderRadius: 4, fontSize: 14, boxSizing: "border-box", color: "#2A1F0E" };
 
 // LiveScheduleGrid
 const LiveScheduleGrid: React.FC<{ schedule: Schedule | null; employees: Employee[] }> = ({ schedule, employees }) => {
@@ -319,14 +319,14 @@ const LiveScheduleGrid: React.FC<{ schedule: Schedule | null; employees: Employe
     }
   }
 
-  const cellPad: React.CSSProperties = { padding: "3px 6px", whiteSpace: "nowrap" };
-  const thPad: React.CSSProperties = { ...cellPad, textAlign: "left", borderBottom: "2px solid #dee2e6", fontWeight: 600 };
+  const cellPad: React.CSSProperties = { padding: "3px 6px", whiteSpace: "nowrap", color: "#2A1F0E" };
+  const thPad: React.CSSProperties = { ...cellPad, textAlign: "left", borderBottom: "2px solid #DDD5C4", fontWeight: 600, color: "#2A1F0E" };
 
   return (
     <div style={{ overflowX: "auto" }}>
       <table style={{ borderCollapse: "collapse", fontSize: 13 }}>
         <thead>
-          <tr style={{ background: "#f8f9fa" }}>
+          <tr style={{ background: "#F9F6F1" }}>
             <th style={thPad}>День</th>
             {slotNames.map((sn) => (
               <th key={sn} style={thPad}>{sn}</th>
@@ -336,7 +336,7 @@ const LiveScheduleGrid: React.FC<{ schedule: Schedule | null; employees: Employe
         </thead>
         <tbody>
           {activeDays.map((dow) => (
-            <tr key={dow} style={{ borderBottom: "1px solid #eee" }}>
+            <tr key={dow} style={{ borderBottom: "1px solid #EDE8DE" }}>
               <td style={{ ...cellPad, fontWeight: 600 }}>{DOW_RU[dow]}</td>
               {slotNames.map((sn) => {
                 const slot = schedule.slots!.find((s) => s.dow === dow && s.slot_name === sn);
@@ -345,9 +345,9 @@ const LiveScheduleGrid: React.FC<{ schedule: Schedule | null; employees: Employe
                 const isReplacement = !!slot?.replaced_user_id;
                 const isProblem = slot?.is_problematic || slot?.is_problem;
 
-                let bg = uid ? "#e8f5e9" : "#fff3e0";
-                if (isProblem) bg = "#ffebee";
-                if (isReplacement) bg = "#e3f2fd";
+                let bg = uid ? "#FFFFF0" : "#F9F6F1";
+                if (isProblem) bg = "#FFF0F0";
+                if (isReplacement) bg = "#F0F4FF";
 
                 return (
                   <td key={sn} style={{ ...cellPad, background: bg }}>
@@ -384,7 +384,7 @@ const PayrollTable: React.FC<{ timesheet: Timesheet | null; employees: Employee[
   return (
     <table style={{ borderCollapse: "collapse", fontSize: 13 }}>
       <thead>
-        <tr style={{ background: "#f8f9fa" }}>
+        <tr style={{ background: "#F9F6F1" }}>
           <th style={thStyle}>Сотрудник</th>
           <th style={thStyle}>Часы</th>
           <th style={thStyle}>Смены</th>
@@ -413,7 +413,7 @@ const PayrollTable: React.FC<{ timesheet: Timesheet | null; employees: Employee[
             </tr>
             {expandedIdx === idx && (
               <tr>
-                <td colSpan={showInterBranch ? 7 : 6} style={{ padding: "8px 16px", background: "#f8f9fa", fontSize: 13 }}>
+                <td colSpan={showInterBranch ? 7 : 6} style={{ padding: "8px 16px", background: "#F9F6F1", fontSize: 13 }}>
                   <div>Всего часов: {emp.shift_hours} | Эфф.: {emp.effective_hours} | Ставка: {emp.rate} \u20BD/ч</div>
                   {emp.problem_shifts > 0 && <div style={{ color: "#d32f2f" }}>Проблемных смен: {emp.problem_shifts}</div>}
                   {(emp.inter_branch_hours || 0) > 0 && <div>Межфилиал: {emp.inter_branch_hours}ч = {fmtRub(emp.inter_branch_pay || 0)}</div>}
@@ -426,7 +426,7 @@ const PayrollTable: React.FC<{ timesheet: Timesheet | null; employees: Employee[
           </React.Fragment>
           );
         })}
-        <tr style={{ background: "#e8f5e9", fontWeight: 700 }}>
+        <tr style={{ background: "#F0E8DC", fontWeight: 700 }}>
           <td style={tdStyle}>Итого</td>
           <td style={tdStyle}>{timesheet.totals.total_hours}ч</td>
           <td colSpan={timesheet.employees.some((e) => (e.inter_branch_hours || 0) > 0) ? 4 : 3} />
@@ -437,8 +437,8 @@ const PayrollTable: React.FC<{ timesheet: Timesheet | null; employees: Employee[
   );
 };
 
-const thStyle: React.CSSProperties = { padding: "3px 6px", textAlign: "left", borderBottom: "2px solid #dee2e6", whiteSpace: "nowrap" };
-const tdStyle: React.CSSProperties = { padding: "3px 6px", whiteSpace: "nowrap" };
+const thStyle: React.CSSProperties = { padding: "3px 6px", textAlign: "left", borderBottom: "2px solid #DDD5C4", whiteSpace: "nowrap", color: "#2A1F0E" };
+const tdStyle: React.CSSProperties = { padding: "3px 6px", whiteSpace: "nowrap", color: "#2A1F0E" };
 
 // ControlButtons
 const ControlButtons: React.FC<{
@@ -511,9 +511,9 @@ const ControlButtons: React.FC<{
 
   return (
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
-      {btnWithHint("Начать сбор", "Загрузка...", "#007bff", d1, hint1, () => doAction(`OPEN_WEEK ${weekStart}`, "Начать сбор"))}
-      {btnWithHint("Собрать график", "Загрузка...", "#28a745", d2, hint2, doBuildSchedule)}
-      {btnWithHint("Закрыть неделю", "Загрузка...", "#6c757d", d3, hint3, () => doAction(`LOCK ${weekStart}`, "Закрыть неделю"))}
+      {btnWithHint("Начать сбор", "Загрузка...", "#5C3D1E", d1, hint1, () => doAction(`OPEN_WEEK ${weekStart}`, "Начать сбор"))}
+      {btnWithHint("Собрать график", "Загрузка...", "#6B8E4E", d2, hint2, doBuildSchedule)}
+      {btnWithHint("Закрыть неделю", "Загрузка...", "#9A8E7E", d3, hint3, () => doAction(`LOCK ${weekStart}`, "Закрыть неделю"))}
     </div>
   );
 };
@@ -521,10 +521,10 @@ const ControlButtons: React.FC<{
 function btnStyle(color: string, disabled = false): React.CSSProperties {
   return {
     padding: "5px 10px",
-    background: disabled ? "#adb5bd" : color,
+    background: disabled ? "#B5AA99" : color,
     color: "#fff",
     border: "none",
-    borderRadius: 4,
+    borderRadius: 6,
     cursor: disabled ? "not-allowed" : "pointer",
     fontSize: 13,
     fontWeight: 500,
@@ -715,8 +715,8 @@ const SettingsPanel: React.FC<{
 
   const tabBtnStyle = (active: boolean): React.CSSProperties => ({
     padding: "6px 16px",
-    background: active ? "#007bff" : "#e9ecef",
-    color: active ? "#fff" : "#333",
+    background: active ? "#5C3D1E" : "#F9F6F1",
+    color: active ? "#fff" : "#9A8E7E",
     border: "none",
     borderRadius: "6px 6px 0 0",
     cursor: "pointer",
@@ -732,11 +732,11 @@ const SettingsPanel: React.FC<{
         <button style={tabBtnStyle(tab === "rates")} onClick={() => setTab("rates")}>Ставки</button>
       </div>
 
-      <div style={{ border: "1px solid #dee2e6", borderRadius: "0 6px 6px 6px", padding: 12 }}>
+      <div style={{ border: "1px solid #DDD5C4", borderRadius: "0 6px 6px 6px", padding: 12 }}>
         {tab === "shifts" && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             {["morning", "evening"].map((period) => (
-              <div key={period} style={{ background: "#f8f9fa", padding: 12, borderRadius: 6 }}>
+              <div key={period} style={{ background: "#F9F6F1", padding: 12, borderRadius: 6 }}>
                 <div style={{ fontWeight: 600, marginBottom: 8 }}>{settings[`shifts.${period}.name`] || period}</div>
                 <label style={labelStyle}>Начало</label>
                 <input
@@ -879,12 +879,12 @@ const SettingsPanel: React.FC<{
   );
 };
 
-const labelStyle: React.CSSProperties = { display: "block", fontSize: 12, color: "#666", marginBottom: 2, marginTop: 6 };
+const labelStyle: React.CSSProperties = { display: "block", fontSize: 12, color: "#9A8E7E", marginBottom: 2, marginTop: 6 };
 const navBtnStyle: React.CSSProperties = {
-  padding: "6px 14px", background: "#e9ecef", border: "1px solid #ced4da",
-  borderRadius: 6, cursor: "pointer", fontSize: 16, fontWeight: 600, lineHeight: 1,
+  padding: "6px 14px", background: "#F9F6F1", border: "1px solid #DDD5C4",
+  borderRadius: 6, cursor: "pointer", fontSize: 16, fontWeight: 600, lineHeight: 1, color: "#5C3D1E",
 };
-const inputStyle: React.CSSProperties = { padding: "4px 8px", border: "1px solid #ccc", borderRadius: 4, fontSize: 13 };
+const inputStyle: React.CSSProperties = { padding: "4px 8px", border: "1px solid #DDD5C4", borderRadius: 4, fontSize: 13, color: "#2A1F0E" };
 
 // FeedbackButton
 const FeedbackButton: React.FC = () => {
@@ -902,7 +902,7 @@ const FeedbackButton: React.FC = () => {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} style={{ ...btnStyle("#6c757d"), position: "fixed", bottom: 20, right: 20 }}>
+      <button onClick={() => setOpen(true)} style={{ ...btnStyle("#9A8E7E"), position: "fixed", bottom: 20, right: 20 }}>
         Обратная связь
       </button>
     );
@@ -910,21 +910,21 @@ const FeedbackButton: React.FC = () => {
 
   return (
     <div style={{
-      position: "fixed", bottom: 20, right: 20, width: 320, background: "#fff",
-      border: "1px solid #dee2e6", borderRadius: 8, padding: 16, boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+      position: "fixed", bottom: 20, right: 20, width: 320, background: "#FFFFFF",
+      border: "1px solid #DDD5C4", borderRadius: 8, padding: 16, boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
     }}>
-      <div style={{ fontWeight: 600, marginBottom: 8 }}>Обратная связь</div>
+      <div style={{ fontWeight: 600, marginBottom: 8, color: "#2A1F0E" }}>Обратная связь</div>
       <textarea
-        style={{ width: "100%", height: 80, padding: 8, border: "1px solid #ccc", borderRadius: 4, fontSize: 13, resize: "vertical" }}
+        style={{ width: "100%", height: 80, padding: 8, border: "1px solid #DDD5C4", borderRadius: 4, fontSize: 13, resize: "vertical", color: "#2A1F0E" }}
         placeholder="Что улучшить? Что не работает?"
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-        <button onClick={send} disabled={!text.trim()} style={btnStyle("#007bff")}>
+        <button onClick={send} disabled={!text.trim()} style={btnStyle("#5C3D1E")}>
           {sent ? "Отправлено!" : "Отправить"}
         </button>
-        <button onClick={() => setOpen(false)} style={{ ...btnStyle("#6c757d"), background: "#e9ecef", color: "#333" }}>
+        <button onClick={() => setOpen(false)} style={{ ...btnStyle("#9A8E7E"), background: "#F9F6F1", color: "#2A1F0E" }}>
           Закрыть
         </button>
       </div>
@@ -938,14 +938,14 @@ const WorkflowGuide: React.FC = () => {
 
   return (
     <div style={{
-      marginBottom: 12, border: "1px solid #dee2e6", borderRadius: 6,
-      background: open ? "#f8f9fa" : "transparent",
+      marginBottom: 12, border: "1px solid #DDD5C4", borderRadius: 6,
+      background: open ? "#F9F6F1" : "transparent",
     }}>
       <button
         onClick={() => setOpen(!open)}
         style={{
           width: "100%", padding: "8px 12px", background: "none", border: "none",
-          cursor: "pointer", textAlign: "left", fontSize: 13, color: "#666",
+          cursor: "pointer", textAlign: "left", fontSize: 13, color: "#9A8E7E",
           display: "flex", alignItems: "center", gap: 6,
         }}
       >
@@ -1095,7 +1095,10 @@ export const DirectorPanel: React.FC = () => {
   const [error, setError] = React.useState("");
   const [showWelcome, setShowWelcome] = React.useState(false);
   const [seedingInProgress, setSeedingInProgress] = React.useState(false);
-  const [activeSection, setActiveSection] = React.useState<"payroll" | "settings">("payroll");
+  const [activeSection, setActiveSection] = React.useState<"schedule" | "timesheet" | "payments" | "settings" | "paraplan">("schedule");
+  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
+  const [scheduleTab, setScheduleTab] = React.useState<"grid" | "staff">("grid");
+  const [debugMode, setDebugMode] = React.useState(false);
   const [toast, setToast] = React.useState<{ text: string; type: "ok" | "err" } | null>(null);
 
   // Employee form modal state
@@ -1353,16 +1356,16 @@ export const DirectorPanel: React.FC = () => {
 
   if (showWelcome) {
     return (
-      <div style={{ maxWidth: 520, margin: "0 auto", padding: "80px 20px", fontFamily: "system-ui, sans-serif", textAlign: "center" }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>ShiftLedger</h1>
-        <p style={{ fontSize: 16, color: "#666", marginBottom: 32 }}>
+      <div style={{ maxWidth: 520, margin: "0 auto", padding: "80px 20px", fontFamily: "system-ui, sans-serif", textAlign: "center", background: "#F5F0E8", minHeight: "100vh" }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8, color: "#2A1F0E" }}>ShiftLedger</h1>
+        <p style={{ fontSize: 16, color: "#9A8E7E", marginBottom: 32 }}>
           Панель управления сменами и зарплатами
         </p>
         <div style={{
-          background: "#f8f9fa", border: "1px solid #dee2e6", borderRadius: 12,
+          background: "#FFFFFF", border: "1px solid #DDD5C4", borderRadius: 12,
           padding: "32px 24px", marginBottom: 24,
         }}>
-          <p style={{ fontSize: 15, marginBottom: 20, color: "#333" }}>
+          <p style={{ fontSize: 15, marginBottom: 20, color: "#2A1F0E" }}>
             Нет данных. Загрузите тестовый сценарий, чтобы увидеть панель в действии.
           </p>
           <button
@@ -1370,7 +1373,7 @@ export const DirectorPanel: React.FC = () => {
             disabled={seedingInProgress}
             style={{
               padding: "12px 32px", fontSize: 16, fontWeight: 600,
-              background: seedingInProgress ? "#6c757d" : "#007bff",
+              background: seedingInProgress ? "#B5AA99" : "#5C3D1E",
               color: "#fff", border: "none", borderRadius: 8, cursor: seedingInProgress ? "wait" : "pointer",
             }}
           >
@@ -1380,7 +1383,7 @@ export const DirectorPanel: React.FC = () => {
             <div style={{ color: "#c62828", marginTop: 12, fontSize: 13 }}>{error}</div>
           )}
         </div>
-        <p style={{ fontSize: 13, color: "#999" }}>
+        <p style={{ fontSize: 13, color: "#B5AA99" }}>
           Тестовый сценарий: 4 сотрудника, полная неделя с заменами, уборками и доп. занятиями.
         </p>
       </div>
@@ -1389,7 +1392,7 @@ export const DirectorPanel: React.FC = () => {
 
   if (loading) {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontSize: 18 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontSize: 18, background: "#F5F0E8", color: "#5C3D1E" }}>
         Загрузка...
       </div>
     );
@@ -1397,138 +1400,498 @@ export const DirectorPanel: React.FC = () => {
 
   const stateInfo = STATE_LABELS[weekState?.state || "COLLECTING"] || { label: weekState?.state, color: "#666" };
 
-  const sectionBtnStyle = (active: boolean): React.CSSProperties => ({
-    padding: "4px 12px",
-    background: active ? "#007bff" : "transparent",
-    color: active ? "#fff" : "#007bff",
-    border: active ? "none" : "1px solid #007bff",
-    borderRadius: 4,
-    cursor: "pointer",
-    fontSize: 13,
-    fontWeight: 500,
-  });
+  // Sidebar navigation items
+  const sidebarItems: { id: typeof activeSection; label: string; icon: React.ReactNode }[] = [
+    {
+      id: "schedule", label: "График",
+      icon: <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="3" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M2 7h16M7 3v4M13 3v4" stroke="currentColor" strokeWidth="1.5"/></svg>,
+    },
+    {
+      id: "timesheet", label: "Табель",
+      icon: <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M5 2h10a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V4a2 2 0 012-2z" stroke="currentColor" strokeWidth="1.5"/><path d="M6 6h8M6 9h8M6 12h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+    },
+    {
+      id: "payments", label: "Оплаты",
+      icon: <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="4" width="16" height="12" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M2 8h16" stroke="currentColor" strokeWidth="1.5"/><rect x="4" y="11" width="4" height="2" rx="0.5" fill="currentColor"/></svg>,
+    },
+    {
+      id: "settings", label: "Настройки",
+      icon: <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="3" stroke="currentColor" strokeWidth="1.5"/><path d="M10 1.5v2M10 16.5v2M18.5 10h-2M3.5 10h-2M15.95 4.05l-1.41 1.41M5.46 14.54l-1.41 1.41M15.95 15.95l-1.41-1.41M5.46 5.46L4.05 4.05" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+    },
+    {
+      id: "paraplan", label: "Параплан",
+      icon: <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.5"/><path d="M10 5v5l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+    },
+  ];
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", height: "100vh", overflow: "hidden" }}>
+    <div style={{ fontFamily: "system-ui, sans-serif", height: "100vh", overflow: "hidden", display: "flex", background: "#F5F0E8" }}>
       {/* CSS */}
       <style>{`
         .dp-btn:not(:disabled):hover { filter: brightness(0.85); }
         .dp-btn:not(:disabled):active { filter: brightness(0.7); transform: scale(0.97); }
         .dp-tab:hover { filter: brightness(0.9); }
         .dp-tab:active { transform: scale(0.97); }
+        .dp-sidebar-item:hover { background: #F9F6F1 !important; }
         @media (max-width: 768px) {
-          .dp-grid { grid-template-columns: 1fr !important; }
-          .dp-grid > div:nth-child(2) { display: none !important; }
-          .dp-col-left, .dp-col-right { height: auto !important; max-height: none !important; }
-          .dp-mobile-hide { display: none !important; }
-          .dp-mobile-show { display: flex !important; }
-        }
-        @media (min-width: 769px) {
-          .dp-mobile-toggle { display: none !important; }
+          .dp-sidebar { display: none !important; }
+          .dp-main { width: 100% !important; }
         }
       `}</style>
 
-      {/* Top bar */}
-      <div style={{
-        padding: "8px 16px", borderBottom: "1px solid #dee2e6", background: "#fff",
-        display: "flex", alignItems: "center", justifyContent: "space-between",
+      {/* ===== SIDEBAR ===== */}
+      <div className="dp-sidebar" style={{
+        width: sidebarCollapsed ? 56 : 188,
+        background: "#FFFFFF",
+        borderRight: "1px solid #DDD5C4",
+        display: "flex",
+        flexDirection: "column",
+        transition: "width 0.2s ease",
+        flexShrink: 0,
+        overflow: "hidden",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>ShiftLedger</h1>
-          <div style={{
-            padding: "2px 10px", borderRadius: 10, background: stateInfo.color,
-            color: "#fff", fontSize: 12, fontWeight: 500,
-          }}>
-            {stateInfo.label}
-          </div>
-          {weekState?.hasGaps && (
-            <span style={{ fontSize: 11, color: "#d32f2f" }}>Незакрытые смены</span>
+        {/* Logo */}
+        <div style={{
+          padding: sidebarCollapsed ? "16px 8px" : "16px",
+          borderBottom: "1px solid #EDE8DE",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: sidebarCollapsed ? "center" : "flex-start",
+          gap: 8,
+          minHeight: 52,
+        }}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <rect x="3" y="4" width="18" height="16" rx="2" stroke="#5C3D1E" strokeWidth="1.5"/>
+            <path d="M3 9h18M8 4v5M16 4v5" stroke="#5C3D1E" strokeWidth="1.5"/>
+          </svg>
+          {!sidebarCollapsed && <span style={{ fontSize: 16, fontWeight: 700, color: "#2A1F0E", whiteSpace: "nowrap" }}>ShiftLedger</span>}
+        </div>
+
+        {/* Nav items */}
+        <nav style={{ flex: 1, padding: "8px 0" }}>
+          {sidebarItems.map((item) => (
+            <div
+              key={item.id}
+              className="dp-sidebar-item"
+              onClick={() => setActiveSection(item.id)}
+              style={{
+                padding: sidebarCollapsed ? "10px 0" : "10px 16px",
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                cursor: "pointer",
+                borderLeft: activeSection === item.id ? "2px solid #5C3D1E" : "2px solid transparent",
+                background: activeSection === item.id ? "#F0E8DC" : "transparent",
+                color: activeSection === item.id ? "#5C3D1E" : "#9A8E7E",
+                justifyContent: sidebarCollapsed ? "center" : "flex-start",
+                transition: "background 0.15s, color 0.15s",
+                fontSize: 14,
+                fontWeight: activeSection === item.id ? 600 : 400,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {item.icon}
+              {!sidebarCollapsed && <span>{item.label}</span>}
+            </div>
+          ))}
+        </nav>
+
+        {/* Collapse button */}
+        <div style={{ padding: "8px", borderTop: "1px solid #EDE8DE" }}>
+          <button
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            style={{
+              width: sidebarCollapsed ? 36 : "100%",
+              height: 32,
+              background: "#F9F6F1",
+              border: "1px solid #DDD5C4",
+              borderRadius: 6,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#9A8E7E",
+              margin: sidebarCollapsed ? "0 auto" : 0,
+            }}
+            title={sidebarCollapsed ? "Развернуть" : "Свернуть"}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <rect x="3" y="2" width="1.5" height="12" rx="0.5" fill="currentColor"/>
+              {sidebarCollapsed
+                ? <path d="M8 8l3-3v6l-3-3z" fill="currentColor"/>
+                : <path d="M11 8l-3-3v6l3-3z" fill="currentColor"/>
+              }
+            </svg>
+          </button>
+        </div>
+
+        {/* Mode switcher */}
+        <div style={{
+          padding: sidebarCollapsed ? "12px 4px" : "12px",
+          borderTop: "1px solid #EDE8DE",
+        }}>
+          {!sidebarCollapsed ? (
+            <div style={{
+              display: "flex",
+              borderRadius: 6,
+              overflow: "hidden",
+              border: "1px solid #DDD5C4",
+              fontSize: 12,
+              fontWeight: 500,
+            }}>
+              <button
+                onClick={() => setDebugMode(false)}
+                style={{
+                  flex: 1,
+                  padding: "6px 0",
+                  border: "none",
+                  cursor: "pointer",
+                  background: !debugMode ? "#5C3D1E" : "#F9F6F1",
+                  color: !debugMode ? "#fff" : "#9A8E7E",
+                  transition: "all 0.15s",
+                }}
+              >
+                Боевой
+              </button>
+              <button
+                onClick={() => setDebugMode(true)}
+                style={{
+                  flex: 1,
+                  padding: "6px 0",
+                  border: "none",
+                  cursor: "pointer",
+                  background: debugMode ? "#5C3D1E" : "#F9F6F1",
+                  color: debugMode ? "#fff" : "#9A8E7E",
+                  transition: "all 0.15s",
+                }}
+              >
+                Отладка
+              </button>
+            </div>
+          ) : (
+            <div
+              onClick={() => setDebugMode(!debugMode)}
+              title={debugMode ? "Режим: Отладка" : "Режим: Боевой"}
+              style={{
+                width: 36,
+                height: 20,
+                borderRadius: 10,
+                background: debugMode ? "#5C3D1E" : "#DDD5C4",
+                margin: "0 auto",
+                cursor: "pointer",
+                position: "relative",
+                transition: "background 0.2s",
+              }}
+            >
+              <div style={{
+                width: 16,
+                height: 16,
+                borderRadius: "50%",
+                background: "#fff",
+                position: "absolute",
+                top: 2,
+                left: debugMode ? 18 : 2,
+                transition: "left 0.2s",
+              }} />
+            </div>
+          )}
+
+          {/* Avatar + user info */}
+          {!sidebarCollapsed && (
+            <div style={{
+              marginTop: 12,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}>
+              <div style={{
+                width: 28,
+                height: 28,
+                borderRadius: "50%",
+                background: "#F0E8DC",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#5C3D1E",
+                fontSize: 12,
+                fontWeight: 600,
+                flexShrink: 0,
+              }}>
+                А
+              </div>
+              <div style={{ overflow: "hidden" }}>
+                <div style={{ fontSize: 13, fontWeight: 500, color: "#2A1F0E", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Админ</div>
+                <div style={{ fontSize: 11, color: "#B5AA99" }}>{debugMode ? "Отладка" : "Боевой"}</div>
+              </div>
+            </div>
           )}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button onClick={() => goWeek(-1)} style={{ ...navBtnStyle, padding: "4px 10px", fontSize: 14 }} title="Предыдущая неделя">{"\u2190"}</button>
-          <div style={{ textAlign: "center", minWidth: 140 }}>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>{fmtWeekRange(weekStart)}</div>
-            <div style={{ fontSize: 11, color: "#666" }}>
-              {weekStart}
-              {(schedule?.slots?.some((s: Slot) => s.user_id) || (events && events.length > 0)) ? (
-                <span style={{ color: "#28a745", marginLeft: 4 }}>+</span>
+      </div>
+
+      {/* ===== MAIN CONTENT ===== */}
+      <div className="dp-main" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+        {/* Top bar — week state + navigation */}
+        <div style={{
+          padding: "8px 16px",
+          borderBottom: "1px solid #DDD5C4",
+          background: "#FFFFFF",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{
+              padding: "2px 10px", borderRadius: 10, background: stateInfo.color,
+              color: "#fff", fontSize: 12, fontWeight: 500,
+            }}>
+              {stateInfo.label}
+            </div>
+            {weekState?.hasGaps && (
+              <span style={{ fontSize: 11, color: "#d32f2f" }}>Незакрытые смены</span>
+            )}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={() => goWeek(-1)} style={{ ...navBtnStyle, padding: "4px 10px", fontSize: 14, background: "#F9F6F1", border: "1px solid #DDD5C4" }} title="Предыдущая неделя">{"\u2190"}</button>
+            <div style={{ textAlign: "center", minWidth: 140 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#2A1F0E" }}>{fmtWeekRange(weekStart)}</div>
+              <div style={{ fontSize: 11, color: "#9A8E7E" }}>
+                {weekStart}
+                {(schedule?.slots?.some((s: Slot) => s.user_id) || (events && events.length > 0)) ? (
+                  <span style={{ color: "#6B8E4E", marginLeft: 4 }}>+</span>
+                ) : (
+                  <span style={{ color: "#DDD5C4", marginLeft: 4 }}>{"\u2014"}</span>
+                )}
+              </div>
+            </div>
+            <button onClick={() => goWeek(1)} style={{ ...navBtnStyle, padding: "4px 10px", fontSize: 14, background: "#F9F6F1", border: "1px solid #DDD5C4" }} title="Следующая неделя">{"\u2192"}</button>
+            {weekStart !== getMonday() && (
+              <button onClick={goToday} style={{ ...navBtnStyle, fontSize: 11, padding: "3px 8px", background: "#F9F6F1", border: "1px solid #DDD5C4" }} title="Текущая неделя">Сегодня</button>
+            )}
+          </div>
+        </div>
+
+        {error && (
+          <div style={{ padding: "8px 16px", background: "#ffebee", color: "#c62828", fontSize: 13 }}>
+            {error}
+          </div>
+        )}
+
+        {/* Content area */}
+        <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+
+          {/* ===== SCHEDULE SECTION ===== */}
+          {activeSection === "schedule" && (
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              {/* Sub-tabs: График / Сотрудники */}
+              <div style={{ padding: "0 16px", background: "#FFFFFF", borderBottom: "1px solid #EDE8DE" }}>
+                <div style={{ display: "flex", gap: 0 }}>
+                  {([
+                    { id: "grid" as const, label: "График" },
+                    { id: "staff" as const, label: "Сотрудники" },
+                  ]).map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => setScheduleTab(t.id)}
+                      style={{
+                        padding: "8px 20px",
+                        background: "none",
+                        border: "none",
+                        borderBottom: scheduleTab === t.id ? "2px solid #5C3D1E" : "2px solid transparent",
+                        color: scheduleTab === t.id ? "#5C3D1E" : "#9A8E7E",
+                        fontWeight: scheduleTab === t.id ? 600 : 400,
+                        fontSize: 14,
+                        cursor: "pointer",
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {scheduleTab === "grid" ? (
+                <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+                  {/* Schedule grid area */}
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                    {/* Control buttons */}
+                    <div style={{ padding: "12px 16px", background: "#FFFFFF", borderBottom: "1px solid #EDE8DE" }}>
+                      <ControlButtons weekState={weekState} weekStart={weekStart} chatId={chatId} userId={userId} onAction={reload} onToast={showToast} />
+                    </div>
+
+                    {/* Schedule + Chat split */}
+                    <div className="dp-grid" style={{
+                      flex: 1,
+                      display: "grid",
+                      gridTemplateColumns: `${colSplit}% 4px 1fr`,
+                      overflow: "hidden",
+                    }}>
+                      {/* Live schedule */}
+                      <div style={{ overflowY: "auto", background: "#FFFFFF", padding: "8px" }}>
+                        <div style={{
+                          padding: "4px 8px",
+                          fontWeight: 600,
+                          fontSize: 13,
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          color: "#2A1F0E",
+                          marginBottom: 8,
+                        }}>
+                          <span>Живой график</span>
+                          <button onClick={reload} style={{
+                            padding: "1px 6px", fontSize: 10, background: "#F9F6F1",
+                            border: "1px solid #DDD5C4", borderRadius: 3, cursor: "pointer", color: "#5C3D1E",
+                          }}>Обновить</button>
+                        </div>
+                        <LiveScheduleGrid schedule={schedule} employees={employees} />
+                      </div>
+
+                      {/* Resize handle */}
+                      <div
+                        onMouseDown={startDrag}
+                        style={{
+                          background: draggingRef.current ? "#5C3D1E" : "#DDD5C4",
+                          cursor: "col-resize",
+                          transition: "background 0.15s",
+                        }}
+                        onMouseEnter={(e) => { (e.target as HTMLElement).style.background = "#9A8E7E"; }}
+                        onMouseLeave={(e) => { if (!draggingRef.current) (e.target as HTMLElement).style.background = "#DDD5C4"; }}
+                      />
+
+                      {/* Chat */}
+                      <div style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        overflow: "hidden",
+                        background: "#FFFFFF",
+                      }}>
+                        <div style={{
+                          padding: "4px 8px",
+                          borderBottom: "1px solid #EDE8DE",
+                          fontWeight: 600,
+                          fontSize: 13,
+                          color: "#2A1F0E",
+                        }}>
+                          Чат сотрудников
+                        </div>
+                        <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                          <StaffChat events={events} employees={employees} chatId={chatId} onSend={reload} onToast={showToast} />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Debug toolbar (only in debug mode) */}
+                    {debugMode && (
+                      <div style={{ padding: "8px 16px", background: "#FFFFFF", borderTop: "1px solid #EDE8DE" }}>
+                        <DebugToolbar weekStart={weekStart} chatId={chatId} onAction={reload} onToast={showToast} />
+                      </div>
+                    )}
+                  </div>
+                </div>
               ) : (
-                <span style={{ color: "#ccc", marginLeft: 4 }}>{"\u2014"}</span>
+                /* Сотрудники (availability) tab */
+                <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+                  <div style={{ background: "#FFFFFF", borderRadius: 8, border: "1px solid #DDD5C4", overflow: "hidden" }}>
+                    <div style={{ padding: "10px 16px", borderBottom: "1px solid #EDE8DE", fontWeight: 600, fontSize: 14, color: "#2A1F0E" }}>
+                      Доступность сотрудников
+                    </div>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ background: "#F9F6F1" }}>
+                            <th style={{ ...thStyle, borderBottomColor: "#DDD5C4", color: "#2A1F0E" }}>Сотрудник</th>
+                            <th style={{ ...thStyle, borderBottomColor: "#DDD5C4", color: "#2A1F0E" }}>Слот</th>
+                            {["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((d) => (
+                              <th key={d} style={{ ...thStyle, borderBottomColor: "#DDD5C4", textAlign: "center", color: "#2A1F0E" }}>{d}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {employees
+                            .filter((e) => e.auto_schedule !== false && e.role !== "admin" && e.role !== "owner" && e.role !== "director")
+                            .map((emp) => (
+                              <React.Fragment key={emp.id}>
+                                {["Утро", "Вечер"].map((slot) => (
+                                  <tr key={`${emp.id}-${slot}`} style={{ borderBottom: slot === "Вечер" ? "1px solid #EDE8DE" : "none" }}>
+                                    {slot === "Утро" && (
+                                      <td rowSpan={2} style={{ ...tdStyle, fontWeight: 500, color: "#2A1F0E", borderRight: "1px solid #EDE8DE", verticalAlign: "middle" }}>
+                                        {emp.name}
+                                      </td>
+                                    )}
+                                    <td style={{ ...tdStyle, fontSize: 11, color: "#9A8E7E" }}>{slot}</td>
+                                    {DOW_ORDER.map((dow) => {
+                                      const s = schedule?.slots?.find((sl) => sl.dow === dow && sl.slot_name === slot);
+                                      const available = s?.user_id === emp.id || (s as any)?.available_user_ids?.includes(emp.id);
+                                      return (
+                                        <td key={dow} style={{
+                                          ...tdStyle,
+                                          textAlign: "center",
+                                          background: available ? "#E8F5E9" : "#F9F6F1",
+                                          color: available ? "#2E7D32" : "#B5AA99",
+                                          fontWeight: available ? 600 : 400,
+                                        }}>
+                                          {available ? "\u2713" : "\u2014"}
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                ))}
+                              </React.Fragment>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
-          </div>
-          <button onClick={() => goWeek(1)} style={{ ...navBtnStyle, padding: "4px 10px", fontSize: 14 }} title="Следующая неделя">{"\u2192"}</button>
-          {weekStart !== getMonday() && (
-            <button onClick={goToday} style={{ ...navBtnStyle, fontSize: 11, padding: "3px 8px" }} title="Текущая неделя">Сегодня</button>
           )}
-        </div>
-      </div>
 
-      {/* Mobile toggle */}
-      <div className="dp-mobile-toggle" style={{ display: "none", gap: 0, borderBottom: "1px solid #dee2e6" }}>
-        <button
-          onClick={() => setMobileView("left")}
-          style={{ flex: 1, padding: "8px", border: "none", cursor: "pointer", fontSize: 13, fontWeight: mobileView === "left" ? 700 : 400, background: mobileView === "left" ? "#007bff" : "#f8f9fa", color: mobileView === "left" ? "#fff" : "#333" }}
-        >Управление</button>
-        <button
-          onClick={() => setMobileView("right")}
-          style={{ flex: 1, padding: "8px", border: "none", cursor: "pointer", fontSize: 13, fontWeight: mobileView === "right" ? 700 : 400, background: mobileView === "right" ? "#007bff" : "#f8f9fa", color: mobileView === "right" ? "#fff" : "#333" }}
-        >График + Чат</button>
-      </div>
-
-      {error && (
-        <div style={{ padding: "8px 16px", background: "#ffebee", color: "#c62828", fontSize: 13 }}>
-          {error}
-        </div>
-      )}
-
-      {/* Two-column grid */}
-      <div className="dp-grid" style={{
-        display: "grid", gridTemplateColumns: `${colSplit}% 4px 1fr`,
-        height: "calc(100vh - 60px)", overflow: "hidden",
-      }}>
-        {/* ===== LEFT COLUMN: controls + tabs ===== */}
-        <div
-          className={`dp-col-left ${mobileView === "right" ? "dp-mobile-hide" : ""}`}
-          style={{
-            overflowY: "auto",
-            padding: "8px 10px", background: "#fff",
-          }}
-        >
-          {/* Control buttons */}
-          <div style={{ marginBottom: 12 }}>
-            <ControlButtons weekState={weekState} weekStart={weekStart} chatId={chatId} userId={userId} onAction={reload} onToast={showToast} />
-          </div>
-
-          {/* Workflow guide */}
-          <WorkflowGuide />
-
-          {/* Section tabs */}
-          <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
-            {(["payroll", "settings"] as const).map((sec) => {
-              const labels = { payroll: "Зарплаты", settings: "Настройки" };
-              return (
-                <button key={sec} className="dp-tab" onClick={() => setActiveSection(sec)} style={sectionBtnStyle(activeSection === sec)}>
-                  {labels[sec]}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Active section content */}
-          <div style={{ background: "#fff", border: "1px solid #dee2e6", borderRadius: 6, marginBottom: 8 }}>
-            {activeSection === "payroll" && (
-              <div>
-                <div style={{ padding: "6px 10px", borderBottom: "1px solid #eee", fontWeight: 600, fontSize: 13 }}>
-                  Зарплаты {timesheet?.week_start && `\u2014 ${timesheet.week_start}`}
+          {/* ===== TIMESHEET SECTION ===== */}
+          {activeSection === "timesheet" && (
+            <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+              <div style={{ background: "#FFFFFF", borderRadius: 8, border: "1px solid #DDD5C4", overflow: "hidden" }}>
+                <div style={{
+                  padding: "10px 16px",
+                  borderBottom: "1px solid #EDE8DE",
+                  fontWeight: 600,
+                  fontSize: 14,
+                  color: "#2A1F0E",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}>
+                  <span>Табель за неделю: {fmtWeekRange(weekStart)}</span>
+                  {timesheet && (
+                    <span style={{ fontSize: 13, color: "#9A8E7E", fontWeight: 400 }}>
+                      Итого: {timesheet.totals.total_hours} ч, {fmtRub(timesheet.totals.total_pay)}
+                    </span>
+                  )}
                 </div>
-                <PayrollTable timesheet={timesheet} employees={employees} />
+                <div style={{ padding: 0 }}>
+                  <PayrollTable timesheet={timesheet} employees={employees} />
+                </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {activeSection === "settings" && (
-              <div style={{ padding: 8 }}>
+          {/* ===== PAYMENTS SECTION ===== */}
+          {activeSection === "payments" && (
+            <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+              <div style={{ background: "#FFFFFF", borderRadius: 8, border: "1px solid #DDD5C4", padding: 24 }}>
+                <div style={{ fontWeight: 600, fontSize: 14, color: "#2A1F0E", marginBottom: 16 }}>Оплаты</div>
+                <div style={{ color: "#9A8E7E", fontSize: 13 }}>
+                  Раздел оплат — в разработке
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ===== SETTINGS SECTION ===== */}
+          {activeSection === "settings" && (
+            <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+              <div style={{ background: "#FFFFFF", borderRadius: 8, border: "1px solid #DDD5C4", padding: 16, overflow: "hidden" }}>
                 <SettingsPanel
                   settings={settings}
                   employees={employees}
@@ -1538,68 +1901,20 @@ export const DirectorPanel: React.FC = () => {
                   onEditEmployee={handleEditEmployee}
                 />
               </div>
-            )}
-          </div>
-
-          {/* Debug toolbar at bottom */}
-          <DebugToolbar weekStart={weekStart} chatId={chatId} onAction={reload} onToast={showToast} />
-        </div>
-
-        {/* Column resize handle */}
-        <div
-          onMouseDown={startDrag}
-          className={mobileView === "right" || mobileView === "left" ? "" : ""}
-          style={{
-            background: draggingRef.current ? "#007bff" : "#dee2e6",
-            cursor: "col-resize",
-            transition: "background 0.15s",
-          }}
-          onMouseEnter={(e) => { (e.target as HTMLElement).style.background = "#adb5bd"; }}
-          onMouseLeave={(e) => { if (!draggingRef.current) (e.target as HTMLElement).style.background = "#dee2e6"; }}
-        />
-
-        {/* ===== RIGHT COLUMN: live schedule + chat ===== */}
-        <div
-          className={`dp-col-right ${mobileView === "left" ? "dp-mobile-hide" : ""}`}
-          style={{
-            display: "flex", flexDirection: "column", height: "100%",
-            overflow: "hidden", background: "#f8f9fa",
-          }}
-        >
-          {/* Live schedule grid (top half) */}
-          <div style={{
-            flex: "0 0 auto", maxHeight: "45%", overflowY: "auto",
-            background: "#fff", borderBottom: "1px solid #dee2e6",
-          }}>
-            <div style={{
-              padding: "4px 8px", borderBottom: "1px solid #eee", fontWeight: 600, fontSize: 13,
-              display: "flex", justifyContent: "space-between", alignItems: "center",
-              background: "#fff", position: "sticky", top: 0, zIndex: 1,
-            }}>
-              <span>Живой график</span>
-              <button onClick={reload} style={{
-                padding: "1px 6px", fontSize: 10, background: "#e9ecef",
-                border: "1px solid #ced4da", borderRadius: 3, cursor: "pointer",
-              }}>Обновить</button>
             </div>
-            <LiveScheduleGrid schedule={schedule} employees={employees} />
-          </div>
+          )}
 
-          {/* Chat (bottom half, fills remaining space) */}
-          <div style={{
-            flex: 1, display: "flex", flexDirection: "column",
-            overflow: "hidden", background: "#fff",
-          }}>
-            <div style={{
-              padding: "4px 8px", borderBottom: "1px solid #eee", fontWeight: 600, fontSize: 13,
-              background: "#fff",
-            }}>
-              Чат сотрудников
+          {/* ===== PARAPLAN SECTION ===== */}
+          {activeSection === "paraplan" && (
+            <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+              <div style={{ background: "#FFFFFF", borderRadius: 8, border: "1px solid #DDD5C4", padding: 24 }}>
+                <div style={{ fontWeight: 600, fontSize: 14, color: "#2A1F0E", marginBottom: 16 }}>Параплан</div>
+                <div style={{ color: "#9A8E7E", fontSize: 13 }}>
+                  Раздел Параплан — в разработке. Подключите данные из Paraplan API.
+                </div>
+              </div>
             </div>
-            <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-              <StaffChat events={events} employees={employees} chatId={chatId} onSend={reload} onToast={showToast} />
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -1619,7 +1934,7 @@ export const DirectorPanel: React.FC = () => {
       {toast && (
         <div style={{
           position: "fixed", top: 20, right: 20, padding: "10px 20px",
-          background: toast.type === "ok" ? "#28a745" : "#dc3545",
+          background: toast.type === "ok" ? "#6B8E4E" : "#C75050",
           color: "#fff", borderRadius: 8, fontSize: 14, fontWeight: 500,
           boxShadow: "0 4px 12px rgba(0,0,0,0.2)", zIndex: 2000,
           animation: "fadeIn 0.2s ease",

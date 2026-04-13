@@ -36,26 +36,26 @@ function SlotCell({
   const effectivelyLocked = isLocked && !canEditLocked;
   const isToday = schedule.today_dow === dow;
   const bgColor = isLocked
-    ? "#f0f0f0"
+    ? "#F0EDE6"
     : slot?.status === "NEEDS_REPLACEMENT"
-      ? "#fff3cd"
+      ? "#FFF8E0"
       : slot?.replaced_user_id
-        ? "#d0e8ff"
+        ? "#F0F4FF"
         : slot?.status === "CONFIRMED"
-          ? "#d4edda"
+          ? "#FFFFF0"
           : slot?.status === "PENDING"
-            ? "#fff3cd"
-            : "#f8d7da";
+            ? "#FFF8E0"
+            : "#FFF0F0";
   const borderColor =
     slot?.status === "NEEDS_REPLACEMENT"
-      ? "#ff9800"
+      ? "#E8C840"
       : slot?.replaced_user_id
-        ? "#4a90d9"
+        ? "#A0B8D8"
         : slot?.status === "CONFIRMED"
-          ? "#28a745"
+          ? "#E8C840"
           : slot?.status === "PENDING"
-            ? "#ffc107"
-            : "#dc3545";
+            ? "#E8C840"
+            : "#D4A0A0";
 
   const cleaningUser = slot?.cleaning_user_id;
   const isEvening = slotName === "Вечер";
@@ -71,58 +71,52 @@ function SlotCell({
       style={{
         padding: "6px",
         backgroundColor: bgColor,
-        border: `2px solid ${borderColor}`,
-        borderRadius: "4px",
+        border: `1.5px solid ${borderColor}`,
+        borderRadius: "8px",
         minHeight: "50px",
         display: "flex",
         flexDirection: "column",
         justifyContent: "center",
         cursor: effectivelyLocked ? "default" : "pointer",
+        position: "relative",
         ...(effectivelyLocked ? { opacity: 0.6 } : isLocked ? { opacity: 0.85 } : {}),
-        ...(isToday ? { borderLeft: "3px solid #007bff" } : {}),
+        ...(isToday ? { borderLeft: "3px solid #5C3D1E" } : {}),
       }}
     >
       {slot?.user_id ? (
         <>
-          <div style={{ fontWeight: "bold", marginBottom: "4px" }}>
+          <div style={{ fontSize: "12px", fontWeight: 500, color: "#2A1F0E", marginBottom: "2px" }}>
             {slot.status === "NEEDS_REPLACEMENT"
-              ? `${UserDirectory.getDisplayName(slot.user_id)} ⚠️`
+              ? `${UserDirectory.getDisplayName(slot.user_id)} \u26A0\uFE0F`
               : slot.replaced_user_id
-                ? `${UserDirectory.getDisplayName(slot.user_id)} 🔄`
+                ? `${UserDirectory.getDisplayName(slot.user_id)} \uD83D\uDD04`
                 : UserDirectory.getDisplayName(slot.user_id)}
           </div>
-          <div style={{ fontSize: "0.75em", color: "#666" }}>
+          <div style={{ fontSize: "10px", color: "#9A8E7E", marginTop: "2px" }}>
             {slot.status === "NEEDS_REPLACEMENT"
               ? "ищем замену"
               : slot.replaced_user_id
                 ? `(за ${UserDirectory.getDisplayName(slot.replaced_user_id)})`
-                : slot.hours != null ? `${slot.hours.toFixed(1)} ч` : "—"}
-            {slot.is_problem && slot.status !== "NEEDS_REPLACEMENT" && " ⚠️"}
+                : slot.hours != null ? `${slot.hours.toFixed(1)} ч` : "\u2014"}
+            {slot.is_problem && slot.status !== "NEEDS_REPLACEMENT" && " \u26A0\uFE0F"}
           </div>
           {slot.skill_mismatch && (
-            <div style={{ fontSize: "0.7em", color: "#e65100" }} title={`Требуется: ${slot.skill_mismatch.required}, у сотрудника: ${slot.skill_mismatch.actual}`}>
+            <div style={{ fontSize: "0.7em", color: "#C75050" }} title={`Требуется: ${slot.skill_mismatch.required}, у сотрудника: ${slot.skill_mismatch.actual}`}>
               {"\u26A0"} квалиф.
             </div>
           )}
           {isEvening && slot.cleaning_status && slot.cleaning_status !== "NOT_SCHEDULED" && (
-            <div style={{
-              fontSize: "0.8em",
-              marginTop: "2px",
-              padding: "1px 4px",
-              borderRadius: "3px",
-              color: slot.cleaning_status === "NEEDS_REPLACEMENT" ? "#856404" : slot.cleaning_status === "REPLACED" ? "#004085" : slot.cleaning_scheduled === false ? "#e65100" : "#8B4513",
-              backgroundColor: slot.cleaning_status === "NEEDS_REPLACEMENT" ? "#fff3cd" : slot.cleaning_status === "REPLACED" ? "#d0e8ff" : "transparent",
-              ...(slot.cleaning_scheduled === false ? { border: "1px solid #ff9800", borderRadius: "3px" } : {}),
-            }}
-              title={slot.cleaning_scheduled === false ? "Нештатная уборка" : undefined}
+            <div
+              style={{
+                position: "absolute",
+                bottom: 5,
+                right: 6,
+              }}
+              title={cleaningUser ? `Уборка: ${UserDirectory.getDisplayName(cleaningUser)}` : "Уборка"}
             >
-              {slot.cleaning_status === "NEEDS_REPLACEMENT"
-                ? `🧹 ${UserDirectory.getDisplayName(cleaningUser)} ⚠️`
-                : slot.cleaning_status === "REPLACED"
-                  ? `🧹 ${UserDirectory.getDisplayName(cleaningUser)} 🔄${slot.cleaning_original_user_id ? ` (за ${UserDirectory.getDisplayName(slot.cleaning_original_user_id)})` : ""}`
-                  : cleaningUser && slot.cleaning_is_replacement
-                    ? `🧹→${UserDirectory.getDisplayName(cleaningUser)}`
-                    : "🧹"}
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M7 1v8M4 6l3 3 3-3M3 11h8" stroke={slot.cleaning_status === "NEEDS_REPLACEMENT" ? "#E8C840" : "#9A8E7E"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
             </div>
           )}
           {(() => {
@@ -134,7 +128,7 @@ function SlotCell({
           })()}
         </>
       ) : (
-        <div style={{ color: "#dc3545", fontWeight: "bold", fontSize: "0.85em" }}>&#9888;&#65039; Не назначен</div>
+        <div style={{ color: "#C75050", fontWeight: 500, fontSize: "11px" }}>{"\u26A0\uFE0F"} Не назначен</div>
       )}
     </div>
   );
@@ -156,12 +150,12 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
 
   return (
     <div style={{ marginBottom: "16px" }}>
-      <div style={{ fontSize: "0.85em", marginBottom: "8px", fontWeight: "bold" }}>
-        Живой график: <InfoTip text="Таблица смен на неделю. Зелёный=назначен, голубой=замена, розовый=проблема" />
+      <div style={{ fontSize: "0.85em", marginBottom: "8px", fontWeight: 600, color: "#2A1F0E" }}>
+        Живой график: <InfoTip text="Таблица смен на неделю. Жёлтая рамка=назначен, голубая=замена, красная=проблема" />
       </div>
       {emptyCount > 0 && (
-        <div style={{ padding: "6px 10px", marginBottom: 8, borderRadius: 4, fontSize: "0.8em", fontWeight: "bold", background: "#f8d7da", color: "#721c24", border: "1px solid #f5c6cb" }}>
-          &#9888;&#65039; Есть {emptyCount} незакрытых смен
+        <div style={{ padding: "6px 10px", marginBottom: 8, borderRadius: 6, fontSize: "0.8em", fontWeight: 500, background: "#FFF0F0", color: "#C75050", border: "1px solid #D4A0A0" }}>
+          {"\u26A0\uFE0F"} Есть {emptyCount} незакрытых смен
         </div>
       )}
       <div
@@ -173,7 +167,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
         }}
       >
         {/* Header row */}
-        <div style={{ fontWeight: "bold", padding: "4px" }}>Слот</div>
+        <div style={{ fontWeight: 600, padding: "4px", color: "#2A1F0E" }}>Слот</div>
         {DAYS.map((dowKey, i) => {
           const isToday = schedule.today_dow === dowKey;
           const dayDate = (() => {
@@ -185,16 +179,16 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
           })();
           return (
             <div key={i} style={{
-              fontWeight: "bold", padding: "4px", textAlign: "center",
-              ...(isToday ? { borderLeft: "3px solid #007bff", background: "#e7f3ff", color: "#1976d2" } : {}),
+              fontWeight: 600, padding: "4px", textAlign: "center", color: "#2A1F0E",
+              ...(isToday ? { borderLeft: "3px solid #5C3D1E", background: "#F0E8DC", color: "#5C3D1E" } : {}),
             }}>
-              <div>{DAY_LABELS[i]}<br /><small style={{ fontSize: "0.75em" }}>{dayDate}</small></div>
+              <div>{DAY_LABELS[i]}<br /><small style={{ fontSize: "0.75em", color: "#9A8E7E" }}>{dayDate}</small></div>
             </div>
           );
         })}
 
         {/* Morning slots */}
-        <div style={{ padding: "4px", fontWeight: "bold" }}>Утро</div>
+        <div style={{ padding: "4px", fontWeight: 600, color: "#2A1F0E" }}>Утро</div>
         {DAYS.map((dow) => (
           <SlotCell
             key={`${dow}-morning`}
@@ -210,7 +204,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
         ))}
 
         {/* Evening slots */}
-        <div style={{ padding: "4px", fontWeight: "bold" }}>Вечер</div>
+        <div style={{ padding: "4px", fontWeight: 600, color: "#2A1F0E" }}>Вечер</div>
         {DAYS.map((dow) => (
           <SlotCell
             key={`${dow}-evening`}

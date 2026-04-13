@@ -2963,31 +2963,54 @@ export const App: React.FC = () => {
             return (
             <>
               <div onClick={() => setSlotModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 1500 }} />
-              <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: "#fff", borderRadius: 8, padding: 16, minWidth: 320, maxWidth: 400, zIndex: 1501, boxShadow: "0 4px 16px rgba(0,0,0,0.2)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                  <strong>{slotModal.dayLabel} — {slotModal.slotLabel} ({shortFrom}–{shortTo})</strong>
-                  <button onClick={() => setSlotModal(null)} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer" }}>{"\u00D7"}</button>
+              <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: "#FFFFFF", borderRadius: 10, padding: 20, minWidth: 340, maxWidth: 420, zIndex: 1501, boxShadow: "0 4px 20px rgba(0,0,0,0.15)", border: "1px solid #DDD5C4" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <strong style={{ fontSize: 16, color: "#2A1F0E" }}>{slotModal.dayLabel} — {slotModal.slotLabel}</strong>
+                  <button onClick={() => setSlotModal(null)} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#9A8E7E" }}>{"\u00D7"}</button>
                 </div>
 
                 {slotModal.isLocked && (
-                  <div style={{ marginBottom: 12, padding: "6px 10px", background: "#fff3cd", border: "1px solid #ffc107", borderRadius: 4, fontSize: 12, color: "#856404" }}>
+                  <div style={{ marginBottom: 12, padding: "6px 10px", background: "#FFF8E0", border: "1px solid #E8C840", borderRadius: 6, fontSize: 12, color: "#8B7A2E" }}>
                     {"\u26A0\uFE0F"} Этот день уже прошёл. Изменения будут применены задним числом.
                   </div>
                 )}
 
-                <div style={{ marginBottom: 12, fontSize: 13 }}>
-                  <span style={{ color: "#666" }}>Текущий: </span>
-                  <strong>{slotModal.currentUserId ? UserDirectory.getDisplayName(slotModal.currentUserId) : "Не назначен"}</strong>
-                </div>
+                {/* Duration — large */}
+                {(() => {
+                  const fromH = parseInt(shortFrom);
+                  const toH = parseInt(shortTo);
+                  const hours = toH > fromH ? toH - fromH : 0;
+                  const slotObj = (schedule as any)?.slots?.find((s: any) => s.dow === slotModal.dow && s.slot_name === slotModal.slotLabel);
+                  const hasCleaning = slotObj?.cleaning_status && slotObj.cleaning_status !== "NOT_SCHEDULED";
+                  return (
+                    <div style={{ marginBottom: 16, display: "flex", alignItems: "baseline", gap: 12 }}>
+                      <div>
+                        <span style={{ color: "#9A8E7E", fontSize: 13 }}>Длительность:</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                        <span style={{ fontSize: 32, fontWeight: 600, color: "#2A1F0E", lineHeight: 1 }}>{hours} ч</span>
+                        <span style={{ fontSize: 14, color: "#9A8E7E" }}>{shortFrom} — {shortTo}</span>
+                        {hasCleaning && (
+                          <span style={{ padding: "2px 6px", background: "#F9F6F1", border: "1px solid #DDD5C4", borderRadius: 4, fontSize: 11, color: "#9A8E7E" }}>
+                            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" style={{ verticalAlign: "middle", marginRight: 2 }}>
+                              <path d="M7 1v8M4 6l3 3 3-3M3 11h8" stroke="#9A8E7E" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                            уборка
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div style={{ marginBottom: 8 }}>
-                  <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>Назначить:</label>
+                  <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4, color: "#2A1F0E" }}>Назначить:</label>
                   <select
                     value={slotModalSelectedUser}
                     onChange={(e) => setSlotModalSelectedUser(e.target.value)}
-                    style={{ width: "100%", padding: "6px 8px", fontSize: 13, borderRadius: 4, border: "1px solid #ccc" }}
+                    style={{ width: "100%", padding: "8px 10px", fontSize: 13, borderRadius: 6, border: "1px solid #DDD5C4", color: "#2A1F0E", background: "#FFFFFF" }}
                   >
-                    <option value="">— Не назначен —</option>
+                    <option value="">{"\u2014"} Не назначен {"\u2014"}</option>
                     {schedulableUsers.map((u) => {
                       const isAvail = availSet.has(u.id);
                       return (
@@ -3000,14 +3023,14 @@ export const App: React.FC = () => {
                 </div>
 
                 {/* Availability summary */}
-                <div style={{ fontSize: 12, color: "#666", marginBottom: 12, lineHeight: 1.5 }}>
+                <div style={{ fontSize: 12, marginBottom: 16, lineHeight: 1.6 }}>
                   {(() => {
                     const avail = schedulableUsers.filter(u => availSet.has(u.id));
                     const unavail = schedulableUsers.filter(u => !availSet.has(u.id));
                     return (
                       <>
-                        {avail.length > 0 && <div>Доступны: {avail.map(u => u.displayName).join(", ")}</div>}
-                        {unavail.length > 0 && <div style={{ color: "#999" }}>Не заявлены: {unavail.map(u => u.displayName).join(", ")}</div>}
+                        {avail.length > 0 && <div style={{ color: "#4E8B3A" }}>Доступны: {avail.map(u => u.displayName).join(", ")}</div>}
+                        {unavail.length > 0 && <div style={{ color: "#B5AA99" }}>Не заявлены: {unavail.map(u => u.displayName).join(", ")}</div>}
                       </>
                     );
                   })()}
@@ -3029,12 +3052,12 @@ export const App: React.FC = () => {
                         setSlotModal(null);
                         await refreshSchedule();
                       }}
-                      style={{ padding: "6px 12px", background: "#dc3545", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 13 }}
+                      style={{ padding: "6px 12px", background: "#C75050", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 13 }}
                     >
                       Убрать
                     </button>
                   )}
-                  <button onClick={() => setSlotModal(null)} style={{ padding: "6px 12px", cursor: "pointer", fontSize: 13, border: "1px solid #ccc", borderRadius: 4 }}>Отмена</button>
+                  <button onClick={() => setSlotModal(null)} style={{ padding: "6px 12px", cursor: "pointer", fontSize: 13, border: "1px solid #DDD5C4", borderRadius: 6, color: "#2A1F0E" }}>Отмена</button>
                   <button
                     disabled={slotModalSelectedUser === (slotModal.currentUserId || "")}
                     onClick={async () => {
@@ -3060,7 +3083,7 @@ export const App: React.FC = () => {
                       await refreshSchedule();
                     }}
                     style={{
-                      padding: "6px 12px", background: "#007bff", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 13,
+                      padding: "6px 12px", background: "#5C3D1E", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 13,
                       ...(slotModalSelectedUser === (slotModal.currentUserId || "") ? { opacity: 0.5, cursor: "default" } : {}),
                     }}
                   >
@@ -3070,7 +3093,7 @@ export const App: React.FC = () => {
 
                 {/* Link to extra pay modal if user assigned */}
                 {slotModal.currentUserId && (
-                  <div style={{ marginTop: 12, paddingTop: 8, borderTop: "1px solid #eee" }}>
+                  <div style={{ marginTop: 12, paddingTop: 8, borderTop: "1px solid #EDE8DE" }}>
                     <button
                       onClick={() => {
                         const uid = slotModal.currentUserId!;
@@ -3079,7 +3102,7 @@ export const App: React.FC = () => {
                         setSlotModal(null);
                         openExtraPayModal({ user_id: uid, name, dow: slotModal.dow, slot: slotLabel });
                       }}
-                      style={{ width: "100%", padding: "4px 8px", cursor: "pointer", background: "#f8f9fa", border: "1px solid #dee2e6", borderRadius: 4, fontSize: 12, color: "#495057" }}
+                      style={{ width: "100%", padding: "4px 8px", cursor: "pointer", background: "#F9F6F1", border: "1px solid #DDD5C4", borderRadius: 6, fontSize: 12, color: "#5C3D1E" }}
                     >
                       Допработы для {UserDirectory.getDisplayName(slotModal.currentUserId)}...
                     </button>
